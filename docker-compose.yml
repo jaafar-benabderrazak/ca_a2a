@@ -1,0 +1,101 @@
+# Docker Compose configuration for the multi-agent pipeline
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: pipeline_postgres
+    environment:
+      POSTGRES_DB: documents_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Orchestrator Agent
+  orchestrator:
+    build: .
+    container_name: orchestrator_agent
+    command: python orchestrator_agent.py
+    ports:
+      - "8001:8001"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: documents_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      ORCHESTRATOR_HOST: 0.0.0.0
+      EXTRACTOR_HOST: extractor
+      VALIDATOR_HOST: validator
+      ARCHIVIST_HOST: archivist
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # Extractor Agent
+  extractor:
+    build: .
+    container_name: extractor_agent
+    command: python extractor_agent.py
+    ports:
+      - "8002:8002"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: documents_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      EXTRACTOR_HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  # Validator Agent
+  validator:
+    build: .
+    container_name: validator_agent
+    command: python validator_agent.py
+    ports:
+      - "8003:8003"
+    environment:
+      VALIDATOR_HOST: 0.0.0.0
+    restart: unless-stopped
+
+  # Archivist Agent
+  archivist:
+    build: .
+    container_name: archivist_agent
+    command: python archivist_agent.py
+    ports:
+      - "8004:8004"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: documents_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      ARCHIVIST_HOST: 0.0.0.0
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
