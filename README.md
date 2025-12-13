@@ -44,6 +44,15 @@ Le système est composé de **quatre agents spécialisés** qui collaborent de m
 - Context managers pour ressources
 - Opérations asynchrones
 
+### Agent Cards & Skills (Nouveau ✨)
+- Auto-description des agents avec leurs capacités
+- Découverte dynamique des compétences
+- Schémas JSON pour validation d'entrée/sortie
+- Métriques de performance par compétence
+- **Endpoints**: `/card`, `/skills`
+
+Voir [AGENT_CARDS_IMPLEMENTATION.md](AGENT_CARDS_IMPLEMENTATION.md) pour plus de détails.
+
 ## 📦 Installation
 
 ### Prérequis
@@ -139,7 +148,52 @@ python client.py health
 python client.py info
 ```
 
+### Découvrir les capacités des agents (Nouveau ✨)
+
+```bash
+# Découvrir tous les agents et leurs compétences
+python discover_agents.py
+
+# Obtenir la carte d'un agent spécifique
+curl http://localhost:8002/card | jq
+
+# Obtenir uniquement les compétences
+curl http://localhost:8002/skills | jq
+
+# Demander au orchestrateur de découvrir les agents
+curl -X POST http://localhost:8001/message -H "Content-Type: application/json" -d '{
+  "jsonrpc": "2.0",
+  "id": "1",
+  "method": "discover_agents",
+  "params": {}
+}'
+```
+
 ## 📡 API Endpoints
+
+### Tous les agents
+
+#### GET /health
+Vérification de santé
+
+#### GET /status
+Statut et statistiques de l'agent
+
+#### GET /card (Nouveau ✨)
+Carte complète de l'agent avec toutes ses capacités
+```json
+{
+  "agent_id": "extractor-12345",
+  "name": "Extractor",
+  "version": "1.0.0",
+  "skills": [...],
+  "resources": {...},
+  "dependencies": {...}
+}
+```
+
+#### GET /skills (Nouveau ✨)
+Liste des compétences de l'agent
 
 ### Orchestrateur (http://localhost:8001)
 
@@ -162,12 +216,18 @@ Méthodes disponibles :
 - `process_batch` - Traiter un lot
 - `get_task_status` - Obtenir le statut
 - `list_pending_documents` - Lister les documents en attente
+- `discover_agents` - Découvrir les agents disponibles (Nouveau ✨)
+- `get_agent_registry` - Obtenir le registre des agents (Nouveau ✨)
 
 #### GET /health
 Vérification de santé
 
 #### GET /status
 Statut et statistiques de l'agent
+
+## 🚀 Déploiement sur AWS
+
+Le système est conçu pour un déploiement cloud-native sur AWS avec support complet des agent cards pour la découverte de services.
 
 ## 🗄️ Schéma de Base de Données
 
@@ -240,6 +300,7 @@ Le système applique plusieurs règles de validation :
 ca_a2a/
 ├── a2a_protocol.py          # Protocole A2A JSON-RPC 2.0
 ├── mcp_protocol.py          # Protocole MCP (S3 + PostgreSQL)
+├── agent_card.py            # Système de cartes d'agents (Nouveau ✨)
 ├── base_agent.py            # Classe de base pour agents
 ├── orchestrator_agent.py    # Agent orchestrateur
 ├── extractor_agent.py       # Agent extracteur
@@ -248,8 +309,11 @@ ca_a2a/
 ├── config.py                # Configuration
 ├── run_agents.py            # Script de lancement
 ├── client.py                # Client CLI
+├── discover_agents.py       # Script de découverte (Nouveau ✨)
 ├── requirements.txt         # Dépendances Python
-└── README.md               # Documentation
+├── README.md                # Documentation
+├── AWS_DEPLOYMENT.md        # Guide de déploiement AWS (Nouveau ✨)
+└── AGENT_CARDS_IMPLEMENTATION.md  # Documentation des cartes d'agents (Nouveau ✨)
 ```
 
 ### Tests
@@ -312,4 +376,3 @@ Pour toute question ou problème :
 - Ouvrir une issue sur GitHub
 - Consulter la documentation des protocoles
 - Vérifier les logs des agents
-
