@@ -16,6 +16,7 @@ from base_agent import BaseAgent
 from a2a_protocol import ErrorCodes
 from mcp_protocol import MCPContext
 from config import AGENTS_CONFIG
+from agent_card import AgentSkill, ResourceRequirements, AgentDependencies
 
 
 class ExtractorAgent(BaseAgent):
@@ -27,15 +28,148 @@ class ExtractorAgent(BaseAgent):
     
     def __init__(self):
         config = AGENTS_CONFIG['extractor']
-        super().__init__('Extractor', config['host'], config['port'])
+        super().__init__(
+            'Extractor',
+            config['host'],
+            config['port'],
+            version='1.0.0',
+            description='Extracts structured data from PDF and CSV documents stored in S3'
+        )
         
         self.mcp: MCPContext = None
         self.supported_formats = ['.pdf', '.csv']
+        
+        # Set resource requirements and dependencies
+        if self.agent_card:
+            self.agent_card.resources = ResourceRequirements(
+                memory_mb=1024,
+                cpu_cores=1.0,
+                storage_required=False,
+                network_required=True
+            )
+            self.agent_card.dependencies = AgentDependencies(
+                services=['s3'],
+                libraries=['PyPDF2', 'pdfplumber', 'pandas']
+            )
+            self.agent_card.tags = ['extraction', 'pdf', 'csv', 's3', 'document-processing']
     
     def _register_handlers(self):
         """Register message handlers"""
         self.protocol.register_handler('extract_document', self.handle_extract_document)
         self.protocol.register_handler('list_supported_formats', self.handle_list_supported_formats)
+    
+    def _define_skills(self):
+        """Define extractor agent skills"""
+        return [
+            AgentSkill(
+                skill_id='extract_document',
+                name='Document Extraction',
+                description='Extract structured data from PDF or CSV files stored in S3',
+                method='extract_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['s3_key'],
+                    'properties': {
+                        's3_key': {
+                            'type': 'string',
+                            'description': 'S3 key path to the document'
+                        }
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        's3_key': {'type': 'string'},
+                        'document_type': {'type': 'string', 'enum': ['pdf', 'csv']},
+                        'file_name': {'type': 'string'},
+                        'file_size': {'type': 'integer'},
+                        'extracted_data': {'type': 'object'},
+                        'metadata': {'type': 'object'},
+                        'extraction_status': {'type': 'string'}
+                    }
+                },
+                tags=['extraction', 'pdf', 'csv', 's3', 'core'],
+                avg_processing_time_ms=2500,
+                max_input_size_mb=50
+            ),
+            AgentSkill(
+                skill_id='pdf_text_extraction',
+                name='PDF Text Extraction',
+                description='Extract text content from PDF documents',
+                method='extract_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['s3_key'],
+                    'properties': {
+                        's3_key': {
+                            'type': 'string',
+                            'pattern': '.*\\.pdf$',
+                            'description': 'S3 key to PDF document'
+                        }
+                    }
+                },
+                tags=['pdf', 'text', 'extraction'],
+                avg_processing_time_ms=2000,
+                max_input_size_mb=50
+            ),
+            AgentSkill(
+                skill_id='pdf_table_extraction',
+                name='PDF Table Extraction',
+                description='Extract tables from PDF documents',
+                method='extract_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['s3_key'],
+                    'properties': {
+                        's3_key': {
+                            'type': 'string',
+                            'pattern': '.*\\.pdf$'
+                        }
+                    }
+                },
+                tags=['pdf', 'tables', 'extraction', 'structured-data'],
+                avg_processing_time_ms=3000,
+                max_input_size_mb=50
+            ),
+            AgentSkill(
+                skill_id='csv_parsing',
+                name='CSV Data Parsing',
+                description='Parse CSV files with type inference and statistics',
+                method='extract_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['s3_key'],
+                    'properties': {
+                        's3_key': {
+                            'type': 'string',
+                            'pattern': '.*\\.csv$'
+                        }
+                    }
+                },
+                tags=['csv', 'parsing', 'structured-data', 'statistics'],
+                avg_processing_time_ms=1500,
+                max_input_size_mb=100
+            ),
+            AgentSkill(
+                skill_id='list_supported_formats',
+                name='List Supported Document Formats',
+                description='Get list of all supported document formats and their capabilities',
+                method='list_supported_formats',
+                input_schema={'type': 'object'},
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'supported_formats': {
+                            'type': 'array',
+                            'items': {'type': 'string'}
+                        },
+                        'format_descriptions': {'type': 'object'}
+                    }
+                },
+                tags=['metadata', 'discovery', 'formats'],
+                avg_processing_time_ms=10
+            )
+        ]
     
     async def initialize(self):
         """Initialize MCP context"""

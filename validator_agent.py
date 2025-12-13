@@ -10,6 +10,7 @@ import re
 from base_agent import BaseAgent
 from a2a_protocol import ErrorCodes
 from config import AGENTS_CONFIG
+from agent_card import AgentSkill, ResourceRequirements, AgentDependencies
 
 
 class ValidationRule:
@@ -182,14 +183,165 @@ class ValidatorAgent(BaseAgent):
     
     def __init__(self):
         config = AGENTS_CONFIG['validator']
-        super().__init__('Validator', config['host'], config['port'])
+        super().__init__(
+            'Validator',
+            config['host'],
+            config['port'],
+            version='1.0.0',
+            description='Validates extracted document data and calculates quality scores using configurable rules'
+        )
         
         self.validation_rules = self._initialize_rules()
+        
+        # Set resource requirements and dependencies
+        if self.agent_card:
+            self.agent_card.resources = ResourceRequirements(
+                memory_mb=512,
+                cpu_cores=0.5,
+                storage_required=False,
+                network_required=False
+            )
+            self.agent_card.dependencies = AgentDependencies(
+                services=[],
+                libraries=['re']
+            )
+            self.agent_card.tags = ['validation', 'quality-control', 'data-validation', 'scoring']
     
     def _register_handlers(self):
         """Register message handlers"""
         self.protocol.register_handler('validate_document', self.handle_validate_document)
         self.protocol.register_handler('get_validation_rules', self.handle_get_validation_rules)
+    
+    def _define_skills(self):
+        """Define validator agent skills"""
+        return [
+            AgentSkill(
+                skill_id='validate_document',
+                name='Document Validation',
+                description='Validate extracted document data against quality rules and calculate conformity score',
+                method='validate_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['extracted_data'],
+                    'properties': {
+                        's3_key': {
+                            'type': 'string',
+                            'description': 'S3 key of the document (optional)'
+                        },
+                        'extracted_data': {
+                            'type': 'object',
+                            'description': 'Extracted data to validate'
+                        },
+                        'document_type': {
+                            'type': 'string',
+                            'enum': ['pdf', 'csv', 'generic'],
+                            'description': 'Type of document for rule selection'
+                        }
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        's3_key': {'type': 'string'},
+                        'document_type': {'type': 'string'},
+                        'score': {'type': 'number', 'minimum': 0, 'maximum': 100},
+                        'status': {
+                            'type': 'string',
+                            'enum': ['excellent', 'good', 'acceptable', 'poor', 'failed']
+                        },
+                        'all_rules_passed': {'type': 'boolean'},
+                        'validation_timestamp': {'type': 'string'},
+                        'details': {'type': 'object'}
+                    }
+                },
+                tags=['validation', 'quality', 'scoring', 'core'],
+                avg_processing_time_ms=500
+            ),
+            AgentSkill(
+                skill_id='data_completeness_check',
+                name='Data Completeness Check',
+                description='Verify that all required fields are present and non-empty',
+                method='validate_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['extracted_data'],
+                    'properties': {
+                        'extracted_data': {'type': 'object'}
+                    }
+                },
+                tags=['validation', 'completeness', 'data-quality'],
+                avg_processing_time_ms=100
+            ),
+            AgentSkill(
+                skill_id='data_format_validation',
+                name='Data Format Validation',
+                description='Validate data formats using regex patterns',
+                method='validate_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['extracted_data'],
+                    'properties': {
+                        'extracted_data': {'type': 'object'}
+                    }
+                },
+                tags=['validation', 'format', 'regex', 'data-quality'],
+                avg_processing_time_ms=150
+            ),
+            AgentSkill(
+                skill_id='data_quality_assessment',
+                name='Data Quality Assessment',
+                description='Assess data quality including text length, missing values, and volume',
+                method='validate_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['extracted_data'],
+                    'properties': {
+                        'extracted_data': {'type': 'object'},
+                        'document_type': {'type': 'string'}
+                    }
+                },
+                tags=['validation', 'quality', 'assessment', 'metrics'],
+                avg_processing_time_ms=200
+            ),
+            AgentSkill(
+                skill_id='data_consistency_check',
+                name='Data Consistency Check',
+                description='Check data consistency including table structure and column types',
+                method='validate_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['extracted_data'],
+                    'properties': {
+                        'extracted_data': {'type': 'object'}
+                    }
+                },
+                tags=['validation', 'consistency', 'data-quality'],
+                avg_processing_time_ms=300
+            ),
+            AgentSkill(
+                skill_id='get_validation_rules',
+                name='Get Validation Rules',
+                description='Retrieve available validation rules for specific document types',
+                method='get_validation_rules',
+                input_schema={
+                    'type': 'object',
+                    'properties': {
+                        'document_type': {
+                            'type': 'string',
+                            'description': 'Document type or "all" for all rules'
+                        }
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'rules': {'type': 'object'}
+                    }
+                },
+                tags=['metadata', 'discovery', 'rules'],
+                avg_processing_time_ms=10
+            )
+        ]
     
     async def initialize(self):
         """Initialize validator"""

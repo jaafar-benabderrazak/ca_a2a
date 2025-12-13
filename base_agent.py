@@ -6,11 +6,12 @@ import asyncio
 import json
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from aiohttp import web
 import signal
 
 from a2a_protocol import A2AProtocol, A2AMessage
+from agent_card import AgentCard, AgentSkill
 
 
 class BaseAgent(ABC):
@@ -19,28 +20,62 @@ class BaseAgent(ABC):
     Handles A2A protocol communication and HTTP server setup
     """
     
-    def __init__(self, name: str, host: str, port: int):
+    def __init__(self, name: str, host: str, port: int, version: str = "1.0.0", description: str = ""):
         self.name = name
         self.host = host
         self.port = port
+        self.version = version
+        self.description = description
         self.protocol = A2AProtocol()
         self.app = web.Application()
         self.runner: Optional[web.AppRunner] = None
         self.site: Optional[web.TCPSite] = None
         self.logger = logging.getLogger(f"{__name__}.{name}")
         
+        # Agent card for capability discovery
+        self.agent_card: Optional[AgentCard] = None
+        
         # Setup routes
         self.app.router.add_post('/message', self.handle_http_message)
         self.app.router.add_get('/health', self.health_check)
         self.app.router.add_get('/status', self.get_status)
+        self.app.router.add_get('/card', self.get_agent_card)
+        self.app.router.add_get('/skills', self.get_skills)
         
         # Register handlers
         self._register_handlers()
+        
+        # Initialize agent card with skills
+        self._initialize_agent_card()
     
     @abstractmethod
     def _register_handlers(self):
         """Register A2A message handlers - to be implemented by subclasses"""
         pass
+    
+    @abstractmethod
+    def _define_skills(self) -> List[AgentSkill]:
+        """Define agent skills - to be implemented by subclasses"""
+        pass
+    
+    def _initialize_agent_card(self):
+        """Initialize agent card with skills and metadata"""
+        endpoint = f"http://{self.host}:{self.port}"
+        
+        # Create agent card
+        self.agent_card = AgentCard(
+            name=self.name,
+            version=self.version,
+            description=self.description,
+            endpoint=endpoint
+        )
+        
+        # Add skills defined by subclass
+        skills = self._define_skills()
+        for skill in skills:
+            self.agent_card.add_skill(skill)
+        
+        self.logger.info(f"Agent card initialized with {len(skills)} skills")
     
     @abstractmethod
     async def initialize(self):
@@ -88,6 +123,31 @@ class BaseAgent(ABC):
         """Status endpoint with agent details"""
         status = await self._get_agent_status()
         return web.json_response(status)
+    
+    async def get_agent_card(self, request: web.Request) -> web.Response:
+        """Return complete agent card with capabilities"""
+        if not self.agent_card:
+            return web.json_response(
+                {"error": "Agent card not initialized"},
+                status=500
+            )
+        
+        return web.json_response(self.agent_card.to_dict())
+    
+    async def get_skills(self, request: web.Request) -> web.Response:
+        """Return list of agent skills"""
+        if not self.agent_card:
+            return web.json_response(
+                {"error": "Agent card not initialized"},
+                status=500
+            )
+        
+        return web.json_response({
+            "agent": self.name,
+            "version": self.version,
+            "skills": [skill.to_dict() for skill in self.agent_card.skills],
+            "total_skills": len(self.agent_card.skills)
+        })
     
     async def _get_agent_status(self) -> Dict[str, Any]:
         """Get agent-specific status - can be overridden by subclasses"""

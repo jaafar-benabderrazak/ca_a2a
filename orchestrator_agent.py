@@ -11,6 +11,8 @@ from base_agent import BaseAgent
 from a2a_protocol import A2AMessage, ErrorCodes
 from mcp_protocol import MCPContext
 from config import AGENTS_CONFIG
+from agent_card import AgentSkill, AgentRegistry, ResourceRequirements, AgentDependencies
+import aiohttp
 
 
 class OrchestratorAgent(BaseAgent):
@@ -23,15 +25,38 @@ class OrchestratorAgent(BaseAgent):
     
     def __init__(self):
         config = AGENTS_CONFIG['orchestrator']
-        super().__init__('Orchestrator', config['host'], config['port'])
+        super().__init__(
+            'Orchestrator',
+            config['host'],
+            config['port'],
+            version='1.0.0',
+            description='Coordinates document processing pipeline between specialized agents with dynamic discovery'
+        )
         
         self.mcp: MCPContext = None
         self.processing_tasks: Dict[str, Dict[str, Any]] = {}
+        
+        # Agent registry for discovery
+        self.agent_registry = AgentRegistry()
         
         # Agent URLs
         self.extractor_url = f"http://{AGENTS_CONFIG['extractor']['host']}:{AGENTS_CONFIG['extractor']['port']}"
         self.validator_url = f"http://{AGENTS_CONFIG['validator']['host']}:{AGENTS_CONFIG['validator']['port']}"
         self.archivist_url = f"http://{AGENTS_CONFIG['archivist']['host']}:{AGENTS_CONFIG['archivist']['port']}"
+        
+        # Set resource requirements and dependencies
+        if self.agent_card:
+            self.agent_card.resources = ResourceRequirements(
+                memory_mb=512,
+                cpu_cores=0.5,
+                storage_required=False,
+                network_required=True
+            )
+            self.agent_card.dependencies = AgentDependencies(
+                services=['s3', 'postgres'],
+                libraries=['aiohttp', 'asyncio']
+            )
+            self.agent_card.tags = ['orchestration', 'coordination', 'pipeline', 'workflow']
     
     def _register_handlers(self):
         """Register message handlers"""
@@ -39,6 +64,143 @@ class OrchestratorAgent(BaseAgent):
         self.protocol.register_handler('process_batch', self.handle_process_batch)
         self.protocol.register_handler('get_task_status', self.handle_get_task_status)
         self.protocol.register_handler('list_pending_documents', self.handle_list_pending_documents)
+        self.protocol.register_handler('discover_agents', self.handle_discover_agents)
+        self.protocol.register_handler('get_agent_registry', self.handle_get_agent_registry)
+    
+    def _define_skills(self):
+        """Define orchestrator agent skills"""
+        return [
+            AgentSkill(
+                skill_id='process_document',
+                name='Process Document',
+                description='Orchestrate complete document processing pipeline (extraction, validation, archiving)',
+                method='process_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['s3_key'],
+                    'properties': {
+                        's3_key': {'type': 'string', 'description': 'S3 key of document to process'},
+                        'priority': {
+                            'type': 'string',
+                            'enum': ['low', 'normal', 'high'],
+                            'default': 'normal',
+                            'description': 'Processing priority'
+                        }
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'task_id': {'type': 'string'},
+                        's3_key': {'type': 'string'},
+                        'status': {'type': 'string'},
+                        'message': {'type': 'string'}
+                    }
+                },
+                tags=['orchestration', 'pipeline', 'workflow', 'core'],
+                avg_processing_time_ms=5000
+            ),
+            AgentSkill(
+                skill_id='process_batch',
+                name='Process Batch',
+                description='Process multiple documents from S3 with filtering options',
+                method='process_batch',
+                input_schema={
+                    'type': 'object',
+                    'properties': {
+                        'prefix': {'type': 'string', 'description': 'S3 prefix filter'},
+                        'file_extension': {'type': 'string', 'description': 'File extension filter'}
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'batch_id': {'type': 'string'},
+                        'total_documents': {'type': 'integer'},
+                        'task_ids': {'type': 'array', 'items': {'type': 'string'}},
+                        'status': {'type': 'string'},
+                        'message': {'type': 'string'}
+                    }
+                },
+                tags=['orchestration', 'batch', 'bulk-processing'],
+                avg_processing_time_ms=10000
+            ),
+            AgentSkill(
+                skill_id='get_task_status',
+                name='Get Task Status',
+                description='Retrieve the current status of a processing task',
+                method='get_task_status',
+                input_schema={
+                    'type': 'object',
+                    'required': ['task_id'],
+                    'properties': {
+                        'task_id': {'type': 'string', 'description': 'Task ID to query'}
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'description': 'Complete task information with stages and results'
+                },
+                tags=['monitoring', 'status', 'tracking'],
+                avg_processing_time_ms=50
+            ),
+            AgentSkill(
+                skill_id='list_pending_documents',
+                name='List Pending Documents',
+                description='List documents that are pending or currently being processed',
+                method='list_pending_documents',
+                input_schema={
+                    'type': 'object',
+                    'properties': {
+                        'limit': {'type': 'integer', 'default': 50}
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'count': {'type': 'integer'},
+                        'documents': {'type': 'array'}
+                    }
+                },
+                tags=['monitoring', 'listing', 'query'],
+                avg_processing_time_ms=200
+            ),
+            AgentSkill(
+                skill_id='discover_agents',
+                name='Discover Agents',
+                description='Discover and register all available agents with their capabilities',
+                method='discover_agents',
+                input_schema={'type': 'object'},
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'discovered_agents': {'type': 'integer'},
+                        'agents': {'type': 'array'},
+                        'discovery_timestamp': {'type': 'string'}
+                    }
+                },
+                tags=['discovery', 'registry', 'capabilities', 'metadata'],
+                avg_processing_time_ms=500
+            ),
+            AgentSkill(
+                skill_id='get_agent_registry',
+                name='Get Agent Registry',
+                description='Get the complete registry of discovered agents and their skills',
+                method='get_agent_registry',
+                input_schema={'type': 'object'},
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'total_agents': {'type': 'integer'},
+                        'active_agents': {'type': 'integer'},
+                        'total_skills': {'type': 'integer'},
+                        'agents': {'type': 'object'}
+                    }
+                },
+                tags=['registry', 'metadata', 'discovery'],
+                avg_processing_time_ms=50
+            )
+        ]
     
     async def initialize(self):
         """Initialize MCP context"""
@@ -47,6 +209,9 @@ class OrchestratorAgent(BaseAgent):
         
         # Initialize database schema
         await self.mcp.postgres.initialize_schema()
+        
+        # Discover all agents
+        await self._discover_agents()
         
         self.logger.info("Orchestrator initialized")
     
@@ -150,10 +315,86 @@ class OrchestratorAgent(BaseAgent):
         
         documents = await self.mcp.postgres.fetch_all(query, limit)
         
+            return {
+                'count': len(documents),
+                'documents': documents
+            }
+    
+    async def handle_discover_agents(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Discover all available agents and their capabilities
+        """
+        await self._discover_agents()
+        
+        registry_summary = self.agent_registry.get_summary()
+        
         return {
-            'count': len(documents),
-            'documents': documents
+            'discovered_agents': registry_summary['total_agents'],
+            'agents': [
+                {
+                    'name': name,
+                    'endpoint': info['endpoint'],
+                    'status': info['status'],
+                    'skills_count': info['skills_count']
+                }
+                for name, info in registry_summary['agents'].items()
+            ],
+            'total_skills': registry_summary['total_skills'],
+            'available_skills': registry_summary['available_skills'],
+            'discovery_timestamp': datetime.now().isoformat()
         }
+    
+    async def handle_get_agent_registry(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Get the complete agent registry"""
+        return self.agent_registry.get_summary()
+    
+    async def _discover_agents(self):
+        """Discover available agents and their capabilities"""
+        self.logger.info("Starting agent discovery...")
+        
+        agent_urls = [
+            self.extractor_url,
+            self.validator_url,
+            self.archivist_url
+        ]
+        
+        discovered_count = 0
+        
+        for url in agent_urls:
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(
+                        f"{url}/card",
+                        timeout=aiohttp.ClientTimeout(total=5)
+                    ) as response:
+                        if response.status == 200:
+                            card_data = await response.json()
+                            
+                            # Import and register the agent card
+                            from agent_card import AgentCard
+                            agent_card = AgentCard.from_dict(card_data)
+                            self.agent_registry.register(agent_card)
+                            
+                            discovered_count += 1
+                            self.logger.info(
+                                f"Discovered agent: {agent_card.name} "
+                                f"with {len(agent_card.skills)} skills at {url}"
+                            )
+                        else:
+                            self.logger.warning(
+                                f"Agent at {url} returned status {response.status}"
+                            )
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Timeout discovering agent at {url}")
+            except Exception as e:
+                self.logger.warning(f"Could not discover agent at {url}: {str(e)}")
+        
+        self.logger.info(f"Agent discovery completed: {discovered_count} agents discovered")
+    
+    def _find_agent_by_skill(self, skill_id: str) -> Optional[str]:
+        """Find an agent endpoint that has a specific skill"""
+        endpoints = self.agent_registry.get_endpoints_for_skill(skill_id)
+        return endpoints[0] if endpoints else None
     
     async def _process_document_pipeline(self, task_id: str, s3_key: str):
         """
@@ -279,7 +520,9 @@ class OrchestratorAgent(BaseAgent):
             'active_tasks': len([t for t in self.processing_tasks.values() if t['status'] == 'processing']),
             'completed_tasks': len([t for t in self.processing_tasks.values() if t['status'] == 'completed']),
             'failed_tasks': len([t for t in self.processing_tasks.values() if t['status'] == 'failed']),
-            'total_tasks': len(self.processing_tasks)
+            'total_tasks': len(self.processing_tasks),
+            'discovered_agents': len(self.agent_registry.get_all_agents()),
+            'agent_registry_summary': self.agent_registry.get_summary()
         })
         return status
 

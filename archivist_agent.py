@@ -11,6 +11,7 @@ from base_agent import BaseAgent
 from a2a_protocol import ErrorCodes
 from mcp_protocol import MCPContext
 from config import AGENTS_CONFIG
+from agent_card import AgentSkill, ResourceRequirements, AgentDependencies
 
 
 class ArchivistAgent(BaseAgent):
@@ -23,9 +24,29 @@ class ArchivistAgent(BaseAgent):
     
     def __init__(self):
         config = AGENTS_CONFIG['archivist']
-        super().__init__('Archivist', config['host'], config['port'])
+        super().__init__(
+            'Archivist',
+            config['host'],
+            config['port'],
+            version='1.0.0',
+            description='Persists processed documents and validation results to PostgreSQL with audit logging'
+        )
         
         self.mcp: MCPContext = None
+        
+        # Set resource requirements and dependencies
+        if self.agent_card:
+            self.agent_card.resources = ResourceRequirements(
+                memory_mb=512,
+                cpu_cores=0.5,
+                storage_required=True,
+                network_required=True
+            )
+            self.agent_card.dependencies = AgentDependencies(
+                services=['postgres'],
+                libraries=['asyncpg', 'psycopg2-binary']
+            )
+            self.agent_card.tags = ['persistence', 'database', 'postgresql', 'archiving', 'audit']
     
     def _register_handlers(self):
         """Register message handlers"""
@@ -34,6 +55,148 @@ class ArchivistAgent(BaseAgent):
         self.protocol.register_handler('update_document_status', self.handle_update_document_status)
         self.protocol.register_handler('search_documents', self.handle_search_documents)
         self.protocol.register_handler('get_document_stats', self.handle_get_document_stats)
+    
+    def _define_skills(self):
+        """Define archivist agent skills"""
+        return [
+            AgentSkill(
+                skill_id='archive_document',
+                name='Archive Document',
+                description='Archive processed document with extracted data and validation results to PostgreSQL',
+                method='archive_document',
+                input_schema={
+                    'type': 'object',
+                    'required': ['s3_key'],
+                    'properties': {
+                        's3_key': {'type': 'string', 'description': 'S3 key of the document'},
+                        'document_type': {'type': 'string', 'description': 'Type of document'},
+                        'extracted_data': {'type': 'object', 'description': 'Extracted data'},
+                        'validation_score': {'type': 'number', 'description': 'Validation score'},
+                        'validation_details': {'type': 'object', 'description': 'Validation details'},
+                        'metadata': {'type': 'object', 'description': 'Document metadata'}
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'document_id': {'type': 'integer'},
+                        's3_key': {'type': 'string'},
+                        'status': {'type': 'string'},
+                        'action': {'type': 'string', 'enum': ['created', 'updated']},
+                        'validation_score': {'type': 'number'},
+                        'archived_at': {'type': 'string'}
+                    }
+                },
+                tags=['persistence', 'archive', 'database', 'core'],
+                avg_processing_time_ms=300
+            ),
+            AgentSkill(
+                skill_id='get_document',
+                name='Get Document',
+                description='Retrieve a document by ID or S3 key from the database',
+                method='get_document',
+                input_schema={
+                    'type': 'object',
+                    'properties': {
+                        'document_id': {'type': 'integer', 'description': 'Document ID'},
+                        's3_key': {'type': 'string', 'description': 'S3 key'}
+                    },
+                    'oneOf': [
+                        {'required': ['document_id']},
+                        {'required': ['s3_key']}
+                    ]
+                },
+                output_schema={
+                    'type': 'object',
+                    'description': 'Complete document record with all fields'
+                },
+                tags=['retrieval', 'database', 'query'],
+                avg_processing_time_ms=100
+            ),
+            AgentSkill(
+                skill_id='update_document_status',
+                name='Update Document Status',
+                description='Update the status of a document in the database',
+                method='update_document_status',
+                input_schema={
+                    'type': 'object',
+                    'required': ['document_id', 'status'],
+                    'properties': {
+                        'document_id': {'type': 'integer'},
+                        'status': {'type': 'string'},
+                        'error_message': {'type': 'string', 'description': 'Optional error message'}
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'document_id': {'type': 'integer'},
+                        'status': {'type': 'string'},
+                        'updated_at': {'type': 'string'}
+                    }
+                },
+                tags=['update', 'status', 'database'],
+                avg_processing_time_ms=150
+            ),
+            AgentSkill(
+                skill_id='search_documents',
+                name='Search Documents',
+                description='Search documents with filters (status, type, score) and pagination',
+                method='search_documents',
+                input_schema={
+                    'type': 'object',
+                    'properties': {
+                        'status': {'type': 'string', 'description': 'Filter by status'},
+                        'document_type': {'type': 'string', 'description': 'Filter by document type'},
+                        'min_score': {'type': 'number', 'description': 'Minimum validation score'},
+                        'limit': {'type': 'integer', 'default': 50, 'description': 'Results limit'},
+                        'offset': {'type': 'integer', 'default': 0, 'description': 'Results offset'}
+                    }
+                },
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'documents': {'type': 'array'},
+                        'total_count': {'type': 'integer'},
+                        'limit': {'type': 'integer'},
+                        'offset': {'type': 'integer'}
+                    }
+                },
+                tags=['search', 'query', 'database', 'pagination'],
+                avg_processing_time_ms=200
+            ),
+            AgentSkill(
+                skill_id='get_document_stats',
+                name='Get Document Statistics',
+                description='Get comprehensive statistics about document processing (counts, averages, activity)',
+                method='get_document_stats',
+                input_schema={'type': 'object'},
+                output_schema={
+                    'type': 'object',
+                    'properties': {
+                        'total_documents': {'type': 'integer'},
+                        'recent_activity_24h': {'type': 'integer'},
+                        'average_validation_score': {'type': 'number'},
+                        'by_status': {'type': 'object'},
+                        'by_type': {'type': 'object'}
+                    }
+                },
+                tags=['statistics', 'analytics', 'metrics', 'reporting'],
+                avg_processing_time_ms=300
+            ),
+            AgentSkill(
+                skill_id='audit_logging',
+                name='Audit Logging',
+                description='Maintain processing logs for audit trail and compliance',
+                method='archive_document',
+                input_schema={
+                    'type': 'object',
+                    'description': 'Automatically logs all archiving operations'
+                },
+                tags=['audit', 'logging', 'compliance', 'tracking'],
+                avg_processing_time_ms=50
+            )
+        ]
     
     async def initialize(self):
         """Initialize MCP context"""
