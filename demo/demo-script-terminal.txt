@@ -1,0 +1,150 @@
+# CA A2A - Live Demo Terminal Script
+# Copy these commands for your live demo
+
+# ==========================================
+# PART 1: Architecture & Discovery (3 min)
+# ==========================================
+
+# Show all agents
+python discover_agents.py
+
+# ==========================================
+# PART 2: Agent Cards (2 min)
+# ==========================================
+
+# Get Orchestrator card
+curl http://localhost:8001/card | python -m json.tool
+
+# Get Extractor card (shows skills)
+curl http://localhost:8002/card | python -m json.tool
+
+# ==========================================
+# PART 3: Health Check (1 min)
+# ==========================================
+
+# Verify all agents are healthy
+python client.py health
+
+# ==========================================
+# PART 4: Single Document Processing (5 min)
+# ==========================================
+
+# Process a good document
+python client.py process "demo/good/financial-report-q4-2024.txt"
+
+# [SWITCH TO LOGS TERMINAL - Show agent collaboration]
+
+# [SWITCH TO DATABASE TERMINAL - Run query]
+# psql -h ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com -U postgres -d postgres
+# SELECT * FROM documents ORDER BY created_at DESC LIMIT 1;
+
+# ==========================================
+# PART 5: Status Tracking (2 min)
+# ==========================================
+
+# Check task status (replace with actual task_id)
+python client.py status abc123-def456-ghi789
+
+# ==========================================
+# PART 6: Batch Processing (3 min)
+# ==========================================
+
+# Process multiple documents
+python client.py batch --prefix "demo/batch/" --extension ".txt"
+
+# [SHOW IN LOGS - Multiple operations in parallel]
+
+# ==========================================
+# PART 7: Validation Intelligence (2 min)
+# ==========================================
+
+# Process an incomplete document
+python client.py process "demo/bad/incomplete-report.txt"
+
+# [SHOW - Lower validation score and reasons]
+
+# ==========================================
+# PART 8: Resilience Demo (2 min)
+# ==========================================
+
+# [IN AGENTS TERMINAL - Kill Extractor with Ctrl+C]
+
+# Try processing (will show retry)
+python client.py process "demo/good/financial-report-q4-2024.txt"
+
+# [SHOW - Automatic retry attempts in logs]
+
+# [Restart the agent]
+# python extractor_agent.py
+
+# [Try again - now succeeds]
+python client.py process "demo/good/financial-report-q4-2024.txt"
+
+# ==========================================
+# PART 9: AWS Deployment Status (2 min)
+# ==========================================
+
+# Show production deployment
+.\scripts\check-deployment-status.ps1
+
+# ==========================================
+# DATABASE QUERIES (for Terminal 3)
+# ==========================================
+
+# Connect to RDS
+psql -h ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com -U postgres -d postgres
+
+# Show recent documents
+SELECT 
+    document_id,
+    file_name,
+    validation_score,
+    status,
+    created_at
+FROM documents 
+ORDER BY created_at DESC 
+LIMIT 5;
+
+# Show documents by validation score
+SELECT 
+    validation_score,
+    COUNT(*) as count
+FROM documents 
+GROUP BY validation_score 
+ORDER BY validation_score DESC;
+
+# Show processing statistics
+SELECT 
+    status,
+    AVG(validation_score) as avg_score,
+    COUNT(*) as total
+FROM documents 
+GROUP BY status;
+
+# ==========================================
+# AWS CLI COMMANDS (Optional)
+# ==========================================
+
+# List S3 demo files
+aws s3 ls s3://ca-a2a-documents-555043101106/demo/ --recursive
+
+# Check RDS status
+aws rds describe-db-instances --db-instance-identifier ca-a2a-postgres --query 'DBInstances[0].DBInstanceStatus'
+
+# View CloudWatch logs
+aws logs tail /ecs/ca-a2a-orchestrator --follow
+
+# ==========================================
+# BACKUP COMMANDS (If needed)
+# ==========================================
+
+# Restart all agents
+pkill -f "python.*agent"
+python run_agents.py
+
+# Re-upload demo documents
+aws s3 sync demo/documents/ s3://ca-a2a-documents-555043101106/demo/
+
+# Check deployment status
+.\scripts\check-deployment-status.ps1
+
