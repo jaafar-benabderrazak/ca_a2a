@@ -1,0 +1,6 @@
+﻿REPORT 3
+
+Company: Demo Corp 3
+Revenue: 3000000
+Expenses: 2400000
+Status: Complete

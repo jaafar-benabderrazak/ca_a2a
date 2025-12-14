@@ -121,11 +121,10 @@ class BaseAgent(ABC):
             )
             
             # Validate input against skill schema if defined
-            if message.method and message.params:
             # Validate input using Pydantic (preferred) or JSON Schema (fallback)
             if message.method and self.agent_card:
                 skill = self.agent_card.get_skill(message.method) if self.agent_card else None
-                if skill:
+                if skill and message.params:
                     # Try Pydantic validation first (better error messages)
                     is_valid, error_msg, validated_data = skill.validate_request(message.params)
                     if not is_valid:
