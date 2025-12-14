@@ -22,6 +22,9 @@
 - [ ] S3 bucket policies restrictive
 - [ ] RDS security groups locked down
 - [ ] VPC endpoints for S3 (private traffic)
+- [x] AWS resource tagging strategy defined
+- [x] Tagging scripts created and tested
+- [ ] Cost allocation tags enabled in billing console
 
 ### Documentation
 - [x] README.md updated
@@ -101,6 +104,8 @@
 - [ ] Process single document end-to-end
 - [ ] Check document appears in PostgreSQL
 - [ ] Verify logs in CloudWatch
+- [ ] Verify all resources tagged with Project=CA-A2A
+- [ ] Confirm tags visible in Cost Explorer
 
 ### Performance Validation
 - [ ] Baseline latency measured (p50, p95, p99)
@@ -246,4 +251,6 @@
 **Deployment Date**: ___________  
 **Version**: 1.0.0  
 **Environment**: Production  
-**Deployed By**: ___________
+**Deployed By**: j.benabderrazak@reply.com  
+**AWS Account ID**: 5550-4310-1106  
+**AWS Access**: AWSReservedSSO_AWSAdministratorAccess_a19aa4dbc5596de5

@@ -1,0 +1,76 @@
+{
+  "tagging_strategy": {
+    "description": "Standard tags for CA A2A project resources",
+    "mandatory_tags": {
+      "Project": "CA-A2A",
+      "Environment": "Production",
+      "Owner": "j.benabderrazak@reply.com",
+      "ManagedBy": "Terraform",
+      "CostCenter": "CA-Reply",
+      "Application": "Agent-Based-Architecture",
+      "Version": "1.0.0"
+    },
+    "optional_tags": {
+      "DeploymentDate": "YYYY-MM-DD",
+      "BackupPolicy": "Daily",
+      "Compliance": "GDPR",
+      "DataClassification": "Confidential"
+    }
+  },
+  "resource_specific_tags": {
+    "ecs_services": {
+      "Component": "Compute",
+      "ServiceType": "Agent",
+      "AgentName": ["orchestrator", "extractor", "classifier", "qa_agent"]
+    },
+    "rds": {
+      "Component": "Database",
+      "DatabaseEngine": "PostgreSQL",
+      "BackupRetention": "30-days",
+      "MultiAZ": "true"
+    },
+    "s3": {
+      "Component": "Storage",
+      "DataType": "Documents",
+      "Encryption": "AES256",
+      "Versioning": "Enabled"
+    },
+    "alb": {
+      "Component": "LoadBalancer",
+      "Internet-Facing": "true",
+      "Protocol": "HTTPS"
+    },
+    "vpc": {
+      "Component": "Network",
+      "NetworkTier": "Production",
+      "CIDR": "10.0.0.0/16"
+    },
+    "cloudwatch": {
+      "Component": "Monitoring",
+      "LogRetention": "30-days"
+    },
+    "ecr": {
+      "Component": "Container-Registry",
+      "ImageScanning": "Enabled"
+    },
+    "iam": {
+      "Component": "Security",
+      "AccessLevel": "Service"
+    }
+  },
+  "tagging_best_practices": [
+    "Apply tags at resource creation time",
+    "Use consistent naming conventions",
+    "Include cost allocation tags",
+    "Tag all resources without exception",
+    "Review and update tags quarterly",
+    "Use automation for tag enforcement"
+  ],
+  "cost_allocation_tags": [
+    "Project",
+    "Environment",
+    "CostCenter",
+    "Owner"
+  ]
+}
+
