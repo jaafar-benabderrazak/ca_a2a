@@ -407,6 +407,25 @@ class ExtractorAgent(BaseAgent):
             'supported_formats': self.supported_formats
         })
         return status
+    
+    async def _check_dependencies(self) -> Dict[str, Dict[str, Any]]:
+        """Check S3 health"""
+        dependencies = {}
+        
+        try:
+            # Test S3 connection by listing (with empty prefix, limit 1)
+            await self.mcp.s3.list_objects(prefix="", suffix="")
+            dependencies['s3'] = {
+                'healthy': True,
+                'bucket': self.mcp.s3.bucket_name
+            }
+        except Exception as e:
+            dependencies['s3'] = {
+                'healthy': False,
+                'error': str(e)
+            }
+        
+        return dependencies
 
 
 async def main():

@@ -1,10 +1,12 @@
 """
 Base Agent Class
 Provides common functionality for all agents including A2A communication and HTTP server
+Implements A2A best practices: retry logic, circuit breakers, structured logging, tracing
 """
 import asyncio
 import json
 import logging
+import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from aiohttp import web
@@ -12,6 +14,13 @@ import signal
 
 from a2a_protocol import A2AProtocol, A2AMessage
 from agent_card import AgentCard, AgentSkill
+from utils import (
+    StructuredLogger,
+    PerformanceMonitor,
+    generate_correlation_id,
+    validate_json_schema,
+    IdempotencyStore
+)
 
 
 class BaseAgent(ABC):
@@ -31,6 +40,11 @@ class BaseAgent(ABC):
         self.runner: Optional[web.AppRunner] = None
         self.site: Optional[web.TCPSite] = None
         self.logger = logging.getLogger(f"{__name__}.{name}")
+        
+        # A2A best practices: structured logging, monitoring, idempotency
+        self.structured_logger = StructuredLogger(name)
+        self.performance_monitor = PerformanceMonitor()
+        self.idempotency_store = IdempotencyStore()
         
         # Agent card for capability discovery
         self.agent_card: Optional[AgentCard] = None
@@ -88,40 +102,125 @@ class BaseAgent(ABC):
         pass
     
     async def handle_http_message(self, request: web.Request) -> web.Response:
-        """Handle incoming A2A messages via HTTP"""
+        """
+        Handle incoming A2A messages via HTTP
+        Implements: correlation IDs, structured logging, performance monitoring, validation
+        """
+        start_time = time.time()
+        correlation_id = request.headers.get('X-Correlation-ID', generate_correlation_id())
+        
         try:
             data = await request.json()
             message = A2AMessage(**data)
             
-            self.logger.info(f"Received message: method={message.method}, id={message.id}")
+            # Structured logging with correlation ID
+            self.structured_logger.log_request(
+                method=message.method,
+                params=message.params,
+                correlation_id=correlation_id
+            )
+            
+            # Validate input against skill schema if defined
+            if message.method and message.params:
+                skill = self.agent_card.get_skill(message.method) if self.agent_card else None
+                if skill and skill.input_schema:
+                    is_valid, error_msg = validate_json_schema(message.params, skill.input_schema)
+                    if not is_valid:
+                        self.logger.warning(f"Input validation failed for {message.method}: {error_msg}")
+                        error_response = A2AMessage.create_error(
+                            message.id, -32602, f"Invalid params: {error_msg}"
+                        )
+                        return web.json_response(error_response.to_dict(), status=400)
             
             # Process message through A2A protocol
             response_message = await self.protocol.handle_message(message)
             
+            # Record performance metrics
+            duration_ms = (time.time() - start_time) * 1000
+            self.performance_monitor.record_request(
+                message.method or "unknown",
+                duration_ms,
+                success=True
+            )
+            
+            self.structured_logger.log_response(
+                method=message.method,
+                duration_ms=duration_ms,
+                success=True,
+                correlation_id=correlation_id
+            )
+            
             if response_message:
-                return web.json_response(response_message.to_dict())
+                response_dict = response_message.to_dict()
+                response_dict.setdefault('_meta', {})['correlation_id'] = correlation_id
+                return web.json_response(response_dict)
             else:
                 return web.Response(status=204)  # No content for notifications
                 
-        except json.JSONDecodeError:
+        except json.JSONDecodeError as e:
             error_msg = A2AMessage.create_error(None, -32700, "Parse error")
             return web.json_response(error_msg.to_dict(), status=400)
         except Exception as e:
-            self.logger.error(f"Error handling message: {str(e)}")
+            # Record failure metrics
+            duration_ms = (time.time() - start_time) * 1000
+            method = data.get('method', 'unknown') if 'data' in locals() else 'unknown'
+            self.performance_monitor.record_request(method, duration_ms, success=False)
+            
+            self.structured_logger.log_error(method, e, correlation_id)
+            
             error_msg = A2AMessage.create_error(None, -32603, f"Internal error: {str(e)}")
             return web.json_response(error_msg.to_dict(), status=500)
     
     async def health_check(self, request: web.Request) -> web.Response:
-        """Health check endpoint"""
-        return web.json_response({
+        """
+        Enhanced health check endpoint
+        Checks agent health AND dependency health
+        """
+        health_status = {
             'status': 'healthy',
             'agent': self.name,
-            'timestamp': asyncio.get_event_loop().time()
-        })
+            'version': self.version,
+            'timestamp': asyncio.get_event_loop().time(),
+            'uptime_seconds': time.time() - getattr(self, '_start_time', time.time())
+        }
+        
+        # Check dependencies (implemented by subclasses)
+        try:
+            dependency_health = await self._check_dependencies()
+            health_status['dependencies'] = dependency_health
+            
+            # If any dependency is unhealthy, mark agent as degraded
+            if any(not dep.get('healthy', True) for dep in dependency_health.values()):
+                health_status['status'] = 'degraded'
+        except Exception as e:
+            health_status['status'] = 'unhealthy'
+            health_status['error'] = str(e)
+        
+        status_code = 200 if health_status['status'] == 'healthy' else 503
+        return web.json_response(health_status, status=status_code)
+    
+    async def _check_dependencies(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Check health of dependencies (S3, PostgreSQL, etc.)
+        Override in subclasses to implement specific checks
+        """
+        return {}
     
     async def get_status(self, request: web.Request) -> web.Response:
-        """Status endpoint with agent details"""
+        """
+        Enhanced status endpoint with performance metrics
+        """
         status = await self._get_agent_status()
+        
+        # Add performance metrics
+        status['performance'] = {
+            'metrics_by_skill': self.performance_monitor.get_metrics(),
+            'total_requests': sum(
+                m.get('total_requests', 0)
+                for m in self.performance_monitor.metrics.values()
+            )
+        }
+        
         return web.json_response(status)
     
     async def get_agent_card(self, request: web.Request) -> web.Response:
@@ -185,8 +284,11 @@ class BaseAgent(ABC):
             raise
     
     async def start(self):
-        """Start the agent HTTP server"""
+        """Start the agent HTTP server with initialization tracking"""
         try:
+            # Record start time for uptime tracking
+            self._start_time = time.time()
+            
             # Initialize agent resources
             await self.initialize()
             
@@ -196,7 +298,10 @@ class BaseAgent(ABC):
             self.site = web.TCPSite(self.runner, self.host, self.port)
             await self.site.start()
             
-            self.logger.info(f"Agent '{self.name}' started on http://{self.host}:{self.port}")
+            self.logger.info(
+                f"Agent '{self.name}' v{self.version} started on http://{self.host}:{self.port}"
+            )
+            self.logger.info(f"Skills available: {len(self.agent_card.skills) if self.agent_card else 0}")
             
         except Exception as e:
             self.logger.error(f"Failed to start agent: {str(e)}")

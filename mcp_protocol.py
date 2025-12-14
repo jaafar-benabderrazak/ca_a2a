@@ -1,6 +1,7 @@
 """
 Model Context Protocol (MCP) Implementation
 Provides unified interface for accessing S3 and PostgreSQL resources
+Implements A2A best practices: retry logic, circuit breakers, timeouts
 """
 import asyncio
 import io
@@ -13,6 +14,7 @@ import asyncpg
 from botocore.exceptions import ClientError
 
 from config import AWS_CONFIG, POSTGRES_CONFIG
+from utils import retry_with_backoff, CircuitBreaker, timeout_decorator
 
 logger = logging.getLogger(__name__)
 
@@ -32,13 +34,23 @@ class MCPResource(ABC):
 
 
 class S3Resource(MCPResource):
-    """MCP interface for AWS S3"""
+    """
+    MCP interface for AWS S3
+    Implements: retry logic, circuit breaker, timeouts
+    """
     
     def __init__(self):
         self.session = None
         self.client = None
         self.bucket_name = AWS_CONFIG['s3_bucket']
         self.logger = logging.getLogger(f"{__name__}.S3Resource")
+        
+        # Circuit breaker for S3 calls
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=5,
+            recovery_timeout=60,
+            expected_exception=ClientError
+        )
     
     async def connect(self):
         """Initialize S3 client"""
@@ -60,9 +72,12 @@ class S3Resource(MCPResource):
         self.logger.info("S3 resource disconnected")
     
     async def list_objects(self, prefix: str = "", suffix: str = "") -> List[Dict[str, Any]]:
-        """List objects in S3 bucket with optional prefix and suffix filters"""
-        objects = []
-        try:
+        """
+        List objects in S3 bucket with optional prefix and suffix filters
+        Implements: retry logic, circuit breaker
+        """
+        async def _list():
+            objects = []
             async with self.session.client('s3') as s3_client:
                 paginator = s3_client.get_paginator('list_objects_v2')
                 async for page in paginator.paginate(Bucket=self.bucket_name, Prefix=prefix):
@@ -78,19 +93,38 @@ class S3Resource(MCPResource):
                             })
             self.logger.info(f"Listed {len(objects)} objects with prefix '{prefix}' and suffix '{suffix}'")
             return objects
-        except ClientError as e:
+        
+        try:
+            # Apply circuit breaker and retry logic
+            return await retry_with_backoff(
+                lambda: self.circuit_breaker.call(_list),
+                max_retries=3,
+                exceptions=(ClientError,)
+            )
+        except Exception as e:
             self.logger.error(f"Error listing S3 objects: {str(e)}")
             raise
     
+    @timeout_decorator(30.0)  # 30 second timeout for downloads
     async def get_object(self, key: str) -> bytes:
-        """Download object from S3"""
-        try:
+        """
+        Download object from S3
+        Implements: retry logic, circuit breaker, timeout
+        """
+        async def _get():
             async with self.session.client('s3') as s3_client:
                 response = await s3_client.get_object(Bucket=self.bucket_name, Key=key)
                 data = await response['Body'].read()
                 self.logger.info(f"Downloaded object: {key} ({len(data)} bytes)")
                 return data
-        except ClientError as e:
+        
+        try:
+            return await retry_with_backoff(
+                lambda: self.circuit_breaker.call(_get),
+                max_retries=3,
+                exceptions=(ClientError,)
+            )
+        except Exception as e:
             self.logger.error(f"Error downloading S3 object {key}: {str(e)}")
             raise
     
@@ -136,11 +170,21 @@ class S3Resource(MCPResource):
 
 
 class PostgreSQLResource(MCPResource):
-    """MCP interface for PostgreSQL"""
+    """
+    MCP interface for PostgreSQL
+    Implements: retry logic, circuit breaker, connection pooling
+    """
     
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
         self.logger = logging.getLogger(f"{__name__}.PostgreSQLResource")
+        
+        # Circuit breaker for PostgreSQL calls
+        self.circuit_breaker = CircuitBreaker(
+            failure_threshold=5,
+            recovery_timeout=60,
+            expected_exception=asyncpg.PostgresError
+        )
     
     async def connect(self):
         """Create connection pool"""
@@ -166,20 +210,50 @@ class PostgreSQLResource(MCPResource):
             self.pool = None
             self.logger.info("PostgreSQL resource disconnected")
     
+    @timeout_decorator(10.0)  # 10 second timeout for queries
     async def execute(self, query: str, *args) -> str:
-        """Execute a query (INSERT, UPDATE, DELETE)"""
-        async with self.pool.acquire() as conn:
-            result = await conn.execute(query, *args)
-            self.logger.debug(f"Executed query: {result}")
-            return result
+        """
+        Execute a query (INSERT, UPDATE, DELETE)
+        Implements: retry logic, circuit breaker, timeout
+        """
+        async def _execute():
+            async with self.pool.acquire() as conn:
+                result = await conn.execute(query, *args)
+                self.logger.debug(f"Executed query: {result}")
+                return result
+        
+        try:
+            return await retry_with_backoff(
+                lambda: self.circuit_breaker.call(_execute),
+                max_retries=3,
+                exceptions=(asyncpg.PostgresError,)
+            )
+        except Exception as e:
+            self.logger.error(f"Error executing query: {str(e)}")
+            raise
     
+    @timeout_decorator(10.0)
     async def fetch_one(self, query: str, *args) -> Optional[Dict[str, Any]]:
-        """Fetch a single row"""
-        async with self.pool.acquire() as conn:
-            row = await conn.fetchrow(query, *args)
-            if row:
-                return dict(row)
-            return None
+        """
+        Fetch a single row
+        Implements: retry logic, circuit breaker, timeout
+        """
+        async def _fetch():
+            async with self.pool.acquire() as conn:
+                row = await conn.fetchrow(query, *args)
+                if row:
+                    return dict(row)
+                return None
+        
+        try:
+            return await retry_with_backoff(
+                lambda: self.circuit_breaker.call(_fetch),
+                max_retries=3,
+                exceptions=(asyncpg.PostgresError,)
+            )
+        except Exception as e:
+            self.logger.error(f"Error fetching row: {str(e)}")
+            raise
     
     async def fetch_all(self, query: str, *args) -> List[Dict[str, Any]]:
         """Fetch multiple rows"""

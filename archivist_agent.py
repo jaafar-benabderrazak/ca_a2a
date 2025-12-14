@@ -12,6 +12,7 @@ from a2a_protocol import ErrorCodes
 from mcp_protocol import MCPContext
 from config import AGENTS_CONFIG
 from agent_card import AgentSkill, ResourceRequirements, AgentDependencies
+from utils import generate_idempotency_key
 
 
 class ArchivistAgent(BaseAgent):
@@ -217,6 +218,7 @@ class ArchivistAgent(BaseAgent):
     async def handle_archive_document(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Archive a processed document to PostgreSQL
+        Implements idempotency: same params won't create duplicate entries
         Params: {
             "s3_key": "path/to/document",
             "document_type": "pdf|csv",
@@ -235,6 +237,15 @@ class ArchivistAgent(BaseAgent):
         
         if not s3_key:
             raise ValueError("Missing required parameter: s3_key")
+        
+        # Generate idempotency key
+        idempotency_key = generate_idempotency_key('archive_document', {'s3_key': s3_key})
+        
+        # Check if already processed (idempotency)
+        cached_result = self.idempotency_store.get(idempotency_key)
+        if cached_result:
+            self.logger.info(f"Returning cached result for {s3_key} (idempotent)")
+            return cached_result
         
         self.logger.info(f"Archiving document: {s3_key}")
         
@@ -340,6 +351,9 @@ class ArchivistAgent(BaseAgent):
                 'validation_score': validation_score,
                 'archived_at': datetime.now().isoformat()
             }
+            
+            # Cache result for idempotency
+            self.idempotency_store.set(idempotency_key, result)
             
             self.logger.info(f"Successfully archived document: id={document_id}, status={status}")
             return result
@@ -572,9 +586,24 @@ class ArchivistAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"Failed to log action: {str(e)}")
     
-    async def _get_agent_status(self) -> Dict[str, Any]:
-        """Get archivist status with database stats"""
-        status = await super()._get_agent_status()
+    async def _check_dependencies(self) -> Dict[str, Dict[str, Any]]:
+        """Check PostgreSQL health"""
+        dependencies = {}
+        
+        try:
+            # Test PostgreSQL connection
+            result = await self.mcp.postgres.fetch_value("SELECT 1")
+            dependencies['postgresql'] = {
+                'healthy': result == 1,
+                'latency_ms': 0  # Could track actual latency
+            }
+        except Exception as e:
+            dependencies['postgresql'] = {
+                'healthy': False,
+                'error': str(e)
+            }
+        
+        return dependencies
         
         try:
             stats = await self.handle_get_document_stats({})

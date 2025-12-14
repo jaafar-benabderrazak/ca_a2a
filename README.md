@@ -37,12 +37,14 @@ Le système est composé de **quatre agents spécialisés** qui collaborent de m
 - Format standardisé pour requêtes/réponses
 - Gestion des erreurs et timeouts
 - Support des notifications (sans réponse)
+- **Best practices**: Retry logic, circuit breakers, correlation IDs
 
 ### MCP (Model Context Protocol)
 - Interface unifiée pour S3 et PostgreSQL
 - Gestion des connexions et pools
 - Context managers pour ressources
 - Opérations asynchrones
+- **Best practices**: Timeouts, exponential backoff, health checks
 
 ### Agent Cards & Skills (Nouveau ✨)
 - Auto-description des agents avec leurs capacités
@@ -51,7 +53,10 @@ Le système est composé de **quatre agents spécialisés** qui collaborent de m
 - Métriques de performance par compétence
 - **Endpoints**: `/card`, `/skills`
 
-Voir [AGENT_CARDS_IMPLEMENTATION.md](AGENT_CARDS_IMPLEMENTATION.md) pour plus de détails.
+**Documentation complète**:
+- [Agent Cards Implementation](AGENT_CARDS_IMPLEMENTATION.md)
+- [A2A Best Practices](A2A_BEST_PRACTICES.md) ⭐ Nouveau
+- [Deployment Checklist](DEPLOYMENT_CHECKLIST.md) ⭐ Nouveau
 
 ## 📦 Installation
 
@@ -299,21 +304,24 @@ Le système applique plusieurs règles de validation :
 ```
 ca_a2a/
 ├── a2a_protocol.py          # Protocole A2A JSON-RPC 2.0
-├── mcp_protocol.py          # Protocole MCP (S3 + PostgreSQL)
-├── agent_card.py            # Système de cartes d'agents (Nouveau ✨)
-├── base_agent.py            # Classe de base pour agents
+├── mcp_protocol.py          # Protocole MCP (S3 + PostgreSQL) avec retry/circuit breaker
+├── agent_card.py            # Système de cartes d'agents
+├── utils.py                 # Utilitaires best practices (retry, idempotency, logging) ⭐ Nouveau
+├── base_agent.py            # Classe de base pour agents (avec monitoring)
 ├── orchestrator_agent.py    # Agent orchestrateur
 ├── extractor_agent.py       # Agent extracteur
 ├── validator_agent.py       # Agent validateur
-├── archivist_agent.py       # Agent archiviste
+├── archivist_agent.py       # Agent archiviste (avec idempotency)
 ├── config.py                # Configuration
 ├── run_agents.py            # Script de lancement
 ├── client.py                # Client CLI
-├── discover_agents.py       # Script de découverte (Nouveau ✨)
+├── discover_agents.py       # Script de découverte
 ├── requirements.txt         # Dépendances Python
 ├── README.md                # Documentation
-├── AWS_DEPLOYMENT.md        # Guide de déploiement AWS (Nouveau ✨)
-└── AGENT_CARDS_IMPLEMENTATION.md  # Documentation des cartes d'agents (Nouveau ✨)
+├── A2A_BEST_PRACTICES.md    # Guide des meilleures pratiques ⭐ Nouveau
+├── DEPLOYMENT_CHECKLIST.md  # Checklist de déploiement ⭐ Nouveau
+├── AWS_DEPLOYMENT.md        # Guide de déploiement AWS
+└── AGENT_CARDS_IMPLEMENTATION.md  # Documentation des cartes d'agents
 ```
 
 ### Tests
