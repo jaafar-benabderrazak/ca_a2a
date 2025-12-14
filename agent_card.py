@@ -1,8 +1,9 @@
 """
 Agent Card and Skills System
 Provides self-description and capability discovery for agents
+Supports both JSON Schema and Pydantic models for validation
 """
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Union, Type
 from datetime import datetime
 from dataclasses import dataclass, asdict, field
 import json
@@ -12,6 +13,7 @@ import json
 class AgentSkill:
     """
     Represents a single skill/capability that an agent can perform
+    Supports both JSON Schema and Pydantic models for validation
     """
     skill_id: str
     name: str
@@ -23,9 +25,133 @@ class AgentSkill:
     avg_processing_time_ms: Optional[int] = None
     max_input_size_mb: Optional[int] = None
     
+    # Support Pydantic models (stored as schema reference)
+    _pydantic_request_model: Optional[Type] = field(default=None, repr=False, compare=False)
+    _pydantic_response_model: Optional[Type] = field(default=None, repr=False, compare=False)
+    
+    @staticmethod
+    def from_pydantic(
+        skill_id: str,
+        name: str,
+        description: str,
+        method: str,
+        request_model: Optional[Type] = None,
+        response_model: Optional[Type] = None,
+        tags: List[str] = None,
+        avg_processing_time_ms: Optional[int] = None,
+        max_input_size_mb: Optional[int] = None
+    ) -> 'AgentSkill':
+        """
+        Create AgentSkill from Pydantic models
+        
+        Args:
+            skill_id: Unique identifier for the skill
+            name: Human-readable name
+            description: What the skill does
+            method: A2A method name to invoke
+            request_model: Pydantic BaseModel for request validation
+            response_model: Pydantic BaseModel for response validation
+            tags: List of tags for categorization
+            avg_processing_time_ms: Average processing time
+            max_input_size_mb: Maximum input size in MB
+        """
+        # Generate JSON schemas from Pydantic models
+        input_schema = {}
+        output_schema = {}
+        
+        try:
+            # Try importing pydantic to check if models are BaseModel
+            from pydantic import BaseModel
+            
+            if request_model and issubclass(request_model, BaseModel):
+                input_schema = request_model.model_json_schema()
+            
+            if response_model and issubclass(response_model, BaseModel):
+                output_schema = response_model.model_json_schema()
+        except (ImportError, TypeError):
+            pass
+        
+        skill = AgentSkill(
+            skill_id=skill_id,
+            name=name,
+            description=description,
+            method=method,
+            input_schema=input_schema,
+            output_schema=output_schema,
+            tags=tags or [],
+            avg_processing_time_ms=avg_processing_time_ms,
+            max_input_size_mb=max_input_size_mb
+        )
+        
+        # Store Pydantic model references
+        skill._pydantic_request_model = request_model
+        skill._pydantic_response_model = response_model
+        
+        return skill
+    
+    def validate_request(self, data: Dict[str, Any]) -> tuple[bool, Optional[str], Optional[Any]]:
+        """
+        Validate request data using Pydantic model if available, otherwise JSON Schema
+        Returns (is_valid, error_message, validated_data)
+        """
+        # Try Pydantic validation first if model is available
+        if self._pydantic_request_model:
+            try:
+                from utils import validate_with_pydantic
+                is_valid, error, validated = validate_with_pydantic(
+                    self._pydantic_request_model, data
+                )
+                return is_valid, error, validated
+            except ImportError:
+                pass
+        
+        # Fallback to JSON Schema validation
+        if self.input_schema:
+            try:
+                from utils import validate_json_schema
+                is_valid, error = validate_json_schema(data, self.input_schema)
+                return is_valid, error, data if is_valid else None
+            except ImportError:
+                pass
+        
+        # No validation available
+        return True, None, data
+    
+    def validate_response(self, data: Dict[str, Any]) -> tuple[bool, Optional[str], Optional[Any]]:
+        """
+        Validate response data using Pydantic model if available, otherwise JSON Schema
+        Returns (is_valid, error_message, validated_data)
+        """
+        # Try Pydantic validation first if model is available
+        if self._pydantic_response_model:
+            try:
+                from utils import validate_with_pydantic
+                is_valid, error, validated = validate_with_pydantic(
+                    self._pydantic_response_model, data
+                )
+                return is_valid, error, validated
+            except ImportError:
+                pass
+        
+        # Fallback to JSON Schema validation
+        if self.output_schema:
+            try:
+                from utils import validate_json_schema
+                is_valid, error = validate_json_schema(data, self.output_schema)
+                return is_valid, error, data if is_valid else None
+            except ImportError:
+                pass
+        
+        # No validation available
+        return True, None, data
+    
     def to_dict(self) -> Dict[str, Any]:
-        """Convert skill to dictionary"""
-        return {k: v for k, v in asdict(self).items() if v is not None}
+        """Convert skill to dictionary (excludes Pydantic model references)"""
+        data = asdict(self)
+        # Remove internal Pydantic model references
+        data.pop('_pydantic_request_model', None)
+        data.pop('_pydantic_response_model', None)
+        return {k: v for k, v in data.items() if v is not None}
 
 
 @dataclass

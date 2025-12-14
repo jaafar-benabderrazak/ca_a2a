@@ -204,6 +204,43 @@ def validate_json_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> tuple[
         return True, None
 
 
+def validate_with_pydantic(model: type, data: Dict[str, Any]) -> tuple[bool, Optional[str], Optional[Any]]:
+    """
+    Validate data with Pydantic model
+    Returns (is_valid, error_message, validated_model)
+    
+    Args:
+        model: Pydantic BaseModel class
+        data: Dictionary to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message, validated_model_instance)
+    """
+    try:
+        from pydantic import BaseModel, ValidationError
+        
+        if not isinstance(model, type) or not issubclass(model, BaseModel):
+            return False, "Invalid model: must be a Pydantic BaseModel class", None
+        
+        validated = model.model_validate(data)
+        return True, None, validated
+        
+    except ValidationError as e:
+        error_details = []
+        for error in e.errors():
+            field = ".".join(str(loc) for loc in error['loc'])
+            msg = error['msg']
+            error_details.append(f"{field}: {msg}")
+        error_message = "; ".join(error_details)
+        return False, error_message, None
+        
+    except ImportError:
+        logger.warning("pydantic not installed, skipping validation")
+        return True, None, None
+    except Exception as e:
+        return False, f"Validation error: {str(e)}", None
+
+
 class PerformanceMonitor:
     """
     Monitor agent performance metrics

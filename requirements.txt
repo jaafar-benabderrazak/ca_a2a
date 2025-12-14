@@ -12,8 +12,9 @@ aioboto3>=13.0.0
 PyPDF2>=3.0.1
 pdfplumber>=0.11.0
 
-# Validation (using pre-built wheels)
-jsonschema>=4.20.0
+# Validation
+pydantic>=2.5.0
+jsonschema>=4.20.0  # Keep for backward compatibility with Agent Cards
 
 # Environment
 python-dotenv>=1.0.0

@@ -122,15 +122,28 @@ class BaseAgent(ABC):
             
             # Validate input against skill schema if defined
             if message.method and message.params:
+            # Validate input using Pydantic (preferred) or JSON Schema (fallback)
+            if message.method and self.agent_card:
                 skill = self.agent_card.get_skill(message.method) if self.agent_card else None
-                if skill and skill.input_schema:
-                    is_valid, error_msg = validate_json_schema(message.params, skill.input_schema)
+                if skill:
+                    # Try Pydantic validation first (better error messages)
+                    is_valid, error_msg, validated_data = skill.validate_request(message.params)
                     if not is_valid:
                         self.logger.warning(f"Input validation failed for {message.method}: {error_msg}")
                         error_response = A2AMessage.create_error(
                             message.id, -32602, f"Invalid params: {error_msg}"
                         )
                         return web.json_response(error_response.to_dict(), status=400)
+                    
+                    # Replace params with validated data (Pydantic models or validated dict)
+                    if validated_data is not None:
+                        # If it's a Pydantic model, convert to dict
+                        try:
+                            from pydantic import BaseModel
+                            if isinstance(validated_data, BaseModel):
+                                message.params = validated_data.model_dump()
+                        except ImportError:
+                            pass
             
             # Process message through A2A protocol
             response_message = await self.protocol.handle_message(message)

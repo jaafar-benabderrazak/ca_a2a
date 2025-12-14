@@ -56,6 +56,7 @@ python client.py process "documents/test.pdf"
 - [A2A_BEST_PRACTICES.md](A2A_BEST_PRACTICES.md) - Guide technique des best practices
 - [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) - Guide de déploiement AWS détaillé
 - [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - Checklist de production
+- [PYDANTIC_MIGRATION.md](PYDANTIC_MIGRATION.md) - Guide Pydantic validation (NEW!)
 
 ## ✨ Fonctionnalités Principales
 
@@ -65,6 +66,7 @@ python client.py process "documents/test.pdf"
 - 💾 **Persistence Fiable** : PostgreSQL avec audit trail
 - 🔍 **Agent Cards** : Auto-description et découverte dynamique
 - 🛡️ **Production-Ready** : Retry, circuit breakers, idempotency, structured logging
+- 🎯 **Pydantic Validation** : Type-safe request/response validation (NEW!)
 - 🐳 **Docker Ready** : Déploiement containerisé
 - ☁️ **AWS Ready** : Guide complet ECS Fargate + Cloud Map
 
