@@ -11,16 +11,26 @@ $environment = "Production"
 $owner = "j.benabderrazak@reply.com"
 $accountId = "555043101106"
 
-# Tags
-$tags = @(
-    "Key=Project,Value=CA-A2A"
-    "Key=Environment,Value=$environment"
-    "Key=Owner,Value=$owner"
-    "Key=ManagedBy,Value=Script"
-    "Key=CostCenter,Value=CA-Reply"
-    "Key=Application,Value=Agent-Based-Architecture"
-)
-$tagsString = $tags -join " "
+# Tags - Create as individual parameters
+$commonTags = @{
+    "Project" = "CA-A2A"
+    "Environment" = $environment
+    "Owner" = $owner
+    "ManagedBy" = "Script"
+    "CostCenter" = "CA-Reply"
+    "Application" = "Agent-Based-Architecture"
+}
+
+# Convert tags to AWS CLI format
+function Get-TagsForCLI {
+    param($AdditionalTags = @{})
+    $allTags = $commonTags + $AdditionalTags
+    $tagArray = @()
+    foreach ($key in $allTags.Keys) {
+        $tagArray += "Key=$key,Value=$($allTags[$key])"
+    }
+    return $tagArray
+}
 
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "CA A2A Infrastructure Deployment" -ForegroundColor Cyan
@@ -47,7 +57,8 @@ Write-Host "  Using existing VPC: $vpcId" -ForegroundColor Yellow
 
 # Tag existing VPC
 try {
-    aws ec2 create-tags --resources $vpcId --tags $tagsString --region $region
+    $tagParams = Get-TagsForCLI
+    aws ec2 create-tags --resources $vpcId --tags $tagParams --region $region
     Write-Host "  VPC tagged successfully" -ForegroundColor Green
 } catch {
     Write-Host "  Warning: Could not tag VPC" -ForegroundColor Yellow
@@ -61,7 +72,8 @@ Write-Host "  Using existing subnets: $subnet1, $subnet2" -ForegroundColor Yello
 
 # Tag subnets
 try {
-    aws ec2 create-tags --resources $subnet1 $subnet2 --tags $tagsString --region $region
+    $tagParams = Get-TagsForCLI
+    aws ec2 create-tags --resources $subnet1 $subnet2 --tags $tagParams --region $region
     Write-Host "  Subnets tagged successfully" -ForegroundColor Green
 } catch {
     Write-Host "  Warning: Could not tag subnets" -ForegroundColor Yellow
@@ -74,7 +86,8 @@ Write-Host "  Using existing security group: $sgId" -ForegroundColor Yellow
 
 # Tag security group
 try {
-    aws ec2 create-tags --resources $sgId --tags $tagsString --region $region
+    $tagParams = Get-TagsForCLI
+    aws ec2 create-tags --resources $sgId --tags $tagParams --region $region
     Write-Host "  Security group tagged successfully" -ForegroundColor Green
 } catch {
     Write-Host "  Warning: Could not tag security group" -ForegroundColor Yellow
@@ -88,11 +101,12 @@ try {
         Write-Host "  DB Subnet Group already exists" -ForegroundColor Yellow
     }
 } catch {
+    $tagParams = Get-TagsForCLI -AdditionalTags @{"Component" = "Database"}
     aws rds create-db-subnet-group `
         --db-subnet-group-name "$projectName-db-subnet" `
         --db-subnet-group-description "Subnet group for $projectName PostgreSQL" `
         --subnet-ids $subnet1 $subnet2 `
-        --tags $tagsString "Key=Component,Value=Database" `
+        --tags $tagParams `
         --region $region
     Write-Host "  DB Subnet Group created successfully" -ForegroundColor Green
 }
@@ -116,6 +130,7 @@ try {
     }
 } catch {
     Write-Host "  Creating RDS instance (this takes 5-10 minutes)..." -ForegroundColor Cyan
+    $tagParams = Get-TagsForCLI -AdditionalTags @{"Component" = "Database"}
     aws rds create-db-instance `
         --db-instance-identifier "$projectName-postgres" `
         --db-instance-class db.t3.medium `
@@ -131,7 +146,7 @@ try {
         --enable-cloudwatch-logs-exports postgresql `
         --no-publicly-accessible `
         --no-multi-az `
-        --tags $tagsString "Key=Component,Value=Database" `
+        --tags $tagParams `
         --region $region
     Write-Host "  RDS instance creation initiated" -ForegroundColor Green
 }
@@ -192,11 +207,12 @@ foreach ($agent in $agents) {
             Write-Host "  ECR repo $repoName already exists" -ForegroundColor Yellow
         }
     } catch {
+        $tagParams = Get-TagsForCLI -AdditionalTags @{"Component" = "Container-Registry"; "AgentName" = $agent}
         aws ecr create-repository `
             --repository-name $repoName `
             --image-scanning-configuration scanOnPush=true `
             --region $region `
-            --tags $tagsString "Key=Component,Value=Container-Registry" "Key=AgentName,Value=$agent"
+            --tags $tagParams
         Write-Host "  ECR repository $repoName created" -ForegroundColor Green
     }
 }
@@ -212,10 +228,11 @@ try {
         throw "Cluster not found"
     }
 } catch {
+    $tagParams = Get-TagsForCLI -AdditionalTags @{"Component" = "Compute"}
     aws ecs create-cluster `
         --cluster-name "$projectName-cluster" `
         --capacity-providers FARGATE FARGATE_SPOT `
-        --tags $tagsString "Key=Component,Value=Compute" `
+        --tags $tagParams `
         --region $region
     Write-Host "  ECS cluster created successfully" -ForegroundColor Green
 }
@@ -266,10 +283,13 @@ try {
 "@
     $trustPolicy | Out-File -FilePath "trust-policy-temp.json" -Encoding utf8
     
+    $tagParams = Get-TagsForCLI -AdditionalTags @{"Component" = "Security"}
     aws iam create-role `
         --role-name $executionRoleName `
         --assume-role-policy-document file://trust-policy-temp.json `
-        --tags $tagsString "Key=Component,Value=Security"
+        --tags $tagParams
+    
+    Start-Sleep -Seconds 2  # Wait for role to be created
     
     aws iam attach-role-policy `
         --role-name $executionRoleName `
@@ -303,10 +323,13 @@ try {
 "@
     $trustPolicy | Out-File -FilePath "trust-policy-temp.json" -Encoding utf8
     
+    $tagParams = Get-TagsForCLI -AdditionalTags @{"Component" = "Security"}
     aws iam create-role `
         --role-name $taskRoleName `
         --assume-role-policy-document file://trust-policy-temp.json `
-        --tags $tagsString "Key=Component,Value=Security"
+        --tags $tagParams
+    
+    Start-Sleep -Seconds 2  # Wait for role to be created
     
     # Create inline policy for S3 access
     $s3Policy = @"
