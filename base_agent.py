@@ -346,7 +346,7 @@ class BaseAgent(ABC):
         
         try:
             # Keep running until stopped
-            while self.site and not self.site._runner._cleanup_closed:
+            while True:
                 await asyncio.sleep(1)
         except KeyboardInterrupt:
             self.logger.info("Received keyboard interrupt")

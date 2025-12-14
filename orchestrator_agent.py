@@ -3,7 +3,7 @@ Orchestrator Agent
 Coordinates the document processing pipeline between agents
 """
 import asyncio
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 import uuid
 
@@ -315,10 +315,10 @@ class OrchestratorAgent(BaseAgent):
         
         documents = await self.mcp.postgres.fetch_all(query, limit)
         
-            return {
-                'count': len(documents),
-                'documents': documents
-            }
+        return {
+            'count': len(documents),
+            'documents': documents
+        }
     
     async def handle_discover_agents(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
