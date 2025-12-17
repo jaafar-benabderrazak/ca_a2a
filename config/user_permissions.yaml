@@ -1,0 +1,326 @@
+# User Permissions Configuration
+# Define user categories and API client permissions
+
+# User definitions
+users:
+  # Financial Services Users
+  - user_id: loan_officer_001
+    category: standard_user
+    custom_allowed_skills:
+      - search_documents
+      - get_document_stats
+    metadata:
+      department: lending
+      clearance_level: 2
+      region: north_america
+
+  - user_id: compliance_officer_001
+    category: auditor
+    custom_allowed_skills:
+      - update_document_status
+    metadata:
+      department: compliance
+      clearance_level: 4
+      certifications: ["SOX", "FINRA"]
+
+  - user_id: data_analyst_001
+    category: analyst
+    metadata:
+      department: analytics
+      clearance_level: 3
+
+  # Healthcare Users
+  - user_id: data_entry_clerk_001
+    category: standard_user
+    custom_denied_skills:
+      - process_batch  # Safety: prevent accidental batch operations
+    metadata:
+      department: medical_records
+      facility: hospital_main
+      shift: day
+
+  - user_id: records_manager_001
+    category: power_user
+    custom_allowed_skills:
+      - update_document_status
+    metadata:
+      department: medical_records
+      clearance_level: 4
+      hipaa_certified: true
+
+  - user_id: hipaa_auditor_001
+    category: auditor
+    metadata:
+      department: compliance
+      certification: HIPAA
+      clearance_level: 5
+      audit_scope: PHI
+
+  # Administrators
+  - user_id: system_admin_001
+    category: admin
+    metadata:
+      department: IT
+      clearance_level: 5
+      on_call: true
+
+# API Client definitions
+api_clients:
+  # Analytics Service
+  - client_id: analytics_service_prod
+    api_key: key_analytics_prod_secure_001
+    category: api_client
+    allowed_skills:
+      - get_document
+      - search_documents
+      - get_document_stats
+      - get_task_status
+      - list_pending_documents
+      - discover_agents
+      - get_agent_registry
+    rate_limit: 1000  # requests per hour
+    metadata:
+      tier: premium
+      department: analytics
+      environment: production
+      contact: analytics-team@example.com
+
+  # Document Processing Service
+  - client_id: processing_service_prod
+    api_key: key_processing_prod_secure_001
+    category: api_client
+    allowed_skills:
+      - extract_document
+      - pdf_text_extraction
+      - pdf_table_extraction
+      - csv_parsing
+      - process_document
+      - process_batch
+      - validate_document
+      - archive_document
+      - get_task_status
+    rate_limit: 5000  # requests per hour
+    metadata:
+      tier: enterprise
+      department: operations
+      environment: production
+      contact: ops-team@example.com
+
+  # Partner Integration
+  - client_id: partner_acme_corp
+    api_key: key_partner_acme_secure_001
+    category: api_client
+    allowed_skills:
+      - process_document
+      - get_task_status
+      - get_document
+    rate_limit: 500  # requests per hour
+    metadata:
+      tier: partner
+      partner_name: Acme Corporation
+      contract_id: PARTNER-2024-001
+      environment: production
+      contact: integration@acmecorp.com
+
+  # Read-Only Reporting
+  - client_id: reporting_dashboard
+    api_key: key_reporting_dashboard_001
+    category: api_client
+    allowed_skills:
+      - get_document
+      - search_documents
+      - get_document_stats
+      - list_pending_documents
+    rate_limit: 2000  # requests per hour
+    metadata:
+      tier: standard
+      department: business_intelligence
+      environment: production
+      contact: bi-team@example.com
+
+  # Development/Testing
+  - client_id: dev_testing
+    api_key: key_dev_test_001
+    category: api_client
+    allowed_skills:
+      - extract_document
+      - process_document
+      - validate_document
+      - get_document
+      - search_documents
+    rate_limit: 100  # requests per hour
+    metadata:
+      tier: development
+      environment: development
+      contact: dev-team@example.com
+
+# Category-based defaults
+category_defaults:
+  viewer:
+    description: "Read-only access to documents and statistics"
+    rate_limit: 100
+    allowed_operations: ["read"]
+
+  standard_user:
+    description: "Can process individual documents"
+    rate_limit: 500
+    allowed_operations: ["read", "process"]
+
+  power_user:
+    description: "Full document processing and validation"
+    rate_limit: 1000
+    allowed_operations: ["read", "process", "validate"]
+
+  analyst:
+    description: "Analytics and reporting focus"
+    rate_limit: 2000
+    allowed_operations: ["read", "analyze"]
+
+  auditor:
+    description: "Audit and compliance focus"
+    rate_limit: 1000
+    allowed_operations: ["read", "audit", "validate"]
+
+  admin:
+    description: "Full system access"
+    rate_limit: 10000
+    allowed_operations: ["read", "write", "delete", "admin"]
+
+  api_client:
+    description: "Programmatic access with custom scope"
+    rate_limit: 1000
+    allowed_operations: []  # Defined per client
+
+# Industry-specific templates
+industry_templates:
+  financial_services:
+    roles:
+      - name: loan_officer
+        category: standard_user
+        allowed_skills: [
+          "extract_document",
+          "process_document",
+          "get_task_status",
+          "get_document",
+          "search_documents"
+        ]
+
+      - name: underwriter
+        category: power_user
+        allowed_skills: [
+          "extract_document",
+          "process_document",
+          "validate_document",
+          "archive_document",
+          "get_document",
+          "search_documents",
+          "get_document_stats"
+        ]
+
+      - name: compliance_officer
+        category: auditor
+        allowed_skills: [
+          "validate_document",
+          "get_validation_rules",
+          "search_documents",
+          "get_document_stats",
+          "audit_logging"
+        ]
+
+  healthcare:
+    roles:
+      - name: data_entry
+        category: standard_user
+        denied_skills: ["process_batch"]
+        allowed_skills: [
+          "extract_document",
+          "process_document",
+          "get_task_status"
+        ]
+
+      - name: records_manager
+        category: power_user
+        allowed_skills: [
+          "extract_document",
+          "process_document",
+          "process_batch",
+          "validate_document",
+          "archive_document",
+          "update_document_status",
+          "search_documents"
+        ]
+
+      - name: hipaa_auditor
+        category: auditor
+        allowed_skills: [
+          "validate_document",
+          "get_document",
+          "search_documents",
+          "get_document_stats",
+          "audit_logging"
+        ]
+
+  legal:
+    roles:
+      - name: paralegal
+        category: standard_user
+        allowed_skills: [
+          "extract_document",
+          "process_document",
+          "get_document",
+          "search_documents"
+        ]
+
+      - name: attorney
+        category: power_user
+        allowed_skills: [
+          "extract_document",
+          "process_document",
+          "validate_document",
+          "archive_document",
+          "get_document",
+          "search_documents",
+          "get_document_stats"
+        ]
+
+      - name: records_clerk
+        category: analyst
+        allowed_skills: [
+          "get_document",
+          "search_documents",
+          "get_document_stats",
+          "list_pending_documents"
+        ]
+
+# Security settings
+security:
+  jwt:
+    algorithm: HS256
+    expiration_hours: 24
+    refresh_enabled: true
+    refresh_expiration_days: 7
+
+  api_keys:
+    rotation_days: 90
+    min_length: 32
+    require_https: true
+
+  rate_limiting:
+    enabled: true
+    strategy: sliding_window
+    block_duration_minutes: 60
+
+  audit:
+    log_all_requests: true
+    log_denied_requests: true
+    retention_days: 365
+
+# Feature flags
+features:
+  require_authentication: true
+  allow_anonymous_viewer: false
+  enable_custom_permissions: true
+  enable_api_key_auth: true
+  enable_jwt_auth: true
+  enable_rate_limiting: true
+  enable_audit_logging: true
