@@ -2,7 +2,22 @@
 
 Un système de traitement documentaire distribué basé sur une architecture multi-agents autonomes, utilisant les protocoles A2A (Agent-to-Agent) et MCP (Model Context Protocol).
 
-## 🚀 Démarrage Rapide
+## ☁️ Deploy to AWS (Recommended)
+
+**Deploy in 3 commands:**
+
+```bash
+./check.sh      # Verify prerequisites
+./deploy.sh     # Deploy everything
+```
+
+**That's it!** Full production deployment to AWS in ~30 minutes.
+
+📖 **[See DEPLOY.md for complete guide](DEPLOY.md)**
+
+---
+
+## 🚀 Local Development Setup
 
 ```bash
 # 1. Installer les dépendances
