@@ -7,6 +7,13 @@
 
 set -e
 
+# Disable path conversion for Git Bash on Windows
+export MSYS_NO_PATHCONV=1
+
+# Create temp directory for task definitions
+TASK_DEF_DIR="./task-definitions"
+mkdir -p ${TASK_DEF_DIR}
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -136,7 +143,7 @@ EXEC_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${PROJECT_NAME}-ecs-execution
 TASK_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${PROJECT_NAME}-ecs-task-role"
 
 # Orchestrator task definition
-cat > /tmp/orchestrator-task.json <<EOF
+cat > ${TASK_DEF_DIR}/orchestrator-task.json <<EOF
 {
   "family": "${PROJECT_NAME}-orchestrator",
   "networkMode": "awsvpc",
@@ -188,7 +195,7 @@ cat > /tmp/orchestrator-task.json <<EOF
 EOF
 
 aws ecs register-task-definition \
-    --cli-input-json file:///tmp/orchestrator-task.json \
+    --cli-input-json file://${TASK_DEF_DIR}/orchestrator-task.json \
     --region ${AWS_REGION}
 
 # Create task definitions for other agents
@@ -200,7 +207,7 @@ for agent in extractor validator archivist; do
         archivist) PORT=8004 ;;
     esac
 
-    cat > /tmp/${agent}-task.json <<EOF
+    cat > ${TASK_DEF_DIR}/${agent}-task.json <<EOF
 {
   "family": "${PROJECT_NAME}-${agent}",
   "networkMode": "awsvpc",
@@ -246,7 +253,7 @@ for agent in extractor validator archivist; do
 EOF
 
     aws ecs register-task-definition \
-        --cli-input-json file:///tmp/${agent}-task.json \
+        --cli-input-json file://${TASK_DEF_DIR}/${agent}-task.json \
         --region ${AWS_REGION}
 done
 
