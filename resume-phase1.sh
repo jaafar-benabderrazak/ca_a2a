@@ -5,6 +5,9 @@
 
 set -e
 
+# Disable path conversion for Git Bash on Windows
+export MSYS_NO_PATHCONV=1
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
