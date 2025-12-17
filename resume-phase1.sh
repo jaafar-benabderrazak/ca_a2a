@@ -31,25 +31,36 @@ VPC_ID=$(aws ec2 describe-vpcs \
     --region ${AWS_REGION} \
     --query 'Vpcs[0].VpcId' --output text)
 
-PUBLIC_SUBNET_1=$(aws ec2 describe-subnets \
-    --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-1" \
+# Get all subnets in the VPC
+ALL_SUBNETS=$(aws ec2 describe-subnets \
+    --filters "Name=vpc-id,Values=${VPC_ID}" \
     --region ${AWS_REGION} \
-    --query 'Subnets[0].SubnetId' --output text)
+    --query 'Subnets[].[SubnetId,CidrBlock,AvailabilityZone,Tags[?Key==`Name`].Value|[0]]' \
+    --output text)
 
-PUBLIC_SUBNET_2=$(aws ec2 describe-subnets \
-    --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-2" \
-    --region ${AWS_REGION} \
-    --query 'Subnets[0].SubnetId' --output text)
+# Parse subnets by CIDR block (more reliable than tags)
+PUBLIC_SUBNET_1=$(echo "$ALL_SUBNETS" | grep "10.0.1.0/24" | awk '{print $1}')
+PUBLIC_SUBNET_2=$(echo "$ALL_SUBNETS" | grep "10.0.2.0/24" | awk '{print $1}')
+PRIVATE_SUBNET_1=$(echo "$ALL_SUBNETS" | grep "10.0.10.0/24" | awk '{print $1}')
+PRIVATE_SUBNET_2=$(echo "$ALL_SUBNETS" | grep "10.0.20.0/24" | awk '{print $1}')
 
-PRIVATE_SUBNET_1=$(aws ec2 describe-subnets \
-    --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-1" \
-    --region ${AWS_REGION} \
-    --query 'Subnets[0].SubnetId' --output text)
+# If still empty, try getting by position and AZ
+if [ -z "$PUBLIC_SUBNET_1" ] || [ -z "$PUBLIC_SUBNET_2" ]; then
+    log_warn "Could not find subnets by CIDR, trying alternative method..."
 
-PRIVATE_SUBNET_2=$(aws ec2 describe-subnets \
-    --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-2" \
-    --region ${AWS_REGION} \
-    --query 'Subnets[0].SubnetId' --output text)
+    # Get subnets sorted by CIDR
+    SUBNETS_SORTED=$(aws ec2 describe-subnets \
+        --filters "Name=vpc-id,Values=${VPC_ID}" \
+        --region ${AWS_REGION} \
+        --query 'sort_by(Subnets, &CidrBlock)[*].SubnetId' \
+        --output text)
+
+    # Assign based on position (first 2 should be public 10.0.1.0 and 10.0.2.0)
+    PUBLIC_SUBNET_1=$(echo $SUBNETS_SORTED | awk '{print $1}')
+    PUBLIC_SUBNET_2=$(echo $SUBNETS_SORTED | awk '{print $2}')
+    PRIVATE_SUBNET_1=$(echo $SUBNETS_SORTED | awk '{print $3}')
+    PRIVATE_SUBNET_2=$(echo $SUBNETS_SORTED | awk '{print $4}')
+fi
 
 ALB_SG=$(aws ec2 describe-security-groups \
     --filters "Name=group-name,Values=${PROJECT_NAME}-alb-sg" \
