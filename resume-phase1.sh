@@ -191,7 +191,7 @@ log_info "Creating service discovery..."
 
 NAMESPACE_ID=$(aws servicediscovery list-namespaces \
     --region ${AWS_REGION} \
-    --query "Namespaces[?Name=='local'].Id" --output text)
+    --query "Namespaces[?Name=='local'].Id" --output text 2>/dev/null)
 
 if [ -z "$NAMESPACE_ID" ] || [ "$NAMESPACE_ID" = "None" ]; then
     log_info "Creating service discovery namespace..."
@@ -200,23 +200,48 @@ if [ -z "$NAMESPACE_ID" ] || [ "$NAMESPACE_ID" = "None" ]; then
         --vpc ${VPC_ID} \
         --description "Service discovery for ${PROJECT_NAME}" \
         --region ${AWS_REGION} \
-        --query 'OperationId' --output text)
+        --query 'OperationId' --output text 2>/dev/null)
 
-    log_info "Waiting for namespace creation..."
-    sleep 30
+    if [ ! -z "$OPERATION_ID" ] && [ "$OPERATION_ID" != "None" ]; then
+        log_info "Waiting for namespace creation (operation: ${OPERATION_ID})..."
 
-    NAMESPACE_ID=$(aws servicediscovery list-namespaces \
-        --region ${AWS_REGION} \
-        --query "Namespaces[?Name=='local'].Id" --output text)
+        # Wait up to 5 minutes for namespace creation
+        for i in {1..30}; do
+            sleep 10
+            NAMESPACE_ID=$(aws servicediscovery list-namespaces \
+                --region ${AWS_REGION} \
+                --query "Namespaces[?Name=='local'].Id" --output text 2>/dev/null)
+
+            if [ ! -z "$NAMESPACE_ID" ] && [ "$NAMESPACE_ID" != "None" ]; then
+                log_info "Namespace created successfully"
+                break
+            fi
+
+            if [ $i -eq 30 ]; then
+                log_error "Timeout waiting for namespace creation"
+                exit 1
+            fi
+        done
+    else
+        log_error "Failed to create namespace"
+        exit 1
+    fi
 fi
 
 log_info "Service discovery namespace: ${NAMESPACE_ID}"
+
+# Verify namespace ID is valid before continuing
+if [ -z "$NAMESPACE_ID" ] || [ "$NAMESPACE_ID" = "None" ]; then
+    log_error "Invalid namespace ID. Cannot create services."
+    log_info "You may need to create the namespace manually in the AWS console."
+    exit 1
+fi
 
 # Create service discovery services
 for agent in extractor validator archivist; do
     SERVICE_ID=$(aws servicediscovery list-services \
         --region ${AWS_REGION} \
-        --query "Services[?Name=='${agent}'].Id" --output text)
+        --query "Services[?Name=='${agent}'].Id" --output text 2>/dev/null)
 
     if [ -z "$SERVICE_ID" ] || [ "$SERVICE_ID" = "None" ]; then
         log_info "Creating service discovery for ${agent}..."
@@ -225,7 +250,7 @@ for agent in extractor validator archivist; do
             --namespace-id ${NAMESPACE_ID} \
             --dns-config "NamespaceId=${NAMESPACE_ID},DnsRecords=[{Type=A,TTL=60}]" \
             --health-check-custom-config FailureThreshold=1 \
-            --region ${AWS_REGION} >/dev/null
+            --region ${AWS_REGION} >/dev/null 2>&1
     else
         log_info "Service discovery for ${agent} already exists"
     fi
