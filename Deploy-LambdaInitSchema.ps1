@@ -1,7 +1,7 @@
 # Deploy Lambda Function to Initialize Database Schema
 # Run this PowerShell script
 
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 Write-Host "`n=========================================" -ForegroundColor Green
 Write-Host "  DEPLOY LAMBDA TO INITIALIZE SCHEMA" -ForegroundColor Green
@@ -33,26 +33,20 @@ $TRUST_POLICY = @"
 
 $TRUST_POLICY | Out-File -FilePath "$env:TEMP\trust-policy.json" -Encoding UTF8
 
-# Create role
-try {
+# Create or get role
+$ROLE_ARN = aws iam get-role --role-name $ROLE_NAME --profile $PROFILE --query 'Role.Arn' --output text 2>$null
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "Creating new role..." -ForegroundColor Yellow
     $ROLE_ARN = aws iam create-role `
       --role-name $ROLE_NAME `
       --assume-role-policy-document file://$env:TEMP\trust-policy.json `
-      --region $REGION `
       --profile $PROFILE `
       --query 'Role.Arn' `
       --output text
-    
-    Write-Host "✓ Role created: $ROLE_ARN" -ForegroundColor Green
-} catch {
-    # Role might already exist
-    $ROLE_ARN = aws iam get-role `
-      --role-name $ROLE_NAME `
-      --profile $PROFILE `
-      --query 'Role.Arn' `
-      --output text
-    
-    Write-Host "✓ Using existing role: $ROLE_ARN" -ForegroundColor Green
+    Write-Host "Role created: $ROLE_ARN" -ForegroundColor Green
+} else {
+    Write-Host "Using existing role: $ROLE_ARN" -ForegroundColor Green
 }
 
 # Attach policies
@@ -68,7 +62,7 @@ aws iam attach-role-policy `
   --policy-arn "arn:aws:iam::aws:policy/SecretsManagerReadWrite" `
   --profile $PROFILE 2>$null
 
-Write-Host "✓ Policies attached" -ForegroundColor Green
+Write-Host "Policies attached" -ForegroundColor Green
 
 Write-Host "`nStep 3: Waiting for role to propagate..." -ForegroundColor Cyan
 Start-Sleep -Seconds 10
@@ -87,7 +81,7 @@ Copy-Item "lambda-init-schema.py" "$DEPLOY_DIR\lambda_function.py"
 
 # Install asyncpg to deployment directory
 Write-Host "Installing asyncpg..." -ForegroundColor Yellow
-pip install asyncpg -t $DEPLOY_DIR --quiet
+pip install asyncpg -t $DEPLOY_DIR --quiet --no-warn-script-location
 
 # Create ZIP
 Write-Host "Creating ZIP package..." -ForegroundColor Yellow
@@ -95,11 +89,11 @@ Push-Location $DEPLOY_DIR
 Compress-Archive -Path * -DestinationPath "$env:TEMP\lambda-function.zip" -Force
 Pop-Location
 
-Write-Host "✓ Package created" -ForegroundColor Green
+Write-Host "Package created" -ForegroundColor Green
 
 Write-Host "`nStep 5: Creating Lambda function..." -ForegroundColor Cyan
 
-# Get VPC subnets (use private subnets where RDS is)
+# Get VPC subnets
 $SUBNET_IDS = aws ec2 describe-subnets `
   --filters "Name=vpc-id,Values=vpc-086392a3eed899f72" "Name=tag:Name,Values=*private*" `
   --region $REGION `
@@ -121,12 +115,21 @@ $SUBNETS = ($SUBNET_IDS -split "`t") -join ","
 Write-Host "Using subnets: $SUBNETS" -ForegroundColor White
 
 # Get security group
-$SG_ID = "sg-047a8f39f9cdcaf4c"  # ECS security group that can reach RDS
-
+$SG_ID = "sg-047a8f39f9cdcaf4c"
 Write-Host "Using security group: $SG_ID" -ForegroundColor White
 
-try {
-    # Create Lambda function
+# Check if function exists
+$FUNC_EXISTS = aws lambda get-function --function-name $FUNCTION_NAME --region $REGION --profile $PROFILE 2>$null
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Function exists, updating code..." -ForegroundColor Yellow
+    aws lambda update-function-code `
+      --function-name $FUNCTION_NAME `
+      --zip-file "fileb://$env:TEMP\lambda-function.zip" `
+      --region $REGION `
+      --profile $PROFILE | Out-Null
+    Write-Host "Lambda function updated" -ForegroundColor Green
+} else {
+    Write-Host "Creating new Lambda function..." -ForegroundColor Yellow
     $FUNCTION_ARN = aws lambda create-function `
       --function-name $FUNCTION_NAME `
       --runtime python3.9 `
@@ -140,18 +143,7 @@ try {
       --profile $PROFILE `
       --query 'FunctionArn' `
       --output text
-    
-    Write-Host "✓ Lambda function created: $FUNCTION_ARN" -ForegroundColor Green
-} catch {
-    Write-Host "Function might already exist, updating code..." -ForegroundColor Yellow
-    
-    aws lambda update-function-code `
-      --function-name $FUNCTION_NAME `
-      --zip-file "fileb://$env:TEMP\lambda-function.zip" `
-      --region $REGION `
-      --profile $PROFILE | Out-Null
-    
-    Write-Host "✓ Lambda function updated" -ForegroundColor Green
+    Write-Host "Lambda function created: $FUNCTION_ARN" -ForegroundColor Green
 }
 
 Write-Host "`nStep 6: Waiting for function to be active..." -ForegroundColor Cyan
@@ -159,17 +151,22 @@ Start-Sleep -Seconds 15
 
 Write-Host "`nStep 7: Invoking Lambda to initialize schema..." -ForegroundColor Cyan
 
-aws lambda invoke `
+$INVOKE_OUTPUT = aws lambda invoke `
   --function-name $FUNCTION_NAME `
   --region $REGION `
   --profile $PROFILE `
   --log-type Tail `
   --query 'LogResult' `
   --output text `
-  "$env:TEMP\lambda-response.json" | ForEach-Object { [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($_)) }
+  "$env:TEMP\lambda-response.json"
+
+if ($INVOKE_OUTPUT) {
+    Write-Host "`nLambda execution logs:" -ForegroundColor White
+    [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($INVOKE_OUTPUT))
+}
 
 Write-Host "`nLambda response:" -ForegroundColor White
-Get-Content "$env:TEMP\lambda-response.json" | ConvertFrom-Json | ConvertTo-Json
+Get-Content "$env:TEMP\lambda-response.json"
 
 Write-Host "`n=========================================" -ForegroundColor Green
 Write-Host "  INITIALIZATION COMPLETE!" -ForegroundColor Green
@@ -182,4 +179,3 @@ Write-Host '  -d ''{"jsonrpc": "2.0", "method": "list_pending_documents", "param
 
 Write-Host "`nTo clean up the Lambda function after use:" -ForegroundColor Yellow
 Write-Host "aws lambda delete-function --function-name $FUNCTION_NAME --region $REGION --profile $PROFILE" -ForegroundColor White
-
