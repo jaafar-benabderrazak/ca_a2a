@@ -1,0 +1,29 @@
+Invoice for Professional Services
+
+Invoice #: INV-2025-001
+Date: December 18, 2025
+Due Date: January 18, 2026
+
+Bill To:
+Acme Corporation
+123 Business Street
+Paris, France 75001
+
+Services Provided:
+1. Cloud Infrastructure Setup        €5,000.00
+2. AWS ECS Configuration             €3,500.00
+3. Database Migration                €2,500.00
+4. Security Hardening                €2,000.00
+
+Subtotal:                            €13,000.00
+Tax (20%):                           €2,600.00
+Total Amount Due:                    €15,600.00
+
+Payment Terms: Net 30 days
+Payment Method: Bank Transfer
+
+Thank you for your business!
+
+Contact: billing@techservices.com
+Phone: +33 1 23 45 67 89
+

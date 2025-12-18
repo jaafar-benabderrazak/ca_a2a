@@ -1,0 +1,42 @@
+{
+  "family": "ca-a2a-archivist",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [{
+    "name": "archivist",
+    "image": "555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/archivist:latest",
+    "portMappings": [{"containerPort": 8004, "protocol": "tcp"}],
+    "environment": [
+      {"name": "ARCHIVIST_HOST", "value": "0.0.0.0"},
+      {"name": "ARCHIVIST_PORT", "value": "8004"},
+      {"name": "POSTGRES_HOST", "value": "ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com"},
+      {"name": "POSTGRES_DB", "value": "documents_db"},
+      {"name": "POSTGRES_USER", "value": "postgres"},
+      {"name": "POSTGRES_PORT", "value": "5432"},
+      {"name": "S3_BUCKET_NAME", "value": "ca-a2a-documents-555043101106"},
+      {"name": "AWS_REGION", "value": "eu-west-3"}
+    ],
+    "secrets": [
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password"}
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/ca-a2a-archivist",
+        "awslogs-region": "eu-west-3",
+        "awslogs-stream-prefix": "ecs"
+      }
+    },
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8004/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 60
+    }
+  }]
+}
