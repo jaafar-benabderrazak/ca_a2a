@@ -284,7 +284,10 @@ class BaseAgent(ABC):
                         return None
                     
                     response_data = await response.json()
-                    response_message = A2AMessage(**response_data)
+                    
+                    # Filter out _meta field if present (added by base_agent response)
+                    filtered_data = {k: v for k, v in response_data.items() if k != '_meta'}
+                    response_message = A2AMessage(**filtered_data)
                     
                     if response_message.error:
                         raise Exception(f"Agent error: {response_message.error}")
