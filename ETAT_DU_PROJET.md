@@ -229,6 +229,263 @@ docker push 555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/orchestrator:lat
 # Puis force redéploiement ECS
 ```
 
+### 🟢 **Fonctionnalité à Implémenter: Filtrage de Visibilité des Skills**
+
+**Objectif:** Contrôler quelles compétences (skills) sont visibles/accessibles selon le contexte de l'appelant.
+
+#### **Cas d'Usage**
+
+1. **Filtrage par IP/Réseau**
+   - Compétences administratives accessibles uniquement depuis le réseau interne
+   - API publique avec accès limité aux compétences de base
+   - Exemple: `delete_document` visible uniquement depuis VPC interne
+
+2. **Filtrage par Tags Utilisateur**
+   - Compétences sensibles (validation manuelle, archivage) réservées aux admins
+   - Compétences métier selon le rôle (finance, RH, legal)
+   - Exemple: `process_payroll_document` uniquement pour tag `role=finance`
+
+3. **Filtrage par API Key/Token**
+   - Différents niveaux d'accès selon la clé API
+   - Rate limiting par utilisateur
+   - Exemple: clé "basic" = 100 req/jour, clé "premium" = illimitée
+
+#### **Architecture Proposée**
+
+```mermaid
+graph LR
+    A[Requête API] --> B{Middleware<br/>d'Authentification}
+    B --> C[Extraire Contexte]
+    C --> D[IP Source]
+    C --> E[API Key]
+    C --> F[Headers Custom]
+    
+    D --> G{Filtrage des Skills}
+    E --> G
+    F --> G
+    
+    G --> H[Skills Autorisés]
+    G --> I[Skills Masqués]
+    
+    H --> J[Réponse /card]
+    H --> K[Réponse /message]
+    
+    style B fill:#ffa502
+    style G fill:#ffa502
+    style H fill:#26de81
+    style I fill:#ff6b6b
+```
+
+#### **Implémentation Suggérée**
+
+**1. Structure de Configuration**
+
+```python
+# config/skill_visibility_rules.py
+SKILL_VISIBILITY_RULES = {
+    "process_document": {
+        "public": True,
+        "required_tags": [],
+        "allowed_ips": ["0.0.0.0/0"],  # Tout le monde
+    },
+    "process_batch": {
+        "public": True,
+        "required_tags": ["role=operator"],
+        "allowed_ips": ["0.0.0.0/0"],
+    },
+    "delete_document": {
+        "public": False,
+        "required_tags": ["role=admin"],
+        "allowed_ips": ["10.0.0.0/16"],  # VPC interne uniquement
+    },
+    "manual_validation_override": {
+        "public": False,
+        "required_tags": ["role=validator", "department=quality"],
+        "allowed_ips": ["10.0.0.0/16"],
+    },
+    "export_all_documents": {
+        "public": False,
+        "required_tags": ["role=admin", "clearance=high"],
+        "allowed_ips": ["10.0.1.0/24"],  # Subnet admin uniquement
+    }
+}
+```
+
+**2. Middleware de Filtrage**
+
+```python
+# orchestrator_agent.py - Ajouter au AgentCard handler
+from ipaddress import ip_address, ip_network
+
+class OrchestratorAgent(BaseAgent):
+    
+    def _filter_skills_by_context(self, request_context: dict) -> List[AgentSkill]:
+        """
+        Filtre les skills selon le contexte de la requête
+        
+        Args:
+            request_context: {
+                "source_ip": "1.2.3.4",
+                "api_key": "key_xxx",
+                "user_tags": ["role=operator", "department=it"],
+                "headers": {...}
+            }
+        """
+        source_ip = ip_address(request_context.get("source_ip", "0.0.0.0"))
+        user_tags = set(request_context.get("user_tags", []))
+        
+        filtered_skills = []
+        
+        for skill in self.skills:
+            rules = SKILL_VISIBILITY_RULES.get(skill.method, {})
+            
+            # Vérifier si skill est public
+            if not rules.get("public", True):
+                # Vérifier IP
+                allowed_ips = rules.get("allowed_ips", [])
+                if not any(source_ip in ip_network(cidr) for cidr in allowed_ips):
+                    continue
+                
+                # Vérifier tags requis
+                required_tags = set(rules.get("required_tags", []))
+                if required_tags and not required_tags.issubset(user_tags):
+                    continue
+            
+            filtered_skills.append(skill)
+        
+        return filtered_skills
+    
+    async def handle_get_card(self, request_context: dict) -> dict:
+        """Version modifiée avec filtrage"""
+        filtered_skills = self._filter_skills_by_context(request_context)
+        
+        return {
+            "agent_name": self.name,
+            "version": self.version,
+            "description": self.description,
+            "skills": [skill.to_dict() for skill in filtered_skills],
+            "tags": self.tags
+        }
+```
+
+**3. Extraction du Contexte**
+
+```python
+# base_agent.py - Dans la méthode handle_request
+async def handle_request(self, request: dict, client_info: dict = None) -> dict:
+    """
+    Args:
+        client_info: {
+            "remote_addr": "1.2.3.4",
+            "headers": {"X-API-Key": "...", "X-User-Tags": "role=admin,dept=it"}
+        }
+    """
+    # Extraire le contexte
+    request_context = {
+        "source_ip": client_info.get("remote_addr", "0.0.0.0"),
+        "api_key": client_info.get("headers", {}).get("X-API-Key"),
+        "user_tags": self._parse_user_tags(
+            client_info.get("headers", {}).get("X-User-Tags", "")
+        ),
+        "headers": client_info.get("headers", {})
+    }
+    
+    # Filtrer les skills disponibles
+    method = request.get("method")
+    if not self._is_method_allowed(method, request_context):
+        return {
+            "jsonrpc": "2.0",
+            "error": {
+                "code": -32601,
+                "message": f"Method '{method}' not allowed for your access level"
+            },
+            "id": request.get("id")
+        }
+    
+    # ... reste du code
+```
+
+**4. Configuration ALB pour Headers**
+
+```json
+// Dans la configuration ALB
+{
+  "listeners": [{
+    "rules": [{
+      "actions": [{
+        "type": "forward",
+        "forwardConfig": {
+          "targetGroups": [...],
+          "targetGroupStickinessConfig": {
+            "enabled": true
+          }
+        }
+      }],
+      "conditions": [{
+        "field": "http-header",
+        "httpHeaderConfig": {
+          "httpHeaderName": "X-API-Key",
+          "values": ["*"]
+        }
+      }]
+    }]
+  }]
+}
+```
+
+#### **Exemples d'Utilisation**
+
+**Cas 1: Utilisateur Public (Lecture seule)**
+```bash
+curl -H "X-User-Tags: role=guest" \
+  http://alb/card
+
+# Retourne uniquement:
+# - process_document (lecture)
+# - get_task_status
+# - list_pending_documents
+```
+
+**Cas 2: Opérateur Interne**
+```bash
+curl -H "X-User-Tags: role=operator,department=ops" \
+  -H "X-Forwarded-For: 10.0.1.50" \
+  http://alb/card
+
+# Retourne en plus:
+# - process_batch
+# - cancel_task
+# - retry_failed_documents
+```
+
+**Cas 3: Administrateur**
+```bash
+curl -H "X-User-Tags: role=admin,clearance=high" \
+  -H "X-Forwarded-For: 10.0.1.10" \
+  http://alb/card
+
+# Retourne TOUTES les compétences:
+# - delete_document
+# - manual_validation_override
+# - export_all_documents
+# - purge_old_documents
+```
+
+#### **Bénéfices**
+
+✅ **Sécurité renforcée** - Exposition minimale des API sensibles  
+✅ **Compliance** - Traçabilité des accès par rôle  
+✅ **Flexibilité** - Configuration sans redéploiement  
+✅ **Multi-tenancy** - Support de plusieurs clients avec permissions différentes  
+✅ **Rate limiting** - Par clé API ou IP source
+
+#### **Effort Estimé**
+
+- **Développement:** 2-3 jours
+- **Tests:** 1 jour
+- **Documentation:** 0.5 jour
+- **Total:** ~4 jours
+
 ---
 
 ## 🎯 Plan d'Action Prioritaire
