@@ -55,8 +55,10 @@ python client.py process "documents/test.pdf"
 **Autres documents utiles :**
 - [A2A_BEST_PRACTICES.md](A2A_BEST_PRACTICES.md) - Guide technique des best practices
 - [AWS_DEPLOYMENT.md](AWS_DEPLOYMENT.md) - Guide de déploiement AWS détaillé
+- [AWS_DEPLOYMENT_TESTING.md](AWS_DEPLOYMENT_TESTING.md) - Tests AWS complets (NEW!)
+- [README_AWS_TESTING.md](README_AWS_TESTING.md) - Quick start tests AWS (NEW!)
 - [DEPLOYMENT_CHECKLIST.md](DEPLOYMENT_CHECKLIST.md) - Checklist de production
-- [PYDANTIC_MIGRATION.md](PYDANTIC_MIGRATION.md) - Guide Pydantic validation (NEW!)
+- [PYDANTIC_MIGRATION.md](PYDANTIC_MIGRATION.md) - Guide Pydantic validation
 
 ## ✨ Fonctionnalités Principales
 
