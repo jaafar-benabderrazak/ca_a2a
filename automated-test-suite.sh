@@ -10,6 +10,16 @@ export AWS_REGION=eu-west-3
 export ALB_URL="http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com"
 export S3_BUCKET="ca-a2a-documents-555043101106"
 
+# (If A2A auth is enabled) API key for /message
+if [ -f "/tmp/ca-a2a-config.env" ]; then
+    source /tmp/ca-a2a-config.env
+fi
+export A2A_API_KEY="${A2A_API_KEY:-${A2A_CLIENT_API_KEY:-}}"
+AUTH_HEADER=()
+if [ -n "$A2A_API_KEY" ]; then
+    AUTH_HEADER=(-H "X-API-Key: $A2A_API_KEY")
+fi
+
 # Colors
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -147,7 +157,7 @@ fi
 
 echo ""
 print_test "2.2" "Trigger Document Processing"
-PROCESS_RESULT=$(curl -s -X POST $ALB_URL/message \
+PROCESS_RESULT=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d "{
     \"jsonrpc\": \"2.0\",
@@ -179,7 +189,7 @@ print_test "2.4" "Check Task Status"
 if [ -f /tmp/ca_a2a_test_task_id.txt ]; then
     TASK_ID=$(cat /tmp/ca_a2a_test_task_id.txt)
     
-    STATUS_CHECK=$(curl -s -X POST $ALB_URL/message \
+    STATUS_CHECK=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
       -H "Content-Type: application/json" \
       -d "{
         \"jsonrpc\": \"2.0\",
@@ -247,7 +257,7 @@ pass_test "Created $BATCH_COUNT batch documents"
 
 echo ""
 print_test "3.2" "Trigger Batch Processing"
-BATCH_RESULT=$(curl -s -X POST $ALB_URL/message \
+BATCH_RESULT=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d "{
     \"jsonrpc\": \"2.0\",
@@ -273,7 +283,7 @@ fi
 print_header "SCENARIO 4: ERROR HANDLING"
 
 print_test "4.1" "Invalid S3 Key"
-ERROR_RESULT=$(curl -s -X POST $ALB_URL/message \
+ERROR_RESULT=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -293,7 +303,7 @@ fi
 
 echo ""
 print_test "4.2" "Invalid Method"
-INVALID_METHOD=$(curl -s -X POST $ALB_URL/message \
+INVALID_METHOD=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -313,7 +323,7 @@ fi
 
 echo ""
 print_test "4.3" "Missing Required Parameters"
-MISSING_PARAMS=$(curl -s -X POST $ALB_URL/message \
+MISSING_PARAMS=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -337,7 +347,7 @@ fi
 print_header "SCENARIO 5: AGENT DISCOVERY"
 
 print_test "5.1" "Discover Agents"
-DISCOVER_RESULT=$(curl -s -X POST $ALB_URL/message \
+DISCOVER_RESULT=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -357,7 +367,7 @@ fi
 
 echo ""
 print_test "5.2" "Get Agent Registry"
-REGISTRY=$(curl -s -X POST $ALB_URL/message \
+REGISTRY=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -414,7 +424,7 @@ fi
 print_header "SCENARIO 7: DATABASE VERIFICATION"
 
 print_test "7.1" "List Pending Documents"
-PENDING=$(curl -s -X POST $ALB_URL/message \
+PENDING=$(curl -s -X POST $ALB_URL/message "${AUTH_HEADER[@]}" \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",

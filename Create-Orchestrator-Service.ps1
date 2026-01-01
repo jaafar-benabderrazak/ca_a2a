@@ -9,7 +9,7 @@ $PROJECT_NAME = "ca-a2a"
 # From ca-a2a-config.env
 $PRIVATE_SUBNET_1 = "subnet-07484aca0e473e3d0"
 $PRIVATE_SUBNET_2 = "subnet-0aef6b4fcce7748a9"
-$ECS_SG = "sg-047a8f39f9cdcaf4c"
+$ORCHESTRATOR_SG = "sg-047a8f39f9cdcaf4c"
 $TG_ARN = "arn:aws:elasticloadbalancing:eu-west-3:555043101106:targetgroup/ca-a2a-orch-tg/5bc795b288397779"
 
 Write-Host "==========================================" -ForegroundColor Cyan
@@ -65,7 +65,7 @@ if ($EXISTING_SERVICE -eq "ACTIVE") {
         --desired-count 2 `
         --launch-type FARGATE `
         --platform-version LATEST `
-        --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_1,$PRIVATE_SUBNET_2],securityGroups=[$ECS_SG],assignPublicIp=DISABLED}" `
+        --network-configuration "awsvpcConfiguration={subnets=[$PRIVATE_SUBNET_1,$PRIVATE_SUBNET_2],securityGroups=[$ORCHESTRATOR_SG],assignPublicIp=DISABLED}" `
         --load-balancers "targetGroupArn=$TG_ARN,containerName=orchestrator,containerPort=8001" `
         --health-check-grace-period-seconds 60 `
         --enable-execute-command `

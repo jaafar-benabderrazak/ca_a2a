@@ -155,7 +155,7 @@ cat > ${TASK_DEF_DIR}/orchestrator-task.json <<EOF
   "containerDefinitions": [{
     "name": "orchestrator",
     "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${PROJECT_NAME}/orchestrator:latest",
-    "portMappings": [{"containerPort": 8001, "protocol": "tcp"}],
+    "portMappings": [{"containerPort": 8001, "protocol": "tcp", "name": "http"}],
     "environment": [
       {"name": "ORCHESTRATOR_HOST", "value": "0.0.0.0"},
       {"name": "ORCHESTRATOR_PORT", "value": "8001"},
@@ -170,10 +170,17 @@ cat > ${TASK_DEF_DIR}/orchestrator-task.json <<EOF
       {"name": "POSTGRES_USER", "value": "postgres"},
       {"name": "POSTGRES_PORT", "value": "5432"},
       {"name": "S3_BUCKET_NAME", "value": "${S3_BUCKET}"},
-      {"name": "AWS_REGION", "value": "${AWS_REGION}"}
+      {"name": "AWS_REGION", "value": "${AWS_REGION}"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "${A2A_REQUIRE_AUTH:-true}"},
+      {"name": "A2A_RBAC_POLICY_JSON", "value": "{\"allow\":{\"external_client\":[\"process_document\",\"process_batch\",\"get_task_status\",\"list_pending_documents\",\"discover_agents\",\"get_agent_registry\"]},\"deny\":{}}"},
+      {"name": "A2A_JWT_ISSUER", "value": "ca-a2a"},
+      {"name": "A2A_JWT_ALG", "value": "RS256"}
     ],
     "secrets": [
-      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"}
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"},
+      {"name": "A2A_JWT_PRIVATE_KEY_PEM", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-jwt-private-key-pem"},
+      {"name": "A2A_JWT_PUBLIC_KEY_PEM", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-jwt-public-key-pem"},
+      {"name": "A2A_API_KEYS_JSON", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-client-api-keys-json"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -219,7 +226,7 @@ for agent in extractor validator archivist; do
   "containerDefinitions": [{
     "name": "${agent}",
     "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${PROJECT_NAME}/${agent}:latest",
-    "portMappings": [{"containerPort": ${PORT}, "protocol": "tcp"}],
+    "portMappings": [{"containerPort": ${PORT}, "protocol": "tcp", "name": "http"}],
     "environment": [
       {"name": "${agent^^}_HOST", "value": "0.0.0.0"},
       {"name": "${agent^^}_PORT", "value": "${PORT}"},
@@ -228,10 +235,15 @@ for agent in extractor validator archivist; do
       {"name": "POSTGRES_USER", "value": "postgres"},
       {"name": "POSTGRES_PORT", "value": "5432"},
       {"name": "S3_BUCKET_NAME", "value": "${S3_BUCKET}"},
-      {"name": "AWS_REGION", "value": "${AWS_REGION}"}
+      {"name": "AWS_REGION", "value": "${AWS_REGION}"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "${A2A_REQUIRE_AUTH:-true}"},
+      {"name": "A2A_RBAC_POLICY_JSON", "value": "{\"allow\":{\"orchestrator\":[\"*\"]},\"deny\":{}}"},
+      {"name": "A2A_JWT_ISSUER", "value": "ca-a2a"},
+      {"name": "A2A_JWT_ALG", "value": "RS256"}
     ],
     "secrets": [
-      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"}
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"},
+      {"name": "A2A_JWT_PUBLIC_KEY_PEM", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-jwt-public-key-pem"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -267,6 +279,13 @@ log_info "========================================"
 
 # Create orchestrator service with ALB
 log_info "Creating orchestrator service..."
+# Service Connect / mTLS configuration (TLS enabled if SERVICE_CONNECT_TLS_* are set in Phase 1)
+SC_TLS_FRAGMENT=""
+if [ -n "${SERVICE_CONNECT_TLS_PCA_ARN}" ] && [ -n "${SERVICE_CONNECT_TLS_KMS_KEY_ARN}" ]; then
+  TASK_ROLE_ARN="arn:aws:iam::${AWS_ACCOUNT_ID}:role/${PROJECT_NAME}-ecs-task-role"
+  SC_TLS_FRAGMENT=",\"tls\":{\"issuerCertificateAuthority\":{\"awsPcaAuthorityArn\":\"${SERVICE_CONNECT_TLS_PCA_ARN}\"},\"kmsKey\":\"${SERVICE_CONNECT_TLS_KMS_KEY_ARN}\",\"roleArn\":\"${TASK_ROLE_ARN}\"}"
+fi
+
 aws ecs create-service \
     --cluster ${PROJECT_NAME}-cluster \
     --service-name orchestrator \
@@ -274,9 +293,10 @@ aws ecs create-service \
     --desired-count 2 \
     --launch-type FARGATE \
     --platform-version LATEST \
-    --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ECS_SG}],assignPublicIp=DISABLED}" \
+    --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ORCHESTRATOR_SG}],assignPublicIp=DISABLED}" \
     --load-balancers "targetGroupArn=${TG_ARN},containerName=orchestrator,containerPort=8001" \
     --health-check-grace-period-seconds 60 \
+    --service-connect-configuration "{\"enabled\":true,\"namespace\":\"local\",\"services\":[{\"portName\":\"http\",\"discoveryName\":\"orchestrator\",\"clientAliases\":[{\"port\":8001,\"dnsName\":\"orchestrator\"}]${SC_TLS_FRAGMENT}}]}" \
     --region ${AWS_REGION} 2>/dev/null || log_warn "Orchestrator service may already exist"
 
 # Create other agent services with service discovery
@@ -287,6 +307,13 @@ for agent in extractor validator archivist; do
         --region ${AWS_REGION} \
         --query "Services[?Name=='${agent}'].Arn" --output text)
 
+    # Select per-agent SG + port
+    case $agent in
+      extractor) SG=${EXTRACTOR_SG}; PORT=8002 ;;
+      validator) SG=${VALIDATOR_SG}; PORT=8003 ;;
+      archivist) SG=${ARCHIVIST_SG}; PORT=8004 ;;
+    esac
+
     aws ecs create-service \
         --cluster ${PROJECT_NAME}-cluster \
         --service-name ${agent} \
@@ -294,8 +321,9 @@ for agent in extractor validator archivist; do
         --desired-count 2 \
         --launch-type FARGATE \
         --platform-version LATEST \
-        --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ECS_SG}],assignPublicIp=DISABLED}" \
+        --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${SG}],assignPublicIp=DISABLED}" \
         --service-registries "registryArn=${SERVICE_REGISTRY_ARN}" \
+        --service-connect-configuration "{\"enabled\":true,\"namespace\":\"local\",\"services\":[{\"portName\":\"http\",\"discoveryName\":\"${agent}\",\"clientAliases\":[{\"port\":${PORT},\"dnsName\":\"${agent}\"}]${SC_TLS_FRAGMENT}}]}" \
         --region ${AWS_REGION} 2>/dev/null || log_warn "${agent} service may already exist"
 done
 

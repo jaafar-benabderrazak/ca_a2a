@@ -33,7 +33,7 @@ if [[ $ORCH_EXISTS == "NOT_FOUND" ]] || [[ $ORCH_EXISTS == "" ]]; then
         --desired-count 2 \
         --launch-type FARGATE \
         --platform-version LATEST \
-        --network-configuration "awsvpcConfiguration={subnets=[${PUBLIC_SUBNET_1},${PUBLIC_SUBNET_2}],securityGroups=[${ALB_SG}],assignPublicIp=ENABLED}" \
+        --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ORCHESTRATOR_SG}],assignPublicIp=DISABLED}" \
         --load-balancers "targetGroupArn=${TG_ARN},containerName=orchestrator,containerPort=8001" \
         --health-check-grace-period-seconds 60 \
         --region $AWS_REGION

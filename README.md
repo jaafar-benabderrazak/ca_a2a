@@ -60,6 +60,12 @@ Internet → ALB → Orchestrator → [Extractor, Validator, Archivist]
 # URL de l'ALB
 export ALB_URL="http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com"
 
+# (If A2A auth is enabled) API key for /message
+# - With deploy scripts, you can source it from the generated env file:
+#   source /tmp/ca-a2a-config.env
+#   export A2A_API_KEY="$A2A_CLIENT_API_KEY"
+export A2A_API_KEY="${A2A_API_KEY:-}"
+
 # Health check
 curl -s "$ALB_URL/health" | jq '.'
 
@@ -68,6 +74,7 @@ curl -s "$ALB_URL/card" | jq '.'
 
 # Lister les documents en attente
 curl -s -X POST "$ALB_URL/message" \
+  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -86,6 +93,7 @@ aws s3 cp test.txt s3://ca-a2a-documents/uploads/ --region eu-west-3
 
 # 2. Lancer le traitement
 curl -s -X POST "$ALB_URL/message" \
+  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -99,6 +107,7 @@ curl -s -X POST "$ALB_URL/message" \
 
 # 3. Vérifier le statut
 curl -s -X POST "$ALB_URL/message" \
+  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",

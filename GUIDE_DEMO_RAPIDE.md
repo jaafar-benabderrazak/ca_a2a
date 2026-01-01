@@ -25,6 +25,13 @@ Montrer le pipeline complet de traitement automatisé d'un document :
 export ALB_URL="http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com"
 export AWS_REGION="eu-west-3"
 
+# (Si l'auth A2A est activée) charger la clé API pour /message
+# La Phase 1 écrit normalement: /tmp/ca-a2a-config.env
+if [ -f "/tmp/ca-a2a-config.env" ]; then
+  source /tmp/ca-a2a-config.env
+  export A2A_API_KEY="$A2A_CLIENT_API_KEY"
+fi
+
 # Vérifier que tout fonctionne
 curl -s "$ALB_URL/health" | jq -r '.status'
 # Doit afficher: healthy
@@ -89,6 +96,7 @@ curl -s "$ALB_URL/card" | jq '.skills[] | {
 ```bash
 echo -e "\n=== 3. Documents en Attente (Avant Traitement) ==="
 curl -s -X POST "$ALB_URL/message" \
+  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -176,6 +184,7 @@ echo "✅ Document uploadé: uploads/facture_demo.txt"
 echo -e "\n=== 5. Lancement du Traitement Automatique ==="
 
 RESPONSE=$(curl -s -X POST "$ALB_URL/message" \
+  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",
@@ -211,6 +220,7 @@ if [ ! -z "$TASK_ID" ]; then
     echo "Vérification #$i ($(date +%H:%M:%S))..."
     
     STATUS_RESPONSE=$(curl -s -X POST "$ALB_URL/message" \
+      ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
       -H "Content-Type: application/json" \
       -d "{
         \"jsonrpc\": \"2.0\",
@@ -248,6 +258,7 @@ fi
 ```bash
 echo -e "\n=== 7. Documents Traités ==="
 curl -s -X POST "$ALB_URL/message" \
+  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
   -H "Content-Type: application/json" \
   -d '{
     "jsonrpc": "2.0",

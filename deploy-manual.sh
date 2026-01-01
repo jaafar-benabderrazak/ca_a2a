@@ -219,27 +219,62 @@ create_security_groups() {
         --cidr 0.0.0.0/0 \
         --region ${AWS_REGION}
 
-    # ECS Tasks Security Group
-    ECS_SG=$(aws ec2 create-security-group \
-        --group-name ${PROJECT_NAME}-ecs-sg \
-        --description "Security group for ECS tasks" \
+    # Per-agent ECS Security Groups (least privilege)
+    ORCHESTRATOR_SG=$(aws ec2 create-security-group \
+        --group-name ${PROJECT_NAME}-orchestrator-sg \
+        --description "Orchestrator ECS security group" \
         --vpc-id ${VPC_ID} \
         --region ${AWS_REGION} \
         --query 'GroupId' --output text)
 
-    # Allow all traffic within ECS security group (for inter-agent communication)
+    EXTRACTOR_SG=$(aws ec2 create-security-group \
+        --group-name ${PROJECT_NAME}-extractor-sg \
+        --description "Extractor ECS security group" \
+        --vpc-id ${VPC_ID} \
+        --region ${AWS_REGION} \
+        --query 'GroupId' --output text)
+
+    VALIDATOR_SG=$(aws ec2 create-security-group \
+        --group-name ${PROJECT_NAME}-validator-sg \
+        --description "Validator ECS security group" \
+        --vpc-id ${VPC_ID} \
+        --region ${AWS_REGION} \
+        --query 'GroupId' --output text)
+
+    ARCHIVIST_SG=$(aws ec2 create-security-group \
+        --group-name ${PROJECT_NAME}-archivist-sg \
+        --description "Archivist ECS security group" \
+        --vpc-id ${VPC_ID} \
+        --region ${AWS_REGION} \
+        --query 'GroupId' --output text)
+
+    # Ingress rules
     aws ec2 authorize-security-group-ingress \
-        --group-id ${ECS_SG} \
-        --protocol -1 \
-        --source-group ${ECS_SG} \
+        --group-id ${ORCHESTRATOR_SG} \
+        --protocol tcp \
+        --port ${ORCHESTRATOR_PORT} \
+        --source-group ${ALB_SG} \
         --region ${AWS_REGION}
 
-    # Allow traffic from ALB to ECS
     aws ec2 authorize-security-group-ingress \
-        --group-id ${ECS_SG} \
+        --group-id ${EXTRACTOR_SG} \
         --protocol tcp \
-        --port 8000-8999 \
-        --source-group ${ALB_SG} \
+        --port ${EXTRACTOR_PORT} \
+        --source-group ${ORCHESTRATOR_SG} \
+        --region ${AWS_REGION}
+
+    aws ec2 authorize-security-group-ingress \
+        --group-id ${VALIDATOR_SG} \
+        --protocol tcp \
+        --port ${VALIDATOR_PORT} \
+        --source-group ${ORCHESTRATOR_SG} \
+        --region ${AWS_REGION}
+
+    aws ec2 authorize-security-group-ingress \
+        --group-id ${ARCHIVIST_SG} \
+        --protocol tcp \
+        --port ${ARCHIVIST_PORT} \
+        --source-group ${ORCHESTRATOR_SG} \
         --region ${AWS_REGION}
 
     # RDS Security Group
@@ -250,18 +285,67 @@ create_security_groups() {
         --region ${AWS_REGION} \
         --query 'GroupId' --output text)
 
+    # DB access only from agents
     aws ec2 authorize-security-group-ingress \
         --group-id ${RDS_SG} \
         --protocol tcp \
         --port 5432 \
-        --source-group ${ECS_SG} \
+        --source-group ${ORCHESTRATOR_SG} \
         --region ${AWS_REGION}
+
+    aws ec2 authorize-security-group-ingress \
+        --group-id ${RDS_SG} \
+        --protocol tcp \
+        --port 5432 \
+        --source-group ${EXTRACTOR_SG} \
+        --region ${AWS_REGION}
+
+    aws ec2 authorize-security-group-ingress \
+        --group-id ${RDS_SG} \
+        --protocol tcp \
+        --port 5432 \
+        --source-group ${VALIDATOR_SG} \
+        --region ${AWS_REGION}
+
+    aws ec2 authorize-security-group-ingress \
+        --group-id ${RDS_SG} \
+        --protocol tcp \
+        --port 5432 \
+        --source-group ${ARCHIVIST_SG} \
+        --region ${AWS_REGION}
+
+    # Egress hardening (best-effort): revoke default allow-all and only allow VPC-internal HTTPS + DNS + required ports.
+    for sg in ${ORCHESTRATOR_SG} ${EXTRACTOR_SG} ${VALIDATOR_SG} ${ARCHIVIST_SG}; do
+        aws ec2 revoke-security-group-egress \
+            --group-id ${sg} \
+            --ip-permissions '[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}]}]' \
+            --region ${AWS_REGION} 2>/dev/null || true
+
+        aws ec2 authorize-security-group-egress \
+            --group-id ${sg} --protocol tcp --port 443 --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
+        aws ec2 authorize-security-group-egress \
+            --group-id ${sg} --protocol udp --port 53 --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
+        aws ec2 authorize-security-group-egress \
+            --group-id ${sg} --protocol tcp --port 53 --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
+        aws ec2 authorize-security-group-egress \
+            --group-id ${sg} --protocol tcp --port 5432 --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
+    done
+
+    aws ec2 authorize-security-group-egress \
+        --group-id ${ORCHESTRATOR_SG} --protocol tcp --port ${EXTRACTOR_PORT} --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress \
+        --group-id ${ORCHESTRATOR_SG} --protocol tcp --port ${VALIDATOR_PORT} --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress \
+        --group-id ${ORCHESTRATOR_SG} --protocol tcp --port ${ARCHIVIST_PORT} --cidr ${VPC_CIDR} --region ${AWS_REGION} 2>/dev/null || true
 
     # Save security group IDs
     cat >> /tmp/network-config.env <<EOF
 export ALB_SG=${ALB_SG}
-export ECS_SG=${ECS_SG}
 export RDS_SG=${RDS_SG}
+export ORCHESTRATOR_SG=${ORCHESTRATOR_SG}
+export EXTRACTOR_SG=${EXTRACTOR_SG}
+export VALIDATOR_SG=${VALIDATOR_SG}
+export ARCHIVIST_SG=${ARCHIVIST_SG}
 EOF
 
     source /tmp/network-config.env
@@ -317,6 +401,193 @@ create_secrets() {
         --region ${AWS_REGION}
 
     log_info "Secrets created ✓"
+}
+
+create_a2a_security_secrets() {
+    log_info "Creating A2A security secrets (JWT keys + client API key)..."
+
+    # Toggle: default ON for this deployment script
+    export A2A_REQUIRE_AUTH="${A2A_REQUIRE_AUTH:-true}"
+
+    # Generate RSA keypair (PEM) for RS256 JWT (orchestrator signs, other agents verify)
+    TMPDIR="/tmp"
+    PRIVATE_KEY_FILE="${TMPDIR}/${PROJECT_NAME}-a2a-jwt-private.pem"
+    PUBLIC_KEY_FILE="${TMPDIR}/${PROJECT_NAME}-a2a-jwt-public.pem"
+
+    if ! command -v openssl &> /dev/null; then
+        log_error "openssl is required to generate JWT keys"
+        exit 1
+    fi
+
+    openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${PRIVATE_KEY_FILE}" > /dev/null 2>&1
+    openssl rsa -in "${PRIVATE_KEY_FILE}" -pubout -out "${PUBLIC_KEY_FILE}" > /dev/null 2>&1
+
+    PRIVATE_KEY_PEM="$(cat "${PRIVATE_KEY_FILE}")"
+    PUBLIC_KEY_PEM="$(cat "${PUBLIC_KEY_FILE}")"
+
+    # External client API key (used to call orchestrator via ALB)
+    CLIENT_API_KEY="$(openssl rand -base64 48 | tr -d '\n' | tr -d '/+=' | cut -c1-48)"
+    CLIENT_API_KEYS_JSON="{\"external_client\":\"${CLIENT_API_KEY}\"}"
+
+    # Store in Secrets Manager (as plain strings)
+    aws secretsmanager create-secret \
+        --name ${PROJECT_NAME}/a2a-jwt-private-key-pem \
+        --secret-string "${PRIVATE_KEY_PEM}" \
+        --region ${AWS_REGION} 2>/dev/null || \
+    aws secretsmanager update-secret \
+        --secret-id ${PROJECT_NAME}/a2a-jwt-private-key-pem \
+        --secret-string "${PRIVATE_KEY_PEM}" \
+        --region ${AWS_REGION}
+
+    aws secretsmanager create-secret \
+        --name ${PROJECT_NAME}/a2a-jwt-public-key-pem \
+        --secret-string "${PUBLIC_KEY_PEM}" \
+        --region ${AWS_REGION} 2>/dev/null || \
+    aws secretsmanager update-secret \
+        --secret-id ${PROJECT_NAME}/a2a-jwt-public-key-pem \
+        --secret-string "${PUBLIC_KEY_PEM}" \
+        --region ${AWS_REGION}
+
+    aws secretsmanager create-secret \
+        --name ${PROJECT_NAME}/a2a-client-api-keys-json \
+        --secret-string "${CLIENT_API_KEYS_JSON}" \
+        --region ${AWS_REGION} 2>/dev/null || \
+    aws secretsmanager update-secret \
+        --secret-id ${PROJECT_NAME}/a2a-client-api-keys-json \
+        --secret-string "${CLIENT_API_KEYS_JSON}" \
+        --region ${AWS_REGION}
+
+    # Persist for summary (do not print the key here; it will be in /tmp/network-config.env)
+    cat >> /tmp/network-config.env <<EOF
+export A2A_REQUIRE_AUTH=${A2A_REQUIRE_AUTH}
+export A2A_CLIENT_API_KEY=${CLIENT_API_KEY}
+EOF
+
+    log_info "A2A security secrets created ✓"
+}
+
+create_service_connect_mtls() {
+    # Toggle: default OFF unless explicitly enabled (ACM PCA can be costly/controlled)
+    if [ "${SERVICE_CONNECT_ENABLE_MTLS:-false}" != "true" ]; then
+        log_warn "Service Connect mTLS not enabled (set SERVICE_CONNECT_ENABLE_MTLS=true to enable)"
+        return 0
+    fi
+
+    log_info "Creating ECS Service Connect mTLS resources (ACM PCA + KMS)..."
+
+    if ! command -v aws &> /dev/null; then
+        log_error "AWS CLI is required"
+        exit 1
+    fi
+    if ! command -v openssl &> /dev/null; then
+        log_error "openssl is required"
+        exit 1
+    fi
+
+    # 1) KMS key (for Service Connect TLS)
+    SERVICE_CONNECT_TLS_KMS_KEY_ARN=$(aws kms create-key \
+        --description "${PROJECT_NAME} ECS Service Connect TLS" \
+        --region ${AWS_REGION} \
+        --query 'KeyMetadata.Arn' --output text 2>/dev/null || echo "")
+
+    if [ -n "${SERVICE_CONNECT_TLS_KMS_KEY_ARN}" ]; then
+        aws kms create-alias \
+            --alias-name alias/${PROJECT_NAME}-service-connect-tls \
+            --target-key-id ${SERVICE_CONNECT_TLS_KMS_KEY_ARN} \
+            --region ${AWS_REGION} 2>/dev/null || true
+        log_info "KMS key created: ${SERVICE_CONNECT_TLS_KMS_KEY_ARN}"
+    else
+        log_warn "Could not create KMS key (it may already exist)."
+    fi
+
+    # 2) ACM PCA root CA
+    CA_CONFIG_FILE="/tmp/${PROJECT_NAME}-pca-config.json"
+    cat > ${CA_CONFIG_FILE} <<EOF
+{
+  "KeyAlgorithm": "RSA_2048",
+  "SigningAlgorithm": "SHA256WITHRSA",
+  "Subject": {
+    "Country": "FR",
+    "Organization": "${PROJECT_NAME}",
+    "OrganizationalUnit": "service-connect",
+    "CommonName": "${PROJECT_NAME}-service-connect-root-ca"
+  }
+}
+EOF
+
+    SERVICE_CONNECT_TLS_PCA_ARN=$(aws acm-pca create-certificate-authority \
+        --certificate-authority-configuration file://${CA_CONFIG_FILE} \
+        --certificate-authority-type ROOT \
+        --idempotency-token ${PROJECT_NAME}-service-connect \
+        --region ${AWS_REGION} \
+        --query 'CertificateAuthorityArn' --output text 2>/dev/null || echo "")
+
+    if [ -z "${SERVICE_CONNECT_TLS_PCA_ARN}" ]; then
+        # If create failed, try to find an existing CA by common name
+        log_warn "Could not create PCA (it may already exist or be blocked by org policy)."
+        log_warn "If you already have a PCA ARN, export SERVICE_CONNECT_TLS_PCA_ARN and SERVICE_CONNECT_TLS_KMS_KEY_ARN before running."
+        return 0
+    fi
+
+    log_info "PCA created: ${SERVICE_CONNECT_TLS_PCA_ARN}"
+
+    # Activate CA: issue and import the CA certificate
+    CSR_FILE="/tmp/${PROJECT_NAME}-pca.csr"
+    CERT_FILE="/tmp/${PROJECT_NAME}-pca-cert.pem"
+    CERT_CHAIN_FILE="/tmp/${PROJECT_NAME}-pca-chain.pem"
+
+    aws acm-pca get-certificate-authority-csr \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --region ${AWS_REGION} \
+        --output text > ${CSR_FILE}
+
+    # Issue certificate for the CA itself (long-lived)
+    CERT_ARN=$(aws acm-pca issue-certificate \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --csr fileb://${CSR_FILE} \
+        --signing-algorithm SHA256WITHRSA \
+        --template-arn arn:aws:acm-pca:::template/RootCACertificate/V1 \
+        --validity Value=3650,Type=DAYS \
+        --region ${AWS_REGION} \
+        --query 'CertificateArn' --output text)
+
+    # Wait a bit for issuance
+    sleep 10
+
+    aws acm-pca get-certificate \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --certificate-arn ${CERT_ARN} \
+        --region ${AWS_REGION} \
+        --query 'Certificate' --output text > ${CERT_FILE}
+
+    aws acm-pca get-certificate \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --certificate-arn ${CERT_ARN} \
+        --region ${AWS_REGION} \
+        --query 'CertificateChain' --output text > ${CERT_CHAIN_FILE} 2>/dev/null || true
+
+    aws acm-pca import-certificate-authority-certificate \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --certificate fileb://${CERT_FILE} \
+        --certificate-chain fileb://${CERT_CHAIN_FILE} \
+        --region ${AWS_REGION} 2>/dev/null || \
+    aws acm-pca import-certificate-authority-certificate \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --certificate fileb://${CERT_FILE} \
+        --region ${AWS_REGION}
+
+    aws acm-pca update-certificate-authority \
+        --certificate-authority-arn ${SERVICE_CONNECT_TLS_PCA_ARN} \
+        --status ACTIVE \
+        --region ${AWS_REGION} 2>/dev/null || true
+
+    # Persist for later phases / service creation
+    cat >> /tmp/network-config.env <<EOF
+export SERVICE_CONNECT_TLS_PCA_ARN=${SERVICE_CONNECT_TLS_PCA_ARN}
+export SERVICE_CONNECT_TLS_KMS_KEY_ARN=${SERVICE_CONNECT_TLS_KMS_KEY_ARN}
+EOF
+
+    log_info "Service Connect mTLS resources ready ✓"
 }
 
 create_rds_database() {
@@ -488,6 +759,44 @@ EOF
         --policy-name ${PROJECT_NAME}-task-policy \
         --policy-document file:///tmp/task-policy.json
 
+    # Optional: permissions for ECS Service Connect mTLS (ACM PCA + KMS)
+    if [ -n "${SERVICE_CONNECT_TLS_PCA_ARN}" ] && [ -n "${SERVICE_CONNECT_TLS_KMS_KEY_ARN}" ]; then
+        cat > /tmp/service-connect-tls-policy.json <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "acm-pca:DescribeCertificateAuthority",
+        "acm-pca:GetCertificateAuthorityCertificate",
+        "acm-pca:IssueCertificate",
+        "acm-pca:GetCertificate"
+      ],
+      "Resource": "${SERVICE_CONNECT_TLS_PCA_ARN}"
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "kms:Decrypt",
+        "kms:Encrypt",
+        "kms:GenerateDataKey",
+        "kms:DescribeKey"
+      ],
+      "Resource": "${SERVICE_CONNECT_TLS_KMS_KEY_ARN}"
+    }
+  ]
+}
+EOF
+
+        aws iam put-role-policy \
+            --role-name ${PROJECT_NAME}-ecs-task-role \
+            --policy-name ${PROJECT_NAME}-service-connect-tls-policy \
+            --policy-document file:///tmp/service-connect-tls-policy.json 2>/dev/null || true
+
+        log_info "Attached Service Connect mTLS policy to task role ✓"
+    fi
+
     log_info "IAM roles created ✓"
 }
 
@@ -654,7 +963,7 @@ register_task_definitions() {
   "containerDefinitions": [{
     "name": "orchestrator",
     "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${PROJECT_NAME}/orchestrator:latest",
-    "portMappings": [{"containerPort": ${ORCHESTRATOR_PORT}, "protocol": "tcp"}],
+    "portMappings": [{"containerPort": ${ORCHESTRATOR_PORT}, "protocol": "tcp", "name": "http"}],
     "environment": [
       {"name": "ORCHESTRATOR_HOST", "value": "0.0.0.0"},
       {"name": "ORCHESTRATOR_PORT", "value": "${ORCHESTRATOR_PORT}"},
@@ -669,10 +978,17 @@ register_task_definitions() {
       {"name": "POSTGRES_USER", "value": "${DB_USERNAME}"},
       {"name": "POSTGRES_PORT", "value": "5432"},
       {"name": "S3_BUCKET_NAME", "value": "${S3_BUCKET}"},
-      {"name": "AWS_REGION", "value": "${AWS_REGION}"}
+      {"name": "AWS_REGION", "value": "${AWS_REGION}"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "${A2A_REQUIRE_AUTH}"},
+      {"name": "A2A_RBAC_POLICY_JSON", "value": "{\"allow\":{\"external_client\":[\"process_document\",\"process_batch\",\"get_task_status\",\"list_pending_documents\",\"discover_agents\",\"get_agent_registry\"]},\"deny\":{}}"},
+      {"name": "A2A_JWT_ISSUER", "value": "ca-a2a"},
+      {"name": "A2A_JWT_ALG", "value": "RS256"}
     ],
     "secrets": [
-      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"}
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"},
+      {"name": "A2A_JWT_PRIVATE_KEY_PEM", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-jwt-private-key-pem"},
+      {"name": "A2A_JWT_PUBLIC_KEY_PEM", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-jwt-public-key-pem"},
+      {"name": "A2A_API_KEYS_JSON", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-client-api-keys-json"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -714,7 +1030,7 @@ EOF
   "containerDefinitions": [{
     "name": "${agent}",
     "image": "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${PROJECT_NAME}/${agent}:latest",
-    "portMappings": [{"containerPort": ${PORT}, "protocol": "tcp"}],
+    "portMappings": [{"containerPort": ${PORT}, "protocol": "tcp", "name": "http"}],
     "environment": [
       {"name": "${agent^^}_HOST", "value": "0.0.0.0"},
       {"name": "${agent^^}_PORT", "value": "${PORT}"},
@@ -723,10 +1039,15 @@ EOF
       {"name": "POSTGRES_USER", "value": "${DB_USERNAME}"},
       {"name": "POSTGRES_PORT", "value": "5432"},
       {"name": "S3_BUCKET_NAME", "value": "${S3_BUCKET}"},
-      {"name": "AWS_REGION", "value": "${AWS_REGION}"}
+      {"name": "AWS_REGION", "value": "${AWS_REGION}"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "${A2A_REQUIRE_AUTH}"},
+      {"name": "A2A_RBAC_POLICY_JSON", "value": "{\"allow\":{\"orchestrator\":[\"*\"]},\"deny\":{}}"},
+      {"name": "A2A_JWT_ISSUER", "value": "ca-a2a"},
+      {"name": "A2A_JWT_ALG", "value": "RS256"}
     ],
     "secrets": [
-      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"}
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/db-password"},
+      {"name": "A2A_JWT_PUBLIC_KEY_PEM", "valueFrom": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:${PROJECT_NAME}/a2a-jwt-public-key-pem"}
     ],
     "logConfiguration": {
       "logDriver": "awslogs",
@@ -759,6 +1080,13 @@ create_ecs_services() {
     log_info "Creating ECS services..."
 
     # Create orchestrator service with ALB
+    # Service Connect / mTLS configuration (optional TLS if SERVICE_CONNECT_TLS_* env vars are set)
+    # Note: mTLS requires ACM PCA + KMS; if not provided, Service Connect still provides a proxy + discovery.
+    SC_TLS_FRAGMENT=""
+    if [ -n "${SERVICE_CONNECT_TLS_PCA_ARN}" ] && [ -n "${SERVICE_CONNECT_TLS_KMS_KEY_ARN}" ]; then
+        SC_TLS_FRAGMENT=",\"tls\":{\"issuerCertificateAuthority\":{\"awsPcaAuthorityArn\":\"${SERVICE_CONNECT_TLS_PCA_ARN}\"},\"kmsKey\":\"${SERVICE_CONNECT_TLS_KMS_KEY_ARN}\",\"roleArn\":\"${TASK_ROLE_ARN}\"}"
+    fi
+
     aws ecs create-service \
         --cluster ${PROJECT_NAME}-cluster \
         --service-name orchestrator \
@@ -766,9 +1094,10 @@ create_ecs_services() {
         --desired-count 2 \
         --launch-type FARGATE \
         --platform-version LATEST \
-        --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ECS_SG}],assignPublicIp=DISABLED}" \
+        --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ORCHESTRATOR_SG}],assignPublicIp=DISABLED}" \
         --load-balancers "targetGroupArn=${TG_ARN},containerName=orchestrator,containerPort=${ORCHESTRATOR_PORT}" \
         --health-check-grace-period-seconds 60 \
+        --service-connect-configuration "{\"enabled\":true,\"namespace\":\"local\",\"services\":[{\"portName\":\"http\",\"discoveryName\":\"orchestrator\",\"clientAliases\":[{\"port\":${ORCHESTRATOR_PORT},\"dnsName\":\"orchestrator\"}]${SC_TLS_FRAGMENT}}]}" \
         --region ${AWS_REGION} 2>/dev/null || log_warn "Orchestrator service already exists"
 
     # Create other agent services with service discovery
@@ -777,6 +1106,19 @@ create_ecs_services() {
             --region ${AWS_REGION} \
             --query "Services[?Name=='${agent}'].Arn" --output text)
 
+        # Select per-agent security group
+        case $agent in
+            extractor) SG=${EXTRACTOR_SG} ;;
+            validator) SG=${VALIDATOR_SG} ;;
+            archivist) SG=${ARCHIVIST_SG} ;;
+        esac
+        # Select port for Service Connect client alias
+        case $agent in
+            extractor) PORT=${EXTRACTOR_PORT} ;;
+            validator) PORT=${VALIDATOR_PORT} ;;
+            archivist) PORT=${ARCHIVIST_PORT} ;;
+        esac
+
         aws ecs create-service \
             --cluster ${PROJECT_NAME}-cluster \
             --service-name ${agent} \
@@ -784,8 +1126,9 @@ create_ecs_services() {
             --desired-count 2 \
             --launch-type FARGATE \
             --platform-version LATEST \
-            --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${ECS_SG}],assignPublicIp=DISABLED}" \
+            --network-configuration "awsvpcConfiguration={subnets=[${PRIVATE_SUBNET_1},${PRIVATE_SUBNET_2}],securityGroups=[${SG}],assignPublicIp=DISABLED}" \
             --service-registries "registryArn=${SERVICE_REGISTRY_ARN}" \
+            --service-connect-configuration "{\"enabled\":true,\"namespace\":\"local\",\"services\":[{\"portName\":\"http\",\"discoveryName\":\"${agent}\",\"clientAliases\":[{\"port\":${PORT},\"dnsName\":\"${agent}\"}]${SC_TLS_FRAGMENT}}]}" \
             --region ${AWS_REGION} 2>/dev/null || log_warn "${agent} service already exists"
     done
 
@@ -840,6 +1183,8 @@ main() {
     create_security_groups
     create_s3_bucket
     create_secrets
+    create_a2a_security_secrets
+    create_service_connect_mtls
     create_rds_database
 
     # Container Setup

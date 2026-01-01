@@ -6,11 +6,13 @@ Implements A2A best practices: retry logic, circuit breakers, structured logging
 import asyncio
 import json
 import logging
+import os
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from aiohttp import web
 import signal
+from urllib.parse import urlparse
 
 from a2a_protocol import A2AProtocol, A2AMessage
 from agent_card import AgentCard, AgentSkill
@@ -21,6 +23,7 @@ from utils import (
     validate_json_schema,
     IdempotencyStore
 )
+from a2a_security import A2ASecurityManager, AuthError, ForbiddenError
 
 
 class BaseAgent(ABC):
@@ -36,7 +39,9 @@ class BaseAgent(ABC):
         self.version = version
         self.description = description
         self.protocol = A2AProtocol()
-        self.app = web.Application()
+        # Prevent oversized payload abuse
+        max_request_bytes = int(os.getenv("A2A_MAX_REQUEST_BYTES", str(1024 * 1024)))
+        self.app = web.Application(client_max_size=max_request_bytes)
         self.runner: Optional[web.AppRunner] = None
         self.site: Optional[web.TCPSite] = None
         self.logger = logging.getLogger(f"{__name__}.{name}")
@@ -45,6 +50,7 @@ class BaseAgent(ABC):
         self.structured_logger = StructuredLogger(name)
         self.performance_monitor = PerformanceMonitor()
         self.idempotency_store = IdempotencyStore()
+        self.security = A2ASecurityManager(agent_id=self.name.lower())
         
         # Agent card for capability discovery
         self.agent_card: Optional[AgentCard] = None
@@ -110,8 +116,34 @@ class BaseAgent(ABC):
         correlation_id = request.headers.get('X-Correlation-ID', generate_correlation_id())
         
         try:
-            data = await request.json()
+            raw = await request.read()
+            data = json.loads(raw.decode("utf-8"))
             message = A2AMessage(**data)
+
+            # AuthN/AuthZ + replay + rate limiting (applies to /message)
+            principal = "unknown"
+            auth_ctx: Dict[str, Any] = {}
+            try:
+                principal, auth_ctx = self.security.authenticate_and_authorize(
+                    headers={k: v for k, v in request.headers.items()},
+                    message_method=message.method,
+                    message_dict=data,
+                )
+            except AuthError as e:
+                self.logger.warning(f"Unauthorized request: {str(e)}")
+                error_response = A2AMessage.create_error(message.id, -32010, "Unauthorized")
+                error_dict = error_response.to_dict()
+                error_dict.setdefault("_meta", {})["correlation_id"] = correlation_id
+                return web.json_response(error_dict, status=401)
+            except ForbiddenError as e:
+                self.logger.warning(f"Forbidden request: {str(e)}")
+                error_response = A2AMessage.create_error(message.id, -32011, "Forbidden")
+                error_dict = error_response.to_dict()
+                meta = error_dict.setdefault("_meta", {})
+                meta["correlation_id"] = correlation_id
+                if auth_ctx.get("rate_limit"):
+                    meta["rate_limit"] = auth_ctx["rate_limit"]
+                return web.json_response(error_dict, status=403)
             
             # Structured logging with correlation ID
             self.structured_logger.log_request(
@@ -164,7 +196,11 @@ class BaseAgent(ABC):
             
             if response_message:
                 response_dict = response_message.to_dict()
-                response_dict.setdefault('_meta', {})['correlation_id'] = correlation_id
+                meta = response_dict.setdefault('_meta', {})
+                meta['correlation_id'] = correlation_id
+                meta['principal'] = principal
+                if auth_ctx.get("rate_limit"):
+                    meta["rate_limit"] = auth_ctx["rate_limit"]
                 return web.json_response(response_dict)
             else:
                 return web.Response(status=204)  # No content for notifications
@@ -274,11 +310,35 @@ class BaseAgent(ABC):
         import aiohttp
         
         try:
+            correlation_id = generate_correlation_id()
+            payload = message.to_dict()
+
+            # If we have a JWT private key configured, sign per-request tokens.
+            headers: Dict[str, str] = {
+                "X-Correlation-ID": correlation_id,
+                "Content-Type": "application/json",
+            }
+
+            if message.method and self.security.can_sign_jwt():
+                # Infer target agent id from URL hostname (extractor.local -> extractor)
+                parsed = urlparse(agent_url)
+                host = (parsed.hostname or "").split(".")[0].strip().lower()
+                if host:
+                    token = self.security.sign_request_jwt(
+                        subject=self.name.lower(),
+                        audience=host,
+                        method=message.method,
+                        message_dict=payload,
+                        ttl_seconds=int(os.getenv("A2A_JWT_TTL_SECONDS", "60")),
+                    )
+                    headers["Authorization"] = f"Bearer {token}"
+
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{agent_url}/message",
-                    json=message.to_dict(),
-                    timeout=aiohttp.ClientTimeout(total=30)
+                    json=payload,
+                    headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=float(os.getenv("A2A_HTTP_TIMEOUT_SECONDS", "30")))
                 ) as response:
                     if response.status == 204:
                         return None
