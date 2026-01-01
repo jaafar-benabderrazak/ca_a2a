@@ -17,6 +17,10 @@ pandas>=2.0.0
 pydantic>=2.5.0
 jsonschema>=4.20.0  # Keep for backward compatibility with Agent Cards
 
+# Security
+PyJWT>=2.8.0  # JWT token generation and verification
+cryptography>=41.0.0  # Required by PyJWT for secure algorithms
+
 # Environment
 python-dotenv>=1.0.0
 
