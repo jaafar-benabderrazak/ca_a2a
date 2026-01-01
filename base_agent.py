@@ -25,6 +25,14 @@ from utils import (
 )
 from security import SecurityManager, AuthContext
 
+# Import enhanced security (optional)
+try:
+    from a2a_security_enhanced import EnhancedSecurityManager
+    ENHANCED_SECURITY_AVAILABLE = True
+except ImportError:
+    ENHANCED_SECURITY_AVAILABLE = False
+    EnhancedSecurityManager = None
+
 
 class BaseAgent(ABC):
     """
@@ -41,7 +49,11 @@ class BaseAgent(ABC):
         version: str = "1.0.0", 
         description: str = "",
         enable_auth: bool = True,
-        enable_rate_limiting: bool = True
+        enable_rate_limiting: bool = True,
+        enable_enhanced_security: bool = False,
+        enable_message_integrity: bool = False,
+        enable_zero_trust: bool = False,
+        enable_anomaly_detection: bool = False
     ):
         self.name = name
         self.host = host
@@ -62,6 +74,8 @@ class BaseAgent(ABC):
         # Security manager
         self.enable_auth = enable_auth
         self.security_manager: Optional[SecurityManager] = None
+        self.enhanced_security = None
+        
         if enable_auth or enable_rate_limiting:
             self.security_manager = SecurityManager(
                 enable_jwt=enable_auth,
@@ -70,6 +84,20 @@ class BaseAgent(ABC):
                 enable_signatures=False  # Can be enabled later
             )
             self.logger.info(f"Security enabled: auth={enable_auth}, rate_limiting={enable_rate_limiting}")
+        
+        # Enhanced security (optional)
+        if enable_enhanced_security and ENHANCED_SECURITY_AVAILABLE and self.security_manager:
+            self.enhanced_security = EnhancedSecurityManager(
+                base_security=self.security_manager,
+                enable_tls=False,  # TLS handled at server level
+                enable_message_integrity=enable_message_integrity,
+                enable_zero_trust=enable_zero_trust,
+                enable_anomaly_detection=enable_anomaly_detection
+            )
+            self.logger.info(
+                f"Enhanced security enabled: integrity={enable_message_integrity}, "
+                f"zero_trust={enable_zero_trust}, anomaly={enable_anomaly_detection}"
+            )
         
         # Agent card for capability discovery
         self.agent_card: Optional[AgentCard] = None
@@ -137,8 +165,33 @@ class BaseAgent(ABC):
         auth_context: Optional[AuthContext] = None
         
         try:
-            # Step 1: Authenticate request
-            if self.security_manager and self.enable_auth:
+            # Parse message first (needed for enhanced security)
+            data = await request.json()
+            message_dict = data if isinstance(data, dict) else {}
+            
+            # Enhanced security verification (if enabled)
+            if self.enhanced_security:
+                allowed, auth_context, violations = await self.enhanced_security.verify_secure_request(
+                    headers=dict(request.headers),
+                    message=message_dict,
+                    source_ip=request.remote
+                )
+                
+                if not allowed:
+                    self.logger.warning(f"Enhanced security violation: {violations}")
+                    error_msg = A2AMessage.create_error(
+                        message_dict.get('id'),
+                        -32000,
+                        "Security verification failed",
+                        data={'violations': violations}
+                    )
+                    return web.json_response(error_msg.to_dict(), status=403)
+                
+                self.logger.debug(f"Enhanced security passed: {auth_context.agent_id if auth_context else 'unknown'}")
+            
+            # Standard security checks (if no enhanced security)
+            elif self.security_manager and self.enable_auth:
+                # Step 1: Authenticate request
                 success, auth_context, error = await self.security_manager.authenticate_request(
                     dict(request.headers),
                     source_ip=request.remote
@@ -150,21 +203,20 @@ class BaseAgent(ABC):
                     return web.json_response(error_msg.to_dict(), status=401)
                 
                 self.logger.debug(f"Authenticated: {auth_context.agent_id}")
-            
-            # Step 2: Check rate limits
-            if self.security_manager and auth_context:
-                allowed, error = self.security_manager.check_rate_limit(auth_context.agent_id)
                 
-                if not allowed:
-                    self.logger.warning(f"Rate limit exceeded for {auth_context.agent_id}: {error}")
-                    error_msg = A2AMessage.create_error(None, -32002, f"Rate limit exceeded: {error}")
-                    return web.json_response(error_msg.to_dict(), status=429)
+                # Step 2: Check rate limits
+                if auth_context:
+                    allowed, error = self.security_manager.check_rate_limit(auth_context.agent_id)
+                    
+                    if not allowed:
+                        self.logger.warning(f"Rate limit exceeded for {auth_context.agent_id}: {error}")
+                        error_msg = A2AMessage.create_error(None, -32002, f"Rate limit exceeded: {error}")
+                        return web.json_response(error_msg.to_dict(), status=429)
             
-            # Step 3: Parse and validate message
-            data = await request.json()
-            message = A2AMessage(**data)
+            # Parse message
+            message = A2AMessage(**message_dict)
             
-            # Step 4: Check authorization (permission for specific method)
+            # Step 3: Check authorization (permission for specific method)
             if self.security_manager and auth_context and message.method:
                 if not self.security_manager.check_permission(auth_context, message.method):
                     self.logger.warning(
@@ -213,22 +265,47 @@ class BaseAgent(ABC):
             
             # Record performance metrics
             duration_ms = (time.time() - start_time) * 1000
+            success = (response_message is None or response_message.error is None)
+            
             self.performance_monitor.record_request(
                 message.method or "unknown",
                 duration_ms,
-                success=True
+                success=success
             )
+            
+            # Record for anomaly detection (if enabled)
+            if self.enhanced_security and auth_context:
+                self.enhanced_security.record_request_for_anomaly_detection(
+                    agent_id=auth_context.agent_id,
+                    method=message.method or "unknown",
+                    success=success,
+                    response_time=duration_ms / 1000  # Convert to seconds
+                )
+                
+                # Check for anomalies
+                anomalies = self.enhanced_security.check_for_anomalies(auth_context.agent_id)
+                if anomalies:
+                    self.logger.warning(
+                        f"Anomalies detected for {auth_context.agent_id}: {anomalies}"
+                    )
             
             self.structured_logger.log_response(
                 method=message.method,
                 duration_ms=duration_ms,
-                success=True,
+                success=success,
                 correlation_id=correlation_id
             )
             
             if response_message:
                 response_dict = response_message.to_dict()
                 response_dict.setdefault('_meta', {})['correlation_id'] = correlation_id
+                
+                # Sign outgoing message (if enhanced security enabled)
+                if self.enhanced_security:
+                    integrity_headers = self.enhanced_security.sign_outgoing_message(response_dict)
+                    # Add integrity headers to response metadata
+                    response_dict['_meta'].update(integrity_headers)
+                
                 return web.json_response(response_dict)
             else:
                 return web.Response(status=204)  # No content for notifications
