@@ -2,6 +2,11 @@
 
 This document is a **copy/paste friendly** demo script with **real outputs captured** from the current AWS deployment, plus a mapping to the **security notions/concepts** implemented and tested.
 
+Related documentation:
+
+- `SECURITY.md` (security design + controls)
+- `SYSTEM_ARCHITECTURE.md` and `AWS_ARCHITECTURE.md` (architecture, including security layers)
+
 ### Environment / endpoint
 
 - **AWS account**: `555043101106` (SSO role `AWSAdministratorAccess`)
@@ -16,6 +21,8 @@ This document is a **copy/paste friendly** demo script with **real outputs captu
 - **RBAC**: method allow-list for `external_client` (see env `A2A_RBAC_POLICY_JSON` in task definition)
 - **Rate limiting**: enabled, tested on ALB path `/message`
 - **Payload size limit**: enabled (aiohttp `client_max_size`)
+- **Card/skills visibility**: `A2A_CARD_VISIBILITY_MODE=rbac` (skills list is filtered by caller role)
+- **Card/skills auth**: `A2A_CARD_REQUIRE_AUTH=false` (when false, anonymous is allowed but usually sees 0 skills)
 
 ---
 
@@ -48,6 +55,44 @@ Observed:
 #### Concepts shown
 - **Health endpoints** (liveness)
 - **Agent Card / capability discovery** (A2A metadata)
+
+### Card/skills visibility by role (RBAC-filtered)
+
+With `A2A_CARD_VISIBILITY_MODE=rbac`, the agent only discloses **skills allowed for the caller principal** (derived from `X-API-Key` or JWT).
+
+#### Anonymous caller (no API key) → skills hidden
+
+Command:
+
+```bash
+curl -s "http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/card"
+```
+
+Observed:
+
+- **HTTP 200**
+- `"skills": []`
+- `_meta.principal = "anonymous"`
+
+#### External client (API key) → allowed skills visible
+
+Command:
+
+```bash
+curl -s -H "X-API-Key: <client_api_key>" \
+  "http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/skills"
+```
+
+Observed:
+
+- **HTTP 200**
+- `total_skills > 0` (e.g., `6`)
+- `_meta.principal = "external_client"`
+
+#### Concepts (visibility)
+
+- **Least-privilege disclosure**: do not expose capabilities to unauthenticated callers
+- **RBAC-driven discovery**: “what you can do” is tied to “who you are”
 
 ---
 
@@ -158,6 +203,12 @@ Observed:
 - Bucket used by tasks: `ca-a2a-documents-555043101106`
 - Upload key: `incoming/invoice_demo_20260101.csv`
 
+Command:
+
+```powershell
+aws s3 cp .\\invoice_demo_20260101.csv s3://ca-a2a-documents-555043101106/incoming/invoice_demo_20260101.csv --profile reply-sso --region eu-west-3
+```
+
 ### 5.2 Run `process_document` and poll `get_task_status`
 
 Command:
@@ -171,7 +222,7 @@ curl -s -H "Content-Type: application/json" \
 
 Observed:
 - **HTTP 200**
-- Returned a `task_id`
+- Returned a `task_id` (example: `d9be66fd-d0b2-4334-96d3-67945205d003`)
 - `get_task_status` reached **status `completed`**
 - The final result includes:
   - `extraction.status = completed` with `document_type = csv`
@@ -193,6 +244,35 @@ Fix applied:
 - **Data validation**: rule-based scoring
 - **Secure serialization**: JSON/JSONB compatible payloads (no NaN)
 
+### 5.4 Verify archiving in the database (PostgreSQL)
+
+We verify that the archivist wrote/updated the row in PostgreSQL by running a **one-off ECS task** that executes:
+
+- `python init_db.py latest --limit 5`
+
+Command (PowerShell):
+
+```powershell
+$AWS_REGION = 'eu-west-3'
+$CLUSTER = 'ca-a2a-cluster'
+$taskDef = aws ecs describe-services --profile reply-sso --cluster $CLUSTER --services orchestrator --region $AWS_REGION --query 'services[0].taskDefinition' --output text
+$subnets = (aws ecs describe-services --profile reply-sso --cluster $CLUSTER --services orchestrator --region $AWS_REGION --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text).Split()
+$sg = aws ecs describe-services --profile reply-sso --cluster $CLUSTER --services orchestrator --region $AWS_REGION --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups[0]' --output text
+
+$ovLatest = 'file://c:/Users/j.benabderrazak/OneDrive - Reply/Bureau/work/CA/A2A/ca_a2a/scripts/ecs_overrides_latest_docs.json'
+$taskArn = aws ecs run-task --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --launch-type FARGATE --task-definition $taskDef --count 1 `
+  --network-configuration "awsvpcConfiguration={subnets=[$($subnets -join ',')],securityGroups=[$sg],assignPublicIp=DISABLED}" `
+  --overrides $ovLatest --query 'tasks[0].taskArn' --output text
+
+aws ecs wait tasks-stopped --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --tasks $taskArn
+$taskId = $taskArn.Split('/')[-1]
+aws logs get-log-events --profile reply-sso --region $AWS_REGION --log-group-name /ecs/ca-a2a-orchestrator --log-stream-name "ecs/orchestrator/$taskId" --limit 50 --query 'events[*].message' --output text
+```
+
+Observed (example):
+
+- `id=1 status=validated score=94.0 type=csv s3_key=incoming/invoice_demo_20260101.csv`
+
 ---
 
 ## 6) Local automated tests (security module)
@@ -204,7 +284,7 @@ pytest -q
 ```
 
 Observed:
-- `11 passed`
+- `12 passed`
 
 What is covered:
 - Auth disabled mode (dev)
@@ -214,6 +294,7 @@ What is covered:
 - JWT body-hash binding (tamper detection)
 - Rate limiting behavior
 - BaseAgent endpoint security behaviors
+- Card/skills RBAC visibility filtering
 
 ---
 

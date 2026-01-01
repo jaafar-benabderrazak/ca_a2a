@@ -144,6 +144,20 @@ chmod +x automated-test-suite.sh
 - Error handling paths
 - Edge cases
 
+### 10. **SECURITY.md** 🔐
+- Security design summary (defense-in-depth)
+- App-layer controls (AuthN/AuthZ/RBAC/replay/rate limit/payload limits)
+- Capability visibility controls (/card and /skills filtering)
+
+### 11. **DEMO_SECURITY_EVIDENCE.md** 🧾
+- Copy/paste demo script with **captured outputs**
+- Maps results to security notions and features
+
+### 12. **demo/SCENARIO_BASED_DEMO_TESTING.md** 🎯
+- Scenario-based demo/testing plan (functionality + security)
+- Designed to be replayed reliably on Windows (file-based JSON)
+- Includes a one-command runner: `scripts/run_demo_scenarios.ps1`
+
 ---
 
 ## 🎯 Quick Start Guides

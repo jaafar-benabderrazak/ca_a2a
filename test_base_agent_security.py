@@ -125,3 +125,47 @@ async def test_request_size_limit(monkeypatch: pytest.MonkeyPatch):
     finally:
         await agent.stop()
 
+
+@pytest.mark.asyncio
+async def test_card_and_skills_visibility_filtered_by_rbac(monkeypatch: pytest.MonkeyPatch):
+    # Require auth and require auth for /card,/skills; allow only echo for this principal.
+    monkeypatch.setenv("A2A_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("A2A_CARD_REQUIRE_AUTH", "true")
+    monkeypatch.setenv("A2A_CARD_VISIBILITY_MODE", "rbac")
+    monkeypatch.setenv("A2A_ENABLE_RATE_LIMIT", "false")
+    monkeypatch.setenv("A2A_ENABLE_REPLAY_PROTECTION", "false")
+    monkeypatch.setenv("A2A_API_KEYS_JSON", json.dumps({"external_client": "k"}))
+    monkeypatch.setenv("A2A_RBAC_POLICY_JSON", json.dumps({"allow": {"external_client": ["echo"]}, "deny": {}}))
+
+    port = _free_port()
+    agent = EchoAgent(port=port)
+    await agent.start()
+
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            card_url = f"http://127.0.0.1:{port}/card"
+            skills_url = f"http://127.0.0.1:{port}/skills"
+
+            # Without auth -> 401
+            async with session.get(card_url) as r:
+                assert r.status == 401
+            async with session.get(skills_url) as r:
+                assert r.status == 401
+
+            # With auth -> skill list filtered to allowed methods
+            async with session.get(card_url, headers={"X-API-Key": "k"}) as r:
+                assert r.status == 200
+                body = await r.json()
+                methods = sorted([s["method"] for s in body.get("skills", [])])
+                assert methods == ["echo"]
+
+            async with session.get(skills_url, headers={"X-API-Key": "k"}) as r:
+                assert r.status == 200
+                body = await r.json()
+                methods = sorted([s["method"] for s in body.get("skills", [])])
+                assert methods == ["echo"]
+    finally:
+        await agent.stop()
+

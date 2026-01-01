@@ -4,6 +4,7 @@ Creates the PostgreSQL schema and initial data
 """
 import asyncio
 import sys
+from typing import Optional
 from mcp_protocol import PostgreSQLResource
 from config import POSTGRES_CONFIG
 
@@ -139,14 +140,83 @@ async def check_database():
     finally:
         await db.disconnect()
 
+async def show_latest_documents(limit: int = 10, s3_key: Optional[str] = None):
+    """Show latest archived/processed documents for demo verification."""
+    db = PostgreSQLResource()
+
+    try:
+        await db.connect()
+        print("OK: Database connection successful")
+
+        where = ""
+        args = []
+        if s3_key:
+            where = "WHERE s3_key = $1"
+            args = [s3_key]
+
+        query = f"""
+            SELECT
+                id,
+                s3_key,
+                document_type,
+                status,
+                validation_score,
+                updated_at
+            FROM documents
+            {where}
+            ORDER BY updated_at DESC
+            LIMIT {int(limit)}
+        """
+
+        rows = await db.fetch_all(query, *args)
+        print(f"\nLatest documents (limit={int(limit)}{', filter=' + s3_key if s3_key else ''}):")
+        if not rows:
+            print("  (no rows)")
+            return
+
+        for r in rows:
+            print(
+                "  - "
+                f"id={r.get('id')} "
+                f"status={r.get('status')} "
+                f"score={r.get('validation_score')} "
+                f"type={r.get('document_type')} "
+                f"s3_key={r.get('s3_key')} "
+                f"updated_at={r.get('updated_at')}"
+            )
+
+        print("\nOK: Latest documents listed")
+    except Exception as e:
+        print(f"\nERROR: Error listing documents: {str(e)}")
+        sys.exit(1)
+    finally:
+        await db.disconnect()
 
 async def main():
     """Main entry point"""
     import argparse
     
     parser = argparse.ArgumentParser(description='Database initialization utility')
-    parser.add_argument('action', choices=['init', 'reset', 'check'], 
-                       help='Action to perform: init (create schema), reset (drop and recreate), check (verify connection)')
+    parser.add_argument(
+        'action',
+        choices=['init', 'reset', 'check', 'latest'],
+        help='Action to perform: init (create schema), reset (drop and recreate), check (verify connection), latest (list recent documents)',
+    )
+
+    parser.add_argument(
+        '--limit',
+        type=int,
+        default=10,
+        help='Number of documents to list (latest action only)',
+    )
+
+    parser.add_argument(
+        '--s3-key',
+        dest='s3_key',
+        type=str,
+        default=None,
+        help='Optional exact S3 key filter (latest action only)',
+    )
     
     args = parser.parse_args()
     
@@ -156,6 +226,8 @@ async def main():
         await reset_database()
     elif args.action == 'check':
         await check_database()
+    elif args.action == 'latest':
+        await show_latest_documents(limit=args.limit, s3_key=args.s3_key)
 
 
 if __name__ == '__main__':

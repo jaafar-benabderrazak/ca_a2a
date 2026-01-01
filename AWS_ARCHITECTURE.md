@@ -455,6 +455,20 @@ Target Groups:
 ✅ CloudTrail for API auditing  
 ✅ VPC Flow Logs for network monitoring  
 
+### Application Security (A2A hardening)
+
+- **External client authentication**: `X-API-Key`
+- **Agent-to-agent authentication**: short-lived **JWT Bearer** (request-bound)
+- **Authorization (RBAC)**: method allow-list by principal (`A2A_RBAC_POLICY_JSON`)
+- **Replay protection**: JWT `jti` nonce cache
+- **Rate limiting**: per-principal controls on `/message`
+- **Payload size limits**: aiohttp `client_max_size`
+- **Capability disclosure minimization**: `/card` and `/skills` can be RBAC-filtered
+
+Related docs:
+- `SECURITY.md`
+- `DEMO_SECURITY_EVIDENCE.md`
+
 ---
 
 ## 📊 Scalability & High Availability

@@ -215,6 +215,52 @@ class A2ASecurityManager:
 
         return principal, ctx
 
+    def authenticate(
+        self,
+        *,
+        headers: Dict[str, str],
+        method: str = "",
+        message_dict: Optional[Dict[str, Any]] = None,
+        allow_anonymous: bool = False,
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Authenticate only (no RBAC/rate-limit checks by default).
+
+        Useful for non-JSON-RPC endpoints like GET /card and GET /skills where we only
+        need identity to decide what to disclose.
+
+        - If A2A_REQUIRE_AUTH=false => returns ("anonymous", {"mode":"disabled"})
+        - If A2A_REQUIRE_AUTH=true and allow_anonymous=true => returns ("anonymous", {"mode":"anonymous"}) on missing/invalid credentials
+        - Otherwise raises AuthError / ForbiddenError
+        """
+        if not self.require_auth:
+            return "anonymous", {"mode": "disabled"}
+
+        try:
+            return self._authenticate(
+                headers=headers,
+                method=method or "",
+                message_dict=message_dict or {},
+            )
+        except (AuthError, ForbiddenError):
+            if allow_anonymous:
+                return "anonymous", {"mode": "anonymous"}
+            raise
+
+    def is_allowed(self, principal: str, method: str) -> bool:
+        """Public wrapper to reuse RBAC allow/deny rules elsewhere."""
+        return self._is_allowed(principal, method)
+
+    def filter_visible_methods(self, principal: str, methods: list[str]) -> list[str]:
+        """
+        Return the subset of `methods` visible/allowed for `principal` based on RBAC.
+        """
+        allow = (self.rbac_policy or {}).get("allow", {}) or {}
+        allowed_methods = allow.get(principal, []) if isinstance(allow, dict) else []
+        if "*" in allowed_methods:
+            return list(methods)
+        return [m for m in methods if self._is_allowed(principal, m)]
+
     def _authenticate(self, *, headers: Dict[str, str], method: str, message_dict: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
         auth_header = headers.get("Authorization", "") or ""
         api_key_header = headers.get("X-API-Key", "") or ""

@@ -566,6 +566,27 @@ graph TB
     L3 --> L4
 ```
 
+### 6.5 Application security (A2A hardening)
+
+Public entrypoint: **ALB → Orchestrator** (`POST /message`).
+
+- **Authentication**
+  - External client: `X-API-Key`
+  - Agent-to-agent: **JWT Bearer** (short-lived, request-bound)
+- **Authorization (RBAC)**: allow-list by principal (`A2A_RBAC_POLICY_JSON`)
+- **Replay protection**: JWT `jti` nonce cache with TTL
+- **Rate limiting**: per-principal sliding window (abuse resistance)
+- **Payload size limits**: aiohttp `client_max_size` (DoS resistance)
+- **Capability disclosure minimization**: `/card` and `/skills` can be **RBAC-filtered** (`A2A_CARD_VISIBILITY_MODE=rbac`)
+
+Implementation reference:
+- `a2a_security.py` (AuthN/AuthZ, replay, rate limiting)
+- `base_agent.py` (enforcement on `/message`, RBAC-filtered `/card` + `/skills`)
+
+Evidence:
+- `DEMO_SECURITY_EVIDENCE.md` (captured outputs)
+- `SECURITY.md` (security summary)
+
 ### 6.2 IAM Roles
 
 **ECS Task Execution Role:** `ca-a2a-ecs-execution-role`

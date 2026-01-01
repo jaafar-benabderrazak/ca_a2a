@@ -1,0 +1,9 @@
+{
+  "containerOverrides": [
+    {
+      "name": "orchestrator",
+      "command": ["python", "init_db.py", "latest", "--limit", "5"]
+    }
+  ]
+}
+

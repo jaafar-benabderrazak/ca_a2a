@@ -363,8 +363,29 @@ class OrchestratorAgent(BaseAgent):
         for url in agent_urls:
             try:
                 async with aiohttp.ClientSession() as session:
+                    # If auth is enabled, include a short-lived JWT so /card visibility works by role.
+                    headers: Dict[str, str] = {}
+                    try:
+                        from urllib.parse import urlparse
+
+                        parsed = urlparse(url)
+                        host = (parsed.hostname or "").split(".")[0].strip().lower()
+                        if host and self.security.can_sign_jwt() and self.security.require_auth:
+                            token = self.security.sign_request_jwt(
+                                subject=self.name.lower(),
+                                audience=host,
+                                method="card",
+                                message_dict={"path": "/card"},
+                                ttl_seconds=60,
+                            )
+                            headers["Authorization"] = f"Bearer {token}"
+                    except Exception:
+                        # Discovery must remain best-effort.
+                        headers = headers or {}
+
                     async with session.get(
                         f"{url}/card",
+                        headers=headers,
                         timeout=aiohttp.ClientTimeout(total=5)
                     ) as response:
                         if response.status == 200:

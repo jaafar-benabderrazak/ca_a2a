@@ -14,6 +14,10 @@ Montrer le pipeline complet de traitement automatisé d'un document :
 4. Archivage du document traité
 5. Consultation des résultats
 
+Documentation sécurité / preuves :
+- `SECURITY.md`
+- `DEMO_SECURITY_EVIDENCE.md`
+
 ---
 
 ## ⚙️ Préparation (1 minute)
@@ -67,7 +71,7 @@ curl -s "$ALB_URL/health" | jq '{
 
 ```bash
 echo -e "\n=== 2. Capacités Disponibles ==="
-curl -s "$ALB_URL/card" | jq '.skills[] | {
+curl -s ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} "$ALB_URL/skills" | jq '.skills[] | {
   name,
   method,
   description
@@ -119,61 +123,22 @@ curl -s -X POST "$ALB_URL/message" \
 ### **Étape 4: Upload d'un Document** (1 minute)
 
 ```bash
-echo -e "\n=== 4. Création et Upload d'une Facture Test ==="
+echo -e "\n=== 4. Création et Upload d'une Facture Test (CSV) ==="
 
-# Créer une facture réaliste
-cat > facture_demo.txt << 'EOF'
-=====================================
-      FACTURE COMMERCIALE
-=====================================
-
-N° Facture: FAC-2025-12345
-Date: 18/12/2025
-Date d'échéance: 17/01/2026
-
-FOURNISSEUR:
-  Reply S.p.A.
-  Corso Francia 110
-  10143 Turin, Italie
-  TVA: IT12345678901
-
-CLIENT:
-  ACME Corporation
-  123 Avenue des Champs
-  75008 Paris, France
-  TVA: FR98765432109
-
-DESCRIPTION:
-┌─────────────────────────────────────┬──────┬─────────┬───────────┐
-│ Description                         │ Qté  │ Prix U. │ Total     │
-├─────────────────────────────────────┼──────┼─────────┼───────────┤
-│ Consulting AWS Architecture         │  5 j │ 800 EUR │ 4,000 EUR │
-│ Développement Multi-Agents          │ 10 j │ 900 EUR │ 9,000 EUR │
-│ Formation DevOps                    │  2 j │ 700 EUR │ 1,400 EUR │
-└─────────────────────────────────────┴──────┴─────────┴───────────┘
-
-Sous-total HT:                              14,400.00 EUR
-TVA (20%):                                   2,880.00 EUR
-                                           ─────────────
-TOTAL TTC:                                  17,280.00 EUR
-
-Conditions de paiement: Net 30 jours
-Mode de paiement: Virement bancaire
-IBAN: FR76 1234 5678 9012 3456 7890 123
-BIC: BNPAFRPPXXX
-
-Merci pour votre confiance !
+# Créer un CSV compatible avec l'Extractor (csv/pdf supportés)
+cat > invoice_demo_20260101.csv << 'EOF'
+s3_key,invoice_number,invoice_date,supplier,client,subtotal_ht,tva,total_ttc
+uploads/invoice_demo_20260101.csv,FAC-2026-0001,2026-01-01,Reply S.p.A.,ACME Corporation,14400,2880,17280
 EOF
 
 # Afficher le contenu
 echo "Contenu de la facture:"
-cat facture_demo.txt | head -15
-echo "..."
+cat invoice_demo_20260101.csv
 
 # Upload vers S3
-aws s3 cp facture_demo.txt s3://ca-a2a-documents/uploads/facture_demo.txt --region $AWS_REGION
+aws s3 cp invoice_demo_20260101.csv s3://ca-a2a-documents-555043101106/incoming/invoice_demo_20260101.csv --region $AWS_REGION
 
-echo "✅ Document uploadé: uploads/facture_demo.txt"
+echo "✅ Document uploadé: incoming/invoice_demo_20260101.csv"
 ```
 
 ---
@@ -190,8 +155,8 @@ RESPONSE=$(curl -s -X POST "$ALB_URL/message" \
     "jsonrpc": "2.0",
     "method": "process_document",
     "params": {
-      "s3_key": "uploads/facture_demo.txt",
-      "document_type": "invoice"
+      "s3_key": "incoming/invoice_demo_20260101.csv",
+      "priority": "normal"
     },
     "id": 2
   }')
@@ -224,7 +189,7 @@ if [ ! -z "$TASK_ID" ]; then
       -H "Content-Type: application/json" \
       -d "{
         \"jsonrpc\": \"2.0\",
-        \"method\": \"check_status\",
+        \"method\": \"get_task_status\",
         \"params\": {\"task_id\": \"$TASK_ID\"},
         \"id\": $((i+2))
       }")
@@ -253,28 +218,28 @@ fi
 
 ---
 
-### **Étape 7: Vérification des Résultats** (1 minute)
+### **Étape 7: Vérifier l'archivage en base (PostgreSQL)** (30 secondes)
 
 ```bash
-echo -e "\n=== 7. Documents Traités ==="
-curl -s -X POST "$ALB_URL/message" \
-  ${A2A_API_KEY:+-H "X-API-Key: $A2A_API_KEY"} \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "list_pending_documents",
-    "params": {"limit": 10},
-    "id": 99
-  }' | jq '.result.documents[] | {
-    id,
-    file_name,
-    status,
-    document_type,
-    created_at
-  }'
+echo -e "\n=== 7. Derniers documents en DB (ECS one-off) ==="
 
-echo -e "\n=== 8. Fichiers Archivés dans S3 ==="
-aws s3 ls s3://ca-a2a-documents/archived/ --region $AWS_REGION --recursive --human-readable | tail -5
+AWS_REGION="eu-west-3"
+CLUSTER="ca-a2a-cluster"
+
+# Récupérer la config réseau (subnets + SG) du service orchestrator
+taskDef=$(aws ecs describe-services --profile reply-sso --cluster "$CLUSTER" --services orchestrator --region "$AWS_REGION" --query 'services[0].taskDefinition' --output text)
+subnets=$(aws ecs describe-services --profile reply-sso --cluster "$CLUSTER" --services orchestrator --region "$AWS_REGION" --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text)
+sg=$(aws ecs describe-services --profile reply-sso --cluster "$CLUSTER" --services orchestrator --region "$AWS_REGION" --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups[0]' --output text)
+
+# Run: python init_db.py latest --limit 5
+taskArn=$(aws ecs run-task --profile reply-sso --region "$AWS_REGION" --cluster "$CLUSTER" --launch-type FARGATE --task-definition "$taskDef" --count 1 \
+  --network-configuration "awsvpcConfiguration={subnets=[$(echo $subnets | sed 's/ /,/g')],securityGroups=[$sg],assignPublicIp=DISABLED}" \
+  --overrides '{"containerOverrides":[{"name":"orchestrator","command":["python","init_db.py","latest","--limit","5"]}]}' \
+  --query 'tasks[0].taskArn' --output text)
+
+aws ecs wait tasks-stopped --profile reply-sso --region "$AWS_REGION" --cluster "$CLUSTER" --tasks "$taskArn"
+taskId=$(echo "$taskArn" | awk -F/ '{print $NF}')
+aws logs get-log-events --profile reply-sso --region "$AWS_REGION" --log-group-name /ecs/ca-a2a-orchestrator --log-stream-name "ecs/orchestrator/$taskId" --limit 50 --query 'events[*].message' --output text
 ```
 
 ---

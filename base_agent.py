@@ -279,29 +279,87 @@ class BaseAgent(ABC):
         return web.json_response(status)
     
     async def get_agent_card(self, request: web.Request) -> web.Response:
-        """Return complete agent card with capabilities"""
+        """
+        Return agent card with capability discovery.
+
+        Supports role-based visibility:
+        - If `A2A_CARD_VISIBILITY_MODE=all` => show all skills
+        - If `A2A_CARD_VISIBILITY_MODE=rbac` => show only skills allowed by RBAC for the caller principal
+        - If `A2A_CARD_REQUIRE_AUTH=true` => unauthenticated callers get 401; otherwise treated as anonymous
+        """
         if not self.agent_card:
             return web.json_response(
                 {"error": "Agent card not initialized"},
                 status=500
             )
-        
-        return web.json_response(self.agent_card.to_dict())
+
+        require_auth = os.getenv("A2A_CARD_REQUIRE_AUTH", "false").lower() == "true"
+        visibility_mode = os.getenv(
+            "A2A_CARD_VISIBILITY_MODE",
+            "rbac" if self.security.require_auth else "all",
+        ).lower()
+
+        # Authenticate caller (or treat as anonymous if allowed)
+        try:
+            principal, _ctx = self.security.authenticate(
+                headers={k: v for k, v in request.headers.items()},
+                method="card",
+                message_dict={"path": "/card"},
+                allow_anonymous=not require_auth,
+            )
+        except AuthError:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        card = self.agent_card.to_dict()
+        if visibility_mode == "rbac":
+            allowed = set(self.security.filter_visible_methods(principal, [s.get("method", "") for s in card.get("skills", [])]))
+            card["skills"] = [s for s in card.get("skills", []) if s.get("method") in allowed]
+
+        card.setdefault("_meta", {})["principal"] = principal
+        return web.json_response(card)
     
     async def get_skills(self, request: web.Request) -> web.Response:
-        """Return list of agent skills"""
+        """
+        Return list of agent skills.
+
+        Same visibility rules as /card (see `get_agent_card`).
+        """
         if not self.agent_card:
             return web.json_response(
                 {"error": "Agent card not initialized"},
                 status=500
             )
-        
-        return web.json_response({
-            "agent": self.name,
-            "version": self.version,
-            "skills": [skill.to_dict() for skill in self.agent_card.skills],
-            "total_skills": len(self.agent_card.skills)
-        })
+
+        require_auth = os.getenv("A2A_CARD_REQUIRE_AUTH", "false").lower() == "true"
+        visibility_mode = os.getenv(
+            "A2A_CARD_VISIBILITY_MODE",
+            "rbac" if self.security.require_auth else "all",
+        ).lower()
+
+        try:
+            principal, _ctx = self.security.authenticate(
+                headers={k: v for k, v in request.headers.items()},
+                method="skills",
+                message_dict={"path": "/skills"},
+                allow_anonymous=not require_auth,
+            )
+        except AuthError:
+            return web.json_response({"error": "Unauthorized"}, status=401)
+
+        skills = [skill.to_dict() for skill in self.agent_card.skills]
+        if visibility_mode == "rbac":
+            allowed = set(self.security.filter_visible_methods(principal, [s.get("method", "") for s in skills]))
+            skills = [s for s in skills if s.get("method") in allowed]
+
+        return web.json_response(
+            {
+                "agent": self.name,
+                "version": self.version,
+                "skills": skills,
+                "total_skills": len(skills),
+                "_meta": {"principal": principal},
+            }
+        )
     
     async def _get_agent_status(self) -> Dict[str, Any]:
         """Get agent-specific status - can be overridden by subclasses"""
