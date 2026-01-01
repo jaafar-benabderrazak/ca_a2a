@@ -25,12 +25,23 @@ Système de traitement automatisé de documents utilisant une architecture multi
 
 ### 🎥 Demo & Présentation
 
-**📖 [DEMO_PRESENTATION_GUIDE.md](./DEMO_PRESENTATION_GUIDE.md)** - Guide complet de démonstration avec:
-- 8 scénarios de sécurité interactifs
-- Commandes PowerShell prêtes à l'emploi
-- Références au document de recherche "Securing Agent-to-Agent (A2A) Communications Across Domains"
+**📖 Documentation Exhaustive de Démonstration:**
+- **[EXHAUSTIVE_SECURITY_DEMO.md](./EXHAUSTIVE_SECURITY_DEMO.md)** 🇬🇧 (English) - Comprehensive scenario-based security demonstration
+- **[DEMO_SECURITE_EXHAUSTIVE_FR.md](./DEMO_SECURITE_EXHAUSTIVE_FR.md)** 🇫🇷 (Français) - Démonstration exhaustive de sécurité basée sur scénarios
+
+**Contenu:**
+- Architecture complète avec 10+ diagrammes Mermaid
+- 7 scénarios de sécurité interactifs (TLS/mTLS, HMAC, Zero-Trust, Anomaly Detection, etc.)
+- Commandes PowerShell prêtes à l'emploi pour AWS
+- 30+ références au document de recherche "Securing Agent-to-Agent (A2A) Communications Across Domains.pdf"
 - Validation des menaces: MITM, Tampering, Replay, Unauthorized Access, Spoofing
 - Preuves de conformité GDPR & HIPAA
+- Tests pipeline de bout en bout
+- Observabilité et monitoring
+
+**📚 Guides Complémentaires:**
+- **[DEMO_PRESENTATION_GUIDE.md](./DEMO_PRESENTATION_GUIDE.md)** - Guide de présentation initiale
+- **[DEMO_DOCUMENTATION_SUMMARY.md](./DEMO_DOCUMENTATION_SUMMARY.md)** - Résumé de la documentation démo
 
 **▶️ Lancement rapide de la démo:**
 ```powershell
