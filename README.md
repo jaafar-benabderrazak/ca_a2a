@@ -83,9 +83,11 @@ curl -X POST http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/process \
 | Document | Description |
 |----------|-------------|
 | [📘 AWS Testing Complete](./AWS_TESTING_COMPLETE.md) | **START HERE** - Complete testing overview |
+| [💻 AWS Testing on Windows](./AWS_TESTING_WINDOWS_GUIDE.md) | **WINDOWS USERS** - Complete setup and testing guide |
 | [📗 AWS Testing Quick Ref](./AWS_TESTING_QUICK_REF.md) | Quick reference and common commands |
 | [📕 AWS Comprehensive Tests](./AWS_COMPREHENSIVE_TESTS.md) | Full test suite documentation (45+ tests) |
 | [📙 AWS CLI Installation](./AWS_CLI_INSTALLATION_GUIDE.md) | Setup guide for Windows users |
+| [🔧 Terminal Fix Guide](./TERMINAL_FIX_GUIDE.md) | Fix AWS CLI PATH issues in terminals |
 
 ### Supporting Documentation
 
