@@ -49,6 +49,10 @@ Internet → ALB → Orchestrator → [Extractor, Validator, Archivist]
 **Protocoles:**
 - **A2A (Agent-to-Agent):** Communication inter-agents JSON-RPC 2.0
 - **MCP (Model Context Protocol):** Accès unifié aux ressources (S3, DB)
+  - **🆕 MCP Server:** Serveur MCP complet pour S3 et PostgreSQL ([Guide](./MCP_SERVER_GUIDE.md))
+  - **Resources:** 2 resources (S3 bucket, PostgreSQL database)
+  - **Tools:** 7 tools (S3 ops, DB queries, document management)
+  - **Deploy:** `.\mcp_deploy.ps1 start` ou `python mcp_deploy.py start`
 
 ---
 
@@ -243,6 +247,113 @@ Voir [API_TESTING_GUIDE.md](./API_TESTING_GUIDE.md)
 ### Résultats de Tests
 - [E2E_TEST_REPORT_20260101.md](./E2E_TEST_REPORT_20260101.md) - Tests end-to-end complets
 - [TEST_RESULTS.md](./TEST_RESULTS.md) - Tests unitaires et d'intégration
+
+### 🆕 Test MCP Server
+```powershell
+# Démarrer le serveur MCP
+.\mcp_deploy.ps1 start
+
+# Tester la connexion et les outils
+.\mcp_deploy.ps1 test
+
+# Ou utiliser le script Python de tests
+python test_mcp_server.py
+```
+
+**Documentation**: [MCP_SERVER_GUIDE.md](./MCP_SERVER_GUIDE.md)
+
+---
+
+## 🔌 MCP Server (Model Context Protocol)
+
+### Qu'est-ce que MCP?
+
+Le **Model Context Protocol** est un standard ouvert permettant aux agents AI d'accéder de manière unifiée à des ressources externes (S3, bases de données, APIs, etc.).
+
+### Architecture MCP
+
+```
+┌──────────────┐      ┌──────────────┐      ┌──────────────┐
+│ Orchestrator │      │  Extractor   │      │  Archivist   │
+│ (MCP Client) │      │ (MCP Client) │      │ (MCP Client) │
+└──────┬───────┘      └──────┬───────┘      └──────┬───────┘
+       │                     │                     │
+       └─────────────────────┼─────────────────────┘
+                             │ MCP Protocol
+                    ┌────────▼─────────┐
+                    │   MCP Server     │
+                    │  • 2 Resources   │
+                    │  • 7 Tools       │
+                    │  • Circuit Break │
+                    └────────┬─────────┘
+               ┌─────────────┴─────────────┐
+               │                           │
+           ┌───▼───┐                  ┌────▼─────┐
+           │  S3   │                  │PostgreSQL│
+           └───────┘                  └──────────┘
+```
+
+### Resources MCP (2)
+
+1. **S3 Bucket**: `s3://ca-a2a-documents-555043101106/`
+2. **PostgreSQL DB**: `postgres://.../documents_db`
+
+### Tools MCP (7)
+
+- **S3**: `s3_list_objects`, `s3_get_object`, `s3_put_object`
+- **PostgreSQL**: `postgres_query`, `postgres_execute`
+- **High-Level**: `document_store`, `document_list`
+
+### Quick Start MCP
+
+```powershell
+# 1. Démarrer le serveur
+.\mcp_deploy.ps1 start
+
+# 2. Vérifier le statut
+.\mcp_deploy.ps1 status
+
+# 3. Tester les outils
+.\mcp_deploy.ps1 test
+
+# 4. Voir les logs
+Get-Content mcp_server.log -Wait -Tail 20
+```
+
+### Utilisation dans les Agents
+
+```python
+# Option 1: Utiliser le client MCP (nouveau)
+from mcp_client import MCPContext
+
+async with MCPContext() as mcp:
+    objects = await mcp.s3.list_objects(prefix="incoming/")
+    docs = await mcp.postgres.list_documents(status="pending")
+
+# Option 2: Accès direct (existant)
+from mcp_protocol import MCPContext
+
+async with MCPContext() as mcp:
+    objects = await mcp.s3.list_objects(prefix="incoming/")
+    docs = await mcp.postgres.fetch_all("SELECT * FROM documents")
+```
+
+**Interface compatible**: Le client MCP utilise la même interface que l'accès direct!
+
+### Quand Utiliser MCP Server?
+
+✅ **Utiliser MCP Server** quand:
+- Plusieurs agents partagent les mêmes ressources
+- Monitoring/logging centralisé requis
+- Interopérabilité avec d'autres outils MCP nécessaire
+- Gestion de pool de connexions importante
+
+✅ **Utiliser Accès Direct** quand:
+- Ultra-faible latence requise (< 1ms)
+- Agent unique, pas de partage de ressources
+- Déploiement simple (pas de gestion de serveur)
+
+**Documentation complète**: [MCP_SERVER_GUIDE.md](./MCP_SERVER_GUIDE.md)
 
 ---
 

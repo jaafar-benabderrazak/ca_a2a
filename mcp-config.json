@@ -1,0 +1,60 @@
+{
+  "mcpServers": {
+    "ca-a2a-aws-resources": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "env": {
+        "AWS_REGION": "eu-west-3",
+        "AWS_S3_BUCKET": "ca-a2a-documents-555043101106",
+        "POSTGRES_HOST": "ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com",
+        "POSTGRES_PORT": "5432",
+        "POSTGRES_DB": "documents_db",
+        "POSTGRES_USER": "postgres"
+      },
+      "description": "AWS resources (S3 and PostgreSQL) for CA A2A document processing",
+      "resources": [
+        {
+          "uri": "s3://ca-a2a-documents-555043101106/",
+          "name": "S3 Document Storage",
+          "description": "AWS S3 bucket for document storage"
+        },
+        {
+          "uri": "postgres://ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com/documents_db",
+          "name": "PostgreSQL Database",
+          "description": "Document processing database"
+        }
+      ],
+      "tools": [
+        {
+          "name": "s3_list_objects",
+          "description": "List objects in S3 bucket"
+        },
+        {
+          "name": "s3_get_object",
+          "description": "Get object from S3"
+        },
+        {
+          "name": "s3_put_object",
+          "description": "Put object to S3"
+        },
+        {
+          "name": "postgres_query",
+          "description": "Execute SELECT query"
+        },
+        {
+          "name": "postgres_execute",
+          "description": "Execute INSERT/UPDATE/DELETE"
+        },
+        {
+          "name": "document_store",
+          "description": "Store document with metadata"
+        },
+        {
+          "name": "document_list",
+          "description": "List documents from database"
+        }
+      ]
+    }
+  }
+}
+
