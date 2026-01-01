@@ -21,6 +21,22 @@ Système de traitement automatisé de documents utilisant une architecture multi
 - ✅ **Orchestration:** Coordination des agents via protocole A2A
 - ✅ **Accès Unifié:** MCP pour S3 et PostgreSQL
 - ✅ **API REST:** Interface JSON-RPC 2.0
+- ✅ **Sécurité Production:** TLS/mTLS, RBAC, Rate Limiting, HMAC, Zero-Trust
+
+### 🎥 Demo & Présentation
+
+**📖 [DEMO_PRESENTATION_GUIDE.md](./DEMO_PRESENTATION_GUIDE.md)** - Guide complet de démonstration avec:
+- 8 scénarios de sécurité interactifs
+- Commandes PowerShell prêtes à l'emploi
+- Références au document de recherche "Securing Agent-to-Agent (A2A) Communications Across Domains"
+- Validation des menaces: MITM, Tampering, Replay, Unauthorized Access, Spoofing
+- Preuves de conformité GDPR & HIPAA
+
+**▶️ Lancement rapide de la démo:**
+```powershell
+cd C:\Users\Utilisateur\Desktop\projects\ca_a2a
+.\scripts\run_demo_scenarios.ps1
+```
 
 ### 🏗️ Architecture
 
@@ -199,6 +215,17 @@ python run_agents.py
 
 ## 🧪 Tests
 
+### Démonstration Sécurité (Recommandé)
+```powershell
+# Demo complète avec tous les scénarios de sécurité
+.\scripts\run_demo_scenarios.ps1
+
+# Mode rapide (sans rate limiting ni pipeline)
+.\scripts\run_demo_scenarios.ps1 -QuickMode
+```
+
+**Documentation**: [DEMO_PRESENTATION_GUIDE.md](./DEMO_PRESENTATION_GUIDE.md)
+
 ### Test Unitaires
 ```bash
 pytest
@@ -212,6 +239,10 @@ pytest
 
 ### Test API Manuel
 Voir [API_TESTING_GUIDE.md](./API_TESTING_GUIDE.md)
+
+### Résultats de Tests
+- [E2E_TEST_REPORT_20260101.md](./E2E_TEST_REPORT_20260101.md) - Tests end-to-end complets
+- [TEST_RESULTS.md](./TEST_RESULTS.md) - Tests unitaires et d'intégration
 
 ---
 

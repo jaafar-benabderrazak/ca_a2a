@@ -141,7 +141,7 @@ graph TB
 | RDS Instance | `ca-a2a-postgres` | ✅ Available |
 | Endpoint | `ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com:5432` | ✅ Accessible depuis ECS |
 | Engine | PostgreSQL 15.7 | ✅ |
-| Database | `documents_db` | ⚠️ **Existe mais schéma à initialiser** |
+| Database | `documents_db` | ✅ **Schéma initialisé le 2026-01-01** |
 | SSL/TLS | Requis | ✅ Configuré |
 
 ### ☁️ **Stockage S3**
