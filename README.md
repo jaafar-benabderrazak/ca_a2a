@@ -73,10 +73,19 @@ curl -X POST http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/process \
 | Document | Description |
 |----------|-------------|
 | [📋 API Testing Guide](./API_TESTING_GUIDE.md) | API endpoints and examples |
-| [🧪 Test Results](./TEST_RESULTS.md) | Comprehensive test report (62/62 passed) |
+| [🧪 Test Results](./TEST_RESULTS.md) | Comprehensive test report (83/83 passed) |
 | [📊 Demo Results](./FINAL_DEMO_RESULTS.md) | Latest deployment status |
 | [✅ Deployment Success](./DEPLOYMENT_SUCCESS.md) | Issues fixed during deployment |
 | [🏛️ Technical Architecture](./TECHNICAL_ARCHITECTURE.md) | A2A protocol and agent details |
+
+### AWS Testing Documentation (NEW!)
+
+| Document | Description |
+|----------|-------------|
+| [📘 AWS Testing Complete](./AWS_TESTING_COMPLETE.md) | **START HERE** - Complete testing overview |
+| [📗 AWS Testing Quick Ref](./AWS_TESTING_QUICK_REF.md) | Quick reference and common commands |
+| [📕 AWS Comprehensive Tests](./AWS_COMPREHENSIVE_TESTS.md) | Full test suite documentation (45+ tests) |
+| [📙 AWS CLI Installation](./AWS_CLI_INSTALLATION_GUIDE.md) | Setup guide for Windows users |
 
 ### Supporting Documentation
 
@@ -183,8 +192,36 @@ curl -X POST http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/process \
 
 1. **Read the Demo Guide:** [END_TO_END_DEMO.md](./END_TO_END_DEMO.md)
 2. **Understand the Architecture:** [AWS_ARCHITECTURE.md](./AWS_ARCHITECTURE.md)
-3. **Test via CloudShell:** [TESTING_GUIDE.md](./TESTING_GUIDE.md)
+3. **Test via CloudShell:** [AWS_TESTING_COMPLETE.md](./AWS_TESTING_COMPLETE.md) ⭐ **NEW**
 4. **Review Scenarios:** [SCENARIO_FLOWS.md](./SCENARIO_FLOWS.md)
+
+## 🧪 Testing Your AWS Deployment
+
+**Quick Test (No Installation Required):**
+
+```bash
+# 1. Open AWS Console → eu-west-3 → CloudShell
+# 2. Clone and test:
+git clone https://github.com/jaafar-benabderrazak/ca_a2a.git
+cd ca_a2a
+bash test-aws-complete.sh
+```
+
+**Windows PowerShell (Requires AWS CLI):**
+
+```powershell
+# Run comprehensive test suite
+.\test-aws-complete.ps1
+```
+
+**Quick API Test (No Tools Needed):**
+
+```powershell
+$ALB_URL = "http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com"
+Invoke-RestMethod -Uri "$ALB_URL/health"
+```
+
+**📚 Full Documentation:** See [AWS_TESTING_COMPLETE.md](./AWS_TESTING_COMPLETE.md) for complete testing guide
 
 ---
 
