@@ -1,0 +1,19 @@
+{
+  "account_id": "555043101106",
+  "region": "eu-west-3",
+  "cluster": "ca-a2a-cluster",
+  "project": "ca-a2a",
+  "alb_sg": "sg-05db73131090f365a",
+  "rds_sg": "sg-0dfffbf7f98f77a4c",
+  "agent_sgs": {
+    "orchestrator": "sg-0f547640a05ad30b4",
+    "extractor": "sg-0bae968c462dc62c1",
+    "validator": "sg-00eb295c34057af8a",
+    "archivist": "sg-05f6157bddaaf9358"
+  },
+  "client_api_key": "1UsnjIl3vI4o1sBNF7cmezLXN8amhwRdS9Nxn74WQOhmFDay",
+  "service_connect_tls": {
+    "pca": null,
+    "kms": null
+  }
+}
