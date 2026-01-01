@@ -1,0 +1,27 @@
+﻿=====================================
+      FACTURE COMMERCIALE
+=====================================
+
+NÂ° Facture: FAC-2026-0001
+Date: 01/01/2026
+
+FOURNISSEUR:
+  Reply S.p.A.
+  Corso Francia 110
+  10143 Turin, Italie
+  TVA: IT12345678901
+
+CLIENT:
+  ACME Corporation
+  123 Avenue des Champs
+  75008 Paris, France
+  TVA: FR98765432109
+
+DESCRIPTION:
+- Consulting AWS Architecture: 5j x 800 EUR = 4,000 EUR
+- DÃ©veloppement Multi-Agents: 10j x 900 EUR = 9,000 EUR
+- Formation DevOps: 2j x 700 EUR = 1,400 EUR
+
+Sous-total HT: 14,400.00 EUR
+TVA (20%): 2,880.00 EUR
+TOTAL TTC: 17,280.00 EUR

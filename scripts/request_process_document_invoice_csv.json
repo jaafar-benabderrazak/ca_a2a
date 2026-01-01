@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"incoming/invoice_demo_20260101.csv","priority":"normal"},"id":"proc_csv"}
+

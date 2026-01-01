@@ -7,6 +7,7 @@ import asyncio
 from typing import Dict, Any, List
 from datetime import datetime
 import csv
+import math
 
 import PyPDF2
 import pdfplumber
@@ -218,6 +219,9 @@ class ExtractorAgent(BaseAgent):
                 extracted_data = await self._extract_csv(document_data)
             else:
                 raise ValueError(f"Unsupported document type: {document_type}")
+
+            # Ensure JSON-safe payloads (no NaN/Infinity for JSON/JSONB)
+            extracted_data = self._sanitize_for_json(extracted_data)
             
             # Prepare result
             result = {
@@ -240,6 +244,29 @@ class ExtractorAgent(BaseAgent):
         except Exception as e:
             self.logger.error(f"Failed to extract document: {str(e)}")
             raise Exception(f"Extraction error: {str(e)}")
+
+    def _sanitize_for_json(self, obj: Any) -> Any:
+        """
+        Convert values to JSON-safe types:
+        - Replace NaN/Infinity with None (JSON/JSONB do not accept NaN tokens)
+        - Recurse through dicts/lists
+        """
+        if obj is None:
+            return None
+
+        # Handle floats (including numpy floats) with NaN/Inf
+        if isinstance(obj, (float, int)):
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
+            return obj
+
+        # Recurse for common containers
+        if isinstance(obj, dict):
+            return {k: self._sanitize_for_json(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [self._sanitize_for_json(v) for v in obj]
+
+        return obj
     
     async def handle_list_supported_formats(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """List supported document formats"""

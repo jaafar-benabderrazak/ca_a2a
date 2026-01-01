@@ -1,0 +1,2 @@
+s3_key,invoice_number,invoice_date,supplier,client,subtotal_ht,tva,total_ttc
+uploads/invoice_demo_20260101.csv,FAC-2026-0001,2026-01-01,Reply S.p.A.,ACME Corporation,14400.00,2880.00,17280.00

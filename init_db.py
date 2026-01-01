@@ -20,7 +20,7 @@ async def init_database():
         
         # Initialize schema
         await db.initialize_schema()
-        print("✓ Schema initialized successfully")
+        print("OK: Schema initialized successfully")
         
         # Verify tables
         tables = await db.fetch_all("""
@@ -41,10 +41,10 @@ async def init_database():
         print(f"  - Documents: {doc_count}")
         print(f"  - Processing logs: {log_count}")
         
-        print("\n✓ Database initialization completed successfully")
+        print("\nOK: Database initialization completed successfully")
         
     except Exception as e:
-        print(f"\n✗ Error initializing database: {str(e)}")
+        print(f"\nERROR: Error initializing database: {str(e)}")
         sys.exit(1)
     finally:
         await db.disconnect()
@@ -69,17 +69,17 @@ async def reset_database():
         print("Dropping existing tables...")
         await db.execute("DROP TABLE IF EXISTS processing_logs CASCADE")
         await db.execute("DROP TABLE IF EXISTS documents CASCADE")
-        print("✓ Tables dropped")
+        print("OK: Tables dropped")
         
         # Recreate schema
         print("Creating schema...")
         await db.initialize_schema()
-        print("✓ Schema created")
+        print("OK: Schema created")
         
-        print("\n✓ Database reset completed successfully")
+        print("\nOK: Database reset completed successfully")
         
     except Exception as e:
-        print(f"\n✗ Error resetting database: {str(e)}")
+        print(f"\nERROR: Error resetting database: {str(e)}")
         sys.exit(1)
     finally:
         await db.disconnect()
@@ -93,7 +93,7 @@ async def check_database():
     
     try:
         await db.connect()
-        print("✓ Database connection successful")
+        print("OK: Database connection successful")
         
         # Check PostgreSQL version
         version = await db.fetch_value("SELECT version()")
@@ -131,10 +131,10 @@ async def check_database():
         else:
             print("  No indexes found.")
         
-        print("\n✓ Database check completed")
+        print("\nOK: Database check completed")
         
     except Exception as e:
-        print(f"\n✗ Error checking database: {str(e)}")
+        print(f"\nERROR: Error checking database: {str(e)}")
         sys.exit(1)
     finally:
         await db.disconnect()

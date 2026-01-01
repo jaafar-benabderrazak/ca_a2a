@@ -293,7 +293,7 @@ class PostgreSQLResource(MCPResource):
         
         try:
             return await retry_with_backoff(
-                lambda: self.circuit_breaker.call(_execute),
+                lambda: self.circuit_breaker.call_async(_execute),
                 max_retries=3,
                 exceptions=(asyncpg.PostgresError,)
             )
@@ -316,7 +316,7 @@ class PostgreSQLResource(MCPResource):
         
         try:
             return await retry_with_backoff(
-                lambda: self.circuit_breaker.call(_fetch),
+                lambda: self.circuit_breaker.call_async(_fetch),
                 max_retries=3,
                 exceptions=(asyncpg.PostgresError,)
             )

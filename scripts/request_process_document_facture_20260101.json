@@ -1,0 +1,2 @@
+{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"uploads/facture_demo_security_20260101.txt","priority":"normal"},"id":"proc"}
+

@@ -36,7 +36,11 @@ class CircuitBreaker:
         self.state = "closed"  # closed, open, half-open
         
     def call(self, func: Callable[..., T], *args, **kwargs) -> T:
-        """Execute function with circuit breaker protection"""
+        """
+        Execute a *sync* function with circuit breaker protection.
+
+        Note: for async callables, use `call_async`.
+        """
         if self.state == "open":
             if time.time() - self.last_failure_time > self.recovery_timeout:
                 self.state = "half-open"
@@ -61,6 +65,37 @@ class CircuitBreaker:
             
             raise
 
+    async def call_async(self, func: Callable[..., Any], *args, **kwargs) -> Any:
+        """
+        Execute an *async* function with circuit breaker protection.
+        """
+        if self.state == "open":
+            if time.time() - self.last_failure_time > self.recovery_timeout:
+                self.state = "half-open"
+                logger.info("Circuit breaker transitioning to half-open")
+            else:
+                raise Exception("Circuit breaker is OPEN - service unavailable")
+
+        try:
+            result = func(*args, **kwargs)
+            if asyncio.iscoroutine(result):
+                result = await result
+
+            if self.state == "half-open":
+                self.state = "closed"
+                self.failure_count = 0
+                logger.info("Circuit breaker closed - service recovered")
+
+            return result
+        except self.expected_exception:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+
+            if self.failure_count >= self.failure_threshold:
+                self.state = "open"
+                logger.error(f"Circuit breaker opened after {self.failure_count} failures")
+            raise
+
 
 async def retry_with_backoff(
     func: Callable,
@@ -78,10 +113,10 @@ async def retry_with_backoff(
     
     for attempt in range(max_retries + 1):
         try:
-            if asyncio.iscoroutinefunction(func):
-                return await func()
-            else:
-                return func()
+            result = func()
+            if asyncio.iscoroutine(result):
+                return await result
+            return result
         except exceptions as e:
             last_exception = e
             

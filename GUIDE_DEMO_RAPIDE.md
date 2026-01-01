@@ -359,6 +359,57 @@ aws elbv2 describe-target-health \
 - ⚠️ Le traitement peut prendre 10-30 secondes selon la charge
 - ⚠️ Avoir un navigateur ouvert sur AWS Console (CloudWatch Logs) pour montrer les logs en temps réel
 
+### Initialiser le schéma DB (obligatoire pour une démo fluide)
+
+Le plus simple (et reproductible) est de lancer une **tâche ECS one-off** qui exécute `python init_db.py init` dans le conteneur *orchestrator* (même VPC/subnets/SG/secrets que le service).
+
+#### PowerShell (Windows)
+
+```powershell
+$AWS_REGION = 'eu-west-3'
+$CLUSTER = 'ca-a2a-cluster'
+
+# Récupérer la config réseau (subnets + SG) du service orchestrator
+$taskDef = aws ecs describe-services --profile reply-sso --cluster $CLUSTER --services orchestrator --region $AWS_REGION --query 'services[0].taskDefinition' --output text
+$subnets = (aws ecs describe-services --profile reply-sso --cluster $CLUSTER --services orchestrator --region $AWS_REGION --query 'services[0].networkConfiguration.awsvpcConfiguration.subnets' --output text).Split()
+$sg = aws ecs describe-services --profile reply-sso --cluster $CLUSTER --services orchestrator --region $AWS_REGION --query 'services[0].networkConfiguration.awsvpcConfiguration.securityGroups[0]' --output text
+
+# Init schema
+$ov = 'file://c:/Users/j.benabderrazak/OneDrive - Reply/Bureau/work/CA/A2A/ca_a2a/scripts/ecs_overrides_init_db.json'
+$taskArn = aws ecs run-task --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --launch-type FARGATE --task-definition $taskDef --count 1 `
+  --network-configuration "awsvpcConfiguration={subnets=[$($subnets -join ',')],securityGroups=[$sg],assignPublicIp=DISABLED}" `
+  --overrides $ov --query 'tasks[0].taskArn' --output text
+aws ecs wait tasks-stopped --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --tasks $taskArn
+aws ecs describe-tasks --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --tasks $taskArn --query 'tasks[0].containers[0].exitCode' --output text
+
+# Check schema (optionnel)
+$ovCheck = 'file://c:/Users/j.benabderrazak/OneDrive - Reply/Bureau/work/CA/A2A/ca_a2a/scripts/ecs_overrides_check_db.json'
+$taskArn2 = aws ecs run-task --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --launch-type FARGATE --task-definition $taskDef --count 1 `
+  --network-configuration "awsvpcConfiguration={subnets=[$($subnets -join ',')],securityGroups=[$sg],assignPublicIp=DISABLED}" `
+  --overrides $ovCheck --query 'tasks[0].taskArn' --output text
+aws ecs wait tasks-stopped --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --tasks $taskArn2
+aws ecs describe-tasks --profile reply-sso --region $AWS_REGION --cluster $CLUSTER --tasks $taskArn2 --query 'tasks[0].containers[0].exitCode' --output text
+```
+
+#### Test rapide API (Étape 3)
+
+Utilisez un fichier JSON (évite les soucis d’échappement sur Windows) :
+
+```powershell
+$ALB = 'ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com'
+$A2A_API_KEY = (Get-Content .\\security-deploy-summary.json | ConvertFrom-Json).client_api_key
+
+curl.exe -s -w "`nstatus=%{http_code}`n" `
+  -H "Content-Type: application/json" `
+  -H "X-API-Key: $A2A_API_KEY" `
+  -X POST "http://$ALB/message" `
+  --data-binary "@scripts/request_list_pending.json"
+```
+
+Troubleshooting réseau (si `CannotPullContainerError` vers ECR) :
+
+- vérifier que l’agent peut sortir en `tcp/443` (NAT ou VPC endpoints) et que le SG des VPC endpoints autorise l’ingress depuis les SGs des agents.
+
 ---
 
 ## 🎬 Script de Présentation Suggéré
@@ -381,5 +432,4 @@ aws elbv2 describe-target-health \
 
 ---
 
-**Bonne démonstration ! 🚀**
-
+## Bonne démonstration
