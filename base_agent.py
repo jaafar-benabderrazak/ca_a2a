@@ -11,6 +11,7 @@ import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
 from aiohttp import web
+from aiohttp.web_exceptions import HTTPRequestEntityTooLarge
 import signal
 from urllib.parse import urlparse
 
@@ -205,6 +206,12 @@ class BaseAgent(ABC):
             else:
                 return web.Response(status=204)  # No content for notifications
                 
+        except HTTPRequestEntityTooLarge:
+            # Payload abuse protection (aiohttp raises when client_max_size exceeded)
+            error_msg = A2AMessage.create_error(None, -32012, "Payload too large")
+            error_dict = error_msg.to_dict()
+            error_dict.setdefault("_meta", {})["correlation_id"] = correlation_id
+            return web.json_response(error_dict, status=413)
         except json.JSONDecodeError as e:
             error_msg = A2AMessage.create_error(None, -32700, "Parse error")
             return web.json_response(error_msg.to_dict(), status=400)
