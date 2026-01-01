@@ -1,0 +1,12 @@
+Employee_ID,First_Name,Last_Name,Department,Position,Hire_Date,Salary,Email
+E001,Marie,Dubois,Engineering,Senior Developer,2020-03-15,75000,marie.dubois@company.com
+E002,Jean,Martin,Sales,Account Manager,2021-06-01,65000,jean.martin@company.com
+E003,Sophie,Bernard,HR,HR Manager,2019-09-20,70000,sophie.bernard@company.com
+E004,Pierre,Petit,Engineering,DevOps Engineer,2022-01-10,68000,pierre.petit@company.com
+E005,Claire,Leroy,Marketing,Marketing Director,2018-11-05,85000,claire.leroy@company.com
+E006,Thomas,Moreau,Finance,Financial Analyst,2021-04-12,62000,thomas.moreau@company.com
+E007,Emma,Simon,Engineering,Junior Developer,2023-02-28,55000,emma.simon@company.com
+E008,Lucas,Laurent,Sales,Sales Representative,2022-08-15,58000,lucas.laurent@company.com
+E009,Camille,Lefebvre,Engineering,Tech Lead,2017-05-30,90000,camille.lefebvre@company.com
+E010,Antoine,Roux,Operations,Operations Manager,2020-10-01,72000,antoine.roux@company.com
+

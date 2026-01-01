@@ -187,18 +187,87 @@ class PostgreSQLResource(MCPResource):
         )
     
     async def connect(self):
-        """Create connection pool"""
+        """Create connection pool, creating database and schema if needed"""
         try:
-            self.pool = await asyncpg.create_pool(
-                host=POSTGRES_CONFIG['host'],
-                port=POSTGRES_CONFIG['port'],
-                database=POSTGRES_CONFIG['database'],
-                user=POSTGRES_CONFIG['user'],
-                password=POSTGRES_CONFIG['password'],
-                min_size=2,
-                max_size=10
-            )
-            self.logger.info("PostgreSQL resource connected")
+            # First try to connect to the target database
+            try:
+                self.pool = await asyncpg.create_pool(
+                    host=POSTGRES_CONFIG['host'],
+                    port=POSTGRES_CONFIG['port'],
+                    database=POSTGRES_CONFIG['database'],
+                    user=POSTGRES_CONFIG['user'],
+                    password=POSTGRES_CONFIG['password'],
+                    min_size=2,
+                    max_size=10,
+                    ssl='require'  # Required for AWS RDS
+                )
+                self.logger.info("PostgreSQL resource connected")
+            except asyncpg.InvalidCatalogNameError:
+                # Database doesn't exist, create it
+                self.logger.info(f"Database {POSTGRES_CONFIG['database']} doesn't exist, creating...")
+                
+                # Connect to postgres database to create the target database
+                conn = await asyncpg.connect(
+                    host=POSTGRES_CONFIG['host'],
+                    port=POSTGRES_CONFIG['port'],
+                    database='postgres',
+                    user=POSTGRES_CONFIG['user'],
+                    password=POSTGRES_CONFIG['password'],
+                    ssl='require'
+                )
+                try:
+                    await conn.execute(f'CREATE DATABASE {POSTGRES_CONFIG["database"]}')
+                    self.logger.info(f"Created database {POSTGRES_CONFIG['database']}")
+                finally:
+                    await conn.close()
+                
+                # Now connect to the newly created database
+                self.pool = await asyncpg.create_pool(
+                    host=POSTGRES_CONFIG['host'],
+                    port=POSTGRES_CONFIG['port'],
+                    database=POSTGRES_CONFIG['database'],
+                    user=POSTGRES_CONFIG['user'],
+                    password=POSTGRES_CONFIG['password'],
+                    min_size=2,
+                    max_size=10,
+                    ssl='require'
+                )
+                
+                # Create schema
+                async with self.pool.acquire() as conn:
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS documents (
+                            id SERIAL PRIMARY KEY,
+                            filename VARCHAR(255) NOT NULL,
+                            s3_key VARCHAR(512) NOT NULL UNIQUE,
+                            file_type VARCHAR(50),
+                            file_size BIGINT,
+                            status VARCHAR(50) DEFAULT 'pending',
+                            extracted_data JSONB,
+                            validation_results JSONB,
+                            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                            error_message TEXT
+                        )
+                    ''')
+                    await conn.execute('''
+                        CREATE TABLE IF NOT EXISTS processing_logs (
+                            id SERIAL PRIMARY KEY,
+                            document_id INTEGER REFERENCES documents(id),
+                            agent_name VARCHAR(100),
+                            operation VARCHAR(100),
+                            status VARCHAR(50),
+                            details JSONB,
+                            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        )
+                    ''')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_processing_logs_document_id ON processing_logs(document_id)')
+                    await conn.execute('CREATE INDEX IF NOT EXISTS idx_processing_logs_timestamp ON processing_logs(timestamp)')
+                    self.logger.info("Database schema created successfully")
+                
+                self.logger.info("PostgreSQL resource connected")
         except Exception as e:
             self.logger.error(f"Failed to connect to PostgreSQL: {str(e)}")
             raise

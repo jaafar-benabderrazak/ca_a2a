@@ -2,10 +2,12 @@
 Base Agent Class
 Provides common functionality for all agents including A2A communication and HTTP server
 Implements A2A best practices: retry logic, circuit breakers, structured logging, tracing
+Security: JWT/API key authentication, rate limiting, audit logging
 """
 import asyncio
 import json
 import logging
+import os
 import time
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
@@ -21,15 +23,26 @@ from utils import (
     validate_json_schema,
     IdempotencyStore
 )
+from security import SecurityManager, AuthContext
 
 
 class BaseAgent(ABC):
     """
     Abstract base class for all agents
     Handles A2A protocol communication and HTTP server setup
+    Includes security: authentication, authorization, rate limiting
     """
     
-    def __init__(self, name: str, host: str, port: int, version: str = "1.0.0", description: str = ""):
+    def __init__(
+        self, 
+        name: str, 
+        host: str, 
+        port: int, 
+        version: str = "1.0.0", 
+        description: str = "",
+        enable_auth: bool = True,
+        enable_rate_limiting: bool = True
+    ):
         self.name = name
         self.host = host
         self.port = port
@@ -45,6 +58,18 @@ class BaseAgent(ABC):
         self.structured_logger = StructuredLogger(name)
         self.performance_monitor = PerformanceMonitor()
         self.idempotency_store = IdempotencyStore()
+        
+        # Security manager
+        self.enable_auth = enable_auth
+        self.security_manager: Optional[SecurityManager] = None
+        if enable_auth or enable_rate_limiting:
+            self.security_manager = SecurityManager(
+                enable_jwt=enable_auth,
+                enable_api_keys=enable_auth,
+                enable_rate_limiting=enable_rate_limiting,
+                enable_signatures=False  # Can be enabled later
+            )
+            self.logger.info(f"Security enabled: auth={enable_auth}, rate_limiting={enable_rate_limiting}")
         
         # Agent card for capability discovery
         self.agent_card: Optional[AgentCard] = None
@@ -104,14 +129,53 @@ class BaseAgent(ABC):
     async def handle_http_message(self, request: web.Request) -> web.Response:
         """
         Handle incoming A2A messages via HTTP
-        Implements: correlation IDs, structured logging, performance monitoring, validation
+        Implements: authentication, authorization, correlation IDs, structured logging, 
+                   performance monitoring, rate limiting, validation
         """
         start_time = time.time()
         correlation_id = request.headers.get('X-Correlation-ID', generate_correlation_id())
+        auth_context: Optional[AuthContext] = None
         
         try:
+            # Step 1: Authenticate request
+            if self.security_manager and self.enable_auth:
+                success, auth_context, error = await self.security_manager.authenticate_request(
+                    dict(request.headers),
+                    source_ip=request.remote
+                )
+                
+                if not success:
+                    self.logger.warning(f"Authentication failed: {error}")
+                    error_msg = A2AMessage.create_error(None, -32001, f"Authentication failed: {error}")
+                    return web.json_response(error_msg.to_dict(), status=401)
+                
+                self.logger.debug(f"Authenticated: {auth_context.agent_id}")
+            
+            # Step 2: Check rate limits
+            if self.security_manager and auth_context:
+                allowed, error = self.security_manager.check_rate_limit(auth_context.agent_id)
+                
+                if not allowed:
+                    self.logger.warning(f"Rate limit exceeded for {auth_context.agent_id}: {error}")
+                    error_msg = A2AMessage.create_error(None, -32002, f"Rate limit exceeded: {error}")
+                    return web.json_response(error_msg.to_dict(), status=429)
+            
+            # Step 3: Parse and validate message
             data = await request.json()
             message = A2AMessage(**data)
+            
+            # Step 4: Check authorization (permission for specific method)
+            if self.security_manager and auth_context and message.method:
+                if not self.security_manager.check_permission(auth_context, message.method):
+                    self.logger.warning(
+                        f"Authorization failed: {auth_context.agent_id} attempted {message.method}"
+                    )
+                    error_msg = A2AMessage.create_error(
+                        message.id, 
+                        -32003, 
+                        f"Permission denied for method: {message.method}"
+                    )
+                    return web.json_response(error_msg.to_dict(), status=403)
             
             # Structured logging with correlation ID
             self.structured_logger.log_request(
@@ -120,7 +184,7 @@ class BaseAgent(ABC):
                 correlation_id=correlation_id
             )
             
-            # Validate input against skill schema if defined
+            # Step 5: Validate input against skill schema if defined
             # Validate input using Pydantic (preferred) or JSON Schema (fallback)
             if message.method and self.agent_card:
                 skill = self.agent_card.get_skill(message.method) if self.agent_card else None
@@ -270,17 +334,50 @@ class BaseAgent(ABC):
         }
     
     async def send_message_to_agent(self, agent_url: str, message: A2AMessage) -> Optional[Any]:
-        """Send A2A message to another agent"""
+        """
+        Send A2A message to another agent with authentication
+        Automatically includes JWT token or API key from environment
+        """
         import aiohttp
         
         try:
+            # Prepare headers with authentication
+            headers = {
+                'Content-Type': 'application/json',
+                'X-Correlation-ID': generate_correlation_id()
+            }
+            
+            # Add authentication credentials
+            # Priority: JWT token > API key
+            jwt_token = os.getenv('AGENT_JWT_TOKEN')
+            api_key = os.getenv('AGENT_API_KEY')
+            
+            if jwt_token:
+                headers['Authorization'] = f'Bearer {jwt_token}'
+                self.logger.debug("Using JWT authentication for inter-agent call")
+            elif api_key:
+                headers['X-API-Key'] = api_key
+                self.logger.debug("Using API key authentication for inter-agent call")
+            elif self.enable_auth:
+                self.logger.warning(
+                    "Authentication enabled but no credentials found. "
+                    "Set AGENT_JWT_TOKEN or AGENT_API_KEY environment variable."
+                )
+            
             async with aiohttp.ClientSession() as session:
                 async with session.post(
                     f"{agent_url}/message",
                     json=message.to_dict(),
+                    headers=headers,
                     timeout=aiohttp.ClientTimeout(total=30)
                 ) as response:
-                    if response.status == 204:
+                    if response.status == 401:
+                        raise Exception("Authentication failed when calling agent")
+                    elif response.status == 403:
+                        raise Exception("Permission denied when calling agent")
+                    elif response.status == 429:
+                        raise Exception("Rate limit exceeded when calling agent")
+                    elif response.status == 204:
                         return None
                     
                     response_data = await response.json()
