@@ -24,9 +24,19 @@ def get_mcp_context():
         return MCPContextHTTP(server_url=mcp_server_url)
     else:
         # Stdio mode (local/docker-compose)
-        from mcp_client import MCPContext
-        logger.info("Using MCP stdio client")
-        return MCPContext()
+        try:
+            from mcp_client import MCPContext
+            logger.info("Using MCP stdio client")
+            return MCPContext()
+        except ImportError as e:
+            logger.error(
+                f"MCP stdio client not available: {e}. "
+                f"Please set MCP_SERVER_URL environment variable to use HTTP mode, "
+                f"or ensure MCP SDK is installed for stdio mode."
+            )
+            raise RuntimeError(
+                "MCP client unavailable. Set MCP_SERVER_URL for HTTP mode or install MCP SDK for stdio mode."
+            ) from e
 
 
 # Convenience alias

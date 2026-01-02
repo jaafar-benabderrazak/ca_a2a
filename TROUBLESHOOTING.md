@@ -1,4 +1,40 @@
-# 🚨 Troubleshooting: ALB Timeout Issue
+# 🚨 Troubleshooting Guide
+
+## Common Issues
+
+### 1. Import Error: MCP SDK Client Session (FIXED)
+
+**Symptom:**
+- New orchestrator container fails to start
+- Error: `ImportError: cannot import name 'ClientSession' from 'mcp.client'`
+- Old containers work, new containers fail
+
+**Root Cause:**
+- `mcp_client.py` imports MCP stdio SDK at module level
+- MCP SDK API changed between versions
+- In AWS, we only use HTTP mode but the import still executes
+
+**Solution:**
+✅ **Fixed in commit**: Make MCP stdio imports conditional and defensive
+- `mcp_client.py`: Conditional import with API compatibility check
+- All `Dockerfile.*`: Updated to Python 3.11 (required for `mcp>=0.9.0`)
+- `Rebuild-And-Redeploy-Orchestrator.ps1`: Script to rebuild and redeploy
+
+**Steps to Deploy Fix:**
+```powershell
+# Rebuild and redeploy orchestrator with fixed code
+.\Rebuild-And-Redeploy-Orchestrator.ps1
+```
+
+**What Changed:**
+1. `mcp_client.py` now safely handles missing/incompatible MCP SDK
+2. Initialize variables to None before attempting import
+3. Check if SDK classes exist before importing (API compatibility)
+4. All Dockerfiles updated to Python 3.11 for consistency
+
+---
+
+### 2. ALB Timeout Issue
 
 ## Problem
 - ECS services are ACTIVE

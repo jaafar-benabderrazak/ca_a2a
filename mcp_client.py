@@ -8,8 +8,33 @@ import logging
 from typing import Any, Dict, List, Optional
 from contextlib import asynccontextmanager
 
-from mcp.client import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+# Conditional import for MCP SDK (stdio mode)
+# This is optional and only used for local development
+# In AWS deployments, we use HTTP mode exclusively (mcp_client_http.py)
+ClientSession = None
+StdioServerParameters = None
+stdio_client = None
+MCP_STDIO_AVAILABLE = False
+
+try:
+    # Try to import MCP stdio client (may fail if SDK not installed or API changed)
+    import mcp.client
+    import mcp.client.stdio
+    
+    # Check if required classes exist (API compatibility check)
+    if hasattr(mcp.client, 'ClientSession') and hasattr(mcp.client, 'StdioServerParameters'):
+        from mcp.client import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+        MCP_STDIO_AVAILABLE = True
+    else:
+        # MCP SDK API has changed, stdio mode unavailable
+        logging.debug("MCP SDK found but API has changed. Stdio mode unavailable.")
+except ImportError:
+    # MCP SDK not installed - expected in AWS deployments
+    logging.debug("MCP SDK not installed. Only HTTP mode available.")
+except Exception as e:
+    # Other errors during import
+    logging.debug(f"MCP stdio client unavailable: {e}. Only HTTP mode will work.")
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +53,13 @@ class MCPClient:
     
     async def connect(self):
         """Connect to MCP server"""
+        if not MCP_STDIO_AVAILABLE:
+            raise RuntimeError(
+                "MCP stdio client is not available. "
+                "This is expected in AWS deployments where HTTP mode is used. "
+                "Please use MCPClientHTTP from mcp_client_http.py instead."
+            )
+        
         try:
             server_params = StdioServerParameters(
                 command="python",
