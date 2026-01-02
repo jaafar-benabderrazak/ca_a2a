@@ -173,15 +173,25 @@ class ExtractorAgent(BaseAgent):
         ]
     
     async def initialize(self):
-        """Initialize MCP context"""
-        self.mcp = get_mcp_context()
-        await self.mcp.__aenter__()
-        self.logger.info("Extractor initialized")
+        """Initialize MCP context (optional - extractor uses boto3 directly)"""
+        try:
+            self.mcp = get_mcp_context()
+            if self.mcp:
+                await self.mcp.__aenter__()
+                self.logger.info("Extractor initialized with MCP")
+            else:
+                self.logger.info("Extractor initialized without MCP (using direct boto3 access)")
+        except Exception as e:
+            self.logger.warning(f"MCP initialization failed: {e}. Using direct boto3 access.")
+            self.mcp = None
     
     async def cleanup(self):
         """Cleanup resources"""
         if self.mcp:
-            await self.mcp.__aexit__(None, None, None)
+            try:
+                await self.mcp.__aexit__(None, None, None)
+            except Exception as e:
+                self.logger.warning(f"Error during MCP cleanup: {e}")
         self.logger.info("Extractor cleanup completed")
     
     async def handle_extract_document(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -325,8 +335,8 @@ class ExtractorAgent(BaseAgent):
                         'subject': str(pdf_reader.metadata.get('/Subject', '')),
                         'creator': str(pdf_reader.metadata.get('/Creator', '')),
                         'producer': str(pdf_reader.metadata.get('/Producer', '')),
-                        'creation_date': str(pdf_reader.metadata.get('/CreationDate', ''))
-                    }
+                    'creation_date': str(pdf_reader.metadata.get('/CreationDate', ''))
+                }
             except Exception as e:
                 self.logger.warning(f"Could not extract PDF metadata: {str(e)}")
                 extracted['metadata'] = {'extraction_note': 'Metadata extraction failed'}
