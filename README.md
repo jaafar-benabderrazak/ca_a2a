@@ -53,6 +53,8 @@ cd C:\Users\Utilisateur\Desktop\projects\ca_a2a
 
 ```
 Internet → ALB → Orchestrator → [Extractor, Validator, Archivist]
+                      ↓              ↓         ↓          ↓
+                  MCP Server ←──────┴─────────┴──────────┘
                       ↓
                  [S3, PostgreSQL]
 ```
@@ -60,10 +62,13 @@ Internet → ALB → Orchestrator → [Extractor, Validator, Archivist]
 **Protocoles:**
 - **A2A (Agent-to-Agent):** Communication inter-agents JSON-RPC 2.0
 - **MCP (Model Context Protocol):** Accès unifié aux ressources (S3, DB)
-  - **🆕 MCP Server:** Serveur MCP complet pour S3 et PostgreSQL ([Guide](./MCP_SERVER_GUIDE.md))
-  - **Resources:** 2 resources (S3 bucket, PostgreSQL database)
-  - **Tools:** 7 tools (S3 ops, DB queries, document management)
-  - **Deploy:** `.\mcp_deploy.ps1 start` ou `python mcp_deploy.py start`
+  - **✨ Architecture Serveur MCP Centralisé** ([Guide de Migration](./MCP_MIGRATION_GUIDE.md))
+  - **Serveur HTTP**: Port 8000, API REST pour accès distribué
+  - **Sélection Automatique**: stdio (local) ou HTTP (AWS) selon l'environnement
+  - **Resources**: S3 bucket, PostgreSQL database
+  - **Tools**: 8 tools (S3 ops, DB queries, schema init, document management)
+  - **Deploy Local**: `docker-compose up mcp-server`
+  - **Deploy AWS**: `.\Deploy-MCPServer.ps1` puis `.\Update-AgentsWithMCP.ps1`
 
 ---
 
