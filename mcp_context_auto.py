@@ -1,5 +1,5 @@
 """
-MCP Context Auto - Automatically selects stdio or HTTP based on environment
+MCP Context Auto - Automatically selects the appropriate MCP implementation
 """
 import os
 import logging
@@ -12,37 +12,27 @@ def get_mcp_context():
     """
     Factory function that returns appropriate MCP context based on environment
     
-    - HTTP Mode (if MCP_SERVER_URL set): Uses MCPContextHTTP
-    - stdio Mode (fallback): Uses MCPContext with embedded server
-    - No MCP (fallback): Returns None (agent can function without MCP)
+    - Default: Uses MCPContext from mcp_protocol.py (native Python, works everywhere)
+    - HTTP mode (if MCP_SERVER_URL set): Uses MCPContextHTTP for distributed deployments
+    
+    The native MCPContext provides both S3 and PostgreSQL resources directly
+    without requiring an external MCP server process.
     """
     mcp_server_url = os.getenv('MCP_SERVER_URL')
     
     if mcp_server_url:
-        # HTTP mode (AWS ECS / distributed deployment)
+        # HTTP mode (distributed deployment with separate MCP server)
         try:
             from mcp_client_http import MCPContextHTTP
             logger.info(f"Using MCP HTTP client: {mcp_server_url}")
             return MCPContextHTTP(server_url=mcp_server_url)
         except ImportError as e:
-            logger.warning(f"MCP HTTP client not available: {e}. Trying stdio mode...")
+            logger.warning(f"MCPContextHTTP not available: {e}. Falling back to native implementation.")
     
-    # Try stdio mode (embedded MCP server)
-    try:
-        from mcp_client import MCPContext
-        logger.info("Using MCP stdio client with embedded server")
-        return MCPContext()
-    except ImportError as e:
-        logger.warning(f"MCP stdio client not available: {e}")
-    except RuntimeError as e:
-        # MCP SDK not available in container - this is OK for agents that don't need MCP
-        logger.warning(f"MCP not available: {e}")
-        logger.info("Agent will run without MCP (direct boto3/asyncpg access)")
-        return None
-    
-    # No MCP available - return None (agents should handle this gracefully)
-    logger.warning("No MCP client available. Agent will use direct AWS SDK access.")
-    return None
+    # Default: Native Python implementation (works in all environments)
+    from mcp_protocol import MCPContext
+    logger.info("Using native MCP implementation (S3 + PostgreSQL)")
+    return MCPContext()
 
 
 # Convenience alias

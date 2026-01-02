@@ -173,25 +173,15 @@ class ExtractorAgent(BaseAgent):
         ]
     
     async def initialize(self):
-        """Initialize MCP context (optional - extractor uses boto3 directly)"""
-        try:
-            self.mcp = get_mcp_context()
-            if self.mcp:
-                await self.mcp.__aenter__()
-                self.logger.info("Extractor initialized with MCP")
-            else:
-                self.logger.info("Extractor initialized without MCP (using direct boto3 access)")
-        except Exception as e:
-            self.logger.warning(f"MCP initialization failed: {e}. Using direct boto3 access.")
-            self.mcp = None
+        """Initialize MCP context"""
+        self.mcp = get_mcp_context()
+        await self.mcp.__aenter__()
+        self.logger.info("Extractor initialized")
     
     async def cleanup(self):
         """Cleanup resources"""
         if self.mcp:
-            try:
-                await self.mcp.__aexit__(None, None, None)
-            except Exception as e:
-                self.logger.warning(f"Error during MCP cleanup: {e}")
+            await self.mcp.__aexit__(None, None, None)
         self.logger.info("Extractor cleanup completed")
     
     async def handle_extract_document(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -321,15 +311,15 @@ class ExtractorAgent(BaseAgent):
                 return await self._extract_pdf_fallback(pdf_data)
             
             try:
-                extracted['total_pages'] = len(pdf_reader.pages)
+            extracted['total_pages'] = len(pdf_reader.pages)
             except Exception as e:
                 self.logger.warning(f"Could not get page count: {str(e)}")
                 extracted['total_pages'] = 0
             
             # Extract metadata safely
             try:
-                if pdf_reader.metadata:
-                    extracted['metadata'] = {
+            if pdf_reader.metadata:
+                extracted['metadata'] = {
                         'title': str(pdf_reader.metadata.get('/Title', '')),
                         'author': str(pdf_reader.metadata.get('/Author', '')),
                         'subject': str(pdf_reader.metadata.get('/Subject', '')),
@@ -345,12 +335,12 @@ class ExtractorAgent(BaseAgent):
             for page_num, page in enumerate(pdf_reader.pages):
                 try:
                     text = page.extract_text() or ""
-                    extracted['pages'].append({
-                        'page_number': page_num + 1,
-                        'text': text,
-                        'char_count': len(text)
-                    })
-                    extracted['text_content'] += text + '\n'
+                extracted['pages'].append({
+                    'page_number': page_num + 1,
+                    'text': text,
+                    'char_count': len(text)
+                })
+                extracted['text_content'] += text + '\n'
                 except Exception as e:
                     self.logger.warning(f"Could not extract text from page {page_num + 1}: {str(e)}")
                     extracted['pages'].append({
