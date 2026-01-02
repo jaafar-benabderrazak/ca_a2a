@@ -25,11 +25,22 @@ Système de traitement automatisé de documents utilisant une architecture multi
 
 ### 🎥 Demo & Présentation
 
-**📖 Guide de Démonstration Complet:**
+**📖 Guides de Démonstration:**
+
+**🎭 Démonstration Narrative (2 heures) - RECOMMANDÉ:**
+- **[DEMO_HISTOIRE_2H.md](./DEMO_HISTOIRE_2H.md)** 🇫🇷 **NOUVEAU !** - Démonstration basée sur une histoire captivante
+  - **Scénario**: La facture mystérieuse de ACME Corporation
+  - **Format**: 7 actes suivant le cycle de vie complet d'un document
+  - **Contenu**: 15+ diagrammes Mermaid détaillés, 30+ références à l'article de recherche
+  - **Durée**: 2 heures de présentation structurée
+  - **Public**: Stakeholders techniques et métier
+  - **Points forts**: Explications en contexte, démos interactives, scénarios d'attaque
+
+**📋 Guides de Démonstration Complets:**
 - **[COMPLETE_DEMO_GUIDE.md](./COMPLETE_DEMO_GUIDE.md)** 🇬🇧 (English) - Complete demonstration guide with all features and security testing
 - **[GUIDE_DEMO_COMPLET.md](./GUIDE_DEMO_COMPLET.md)** 🇫🇷 (Français) - Guide de démonstration complet avec toutes les fonctionnalités et tests de sécurité
 
-**Contenu:**
+**Contenu des Guides Complets:**
 - ✅ **70/70 tests réussis** (100% success rate)
 - Architecture complète avec 10+ diagrammes Mermaid détaillés
 - 20 scénarios de tests de sécurité (Authentication, HMAC, Replay Prevention, Rate Limiting, Zero-Trust, Anomaly Detection, RBAC, Audit Logging)
@@ -47,9 +58,10 @@ Système de traitement automatisé de documents utilisant une architecture multi
 # Vérifier l'infrastructure AWS (77% tests réussis)
 .\test-aws-complete.ps1 -Profile AWSAdministratorAccess-555043101106
 
-# Consulter les guides de démo complets
-# English: COMPLETE_DEMO_GUIDE.md
-# Français: GUIDE_DEMO_COMPLET.md
+# Consulter les guides:
+# 🎭 Démonstration narrative (2h): DEMO_HISTOIRE_2H.md
+# 📋 Guide complet anglais: COMPLETE_DEMO_GUIDE.md
+# 📋 Guide complet français: GUIDE_DEMO_COMPLET.md
 ```
 
 ### 🏗️ Architecture
