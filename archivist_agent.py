@@ -9,7 +9,7 @@ import json
 
 from base_agent import BaseAgent
 from a2a_protocol import ErrorCodes
-from mcp_protocol import MCPContext
+from mcp_context_auto import get_mcp_context
 from config import AGENTS_CONFIG
 from agent_card import AgentSkill, ResourceRequirements, AgentDependencies
 from utils import generate_idempotency_key
@@ -201,7 +201,7 @@ class ArchivistAgent(BaseAgent):
     
     async def initialize(self):
         """Initialize MCP context"""
-        self.mcp = MCPContext()
+        self.mcp = get_mcp_context()
         await self.mcp.__aenter__()
         
         # Ensure schema is initialized

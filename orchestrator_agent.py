@@ -9,7 +9,7 @@ import uuid
 
 from base_agent import BaseAgent
 from a2a_protocol import A2AMessage, ErrorCodes
-from mcp_protocol import MCPContext
+from mcp_context_auto import get_mcp_context
 from config import AGENTS_CONFIG
 from agent_card import AgentSkill, AgentRegistry, ResourceRequirements, AgentDependencies
 import aiohttp
@@ -204,7 +204,7 @@ class OrchestratorAgent(BaseAgent):
     
     async def initialize(self):
         """Initialize MCP context"""
-        self.mcp = MCPContext()
+        self.mcp = get_mcp_context()
         await self.mcp.__aenter__()
         
         # Initialize database schema

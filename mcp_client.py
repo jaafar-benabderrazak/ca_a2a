@@ -236,6 +236,11 @@ class MCPPostgreSQLClient:
         for args in args_list:
             await self.execute(query, *args)
     
+    async def initialize_schema(self) -> None:
+        """Initialize database schema for document storage"""
+        result = await self.mcp.call_tool("postgres_init_schema", {})
+        self.mcp.logger.info(f"Schema initialization: {result.get('message', 'OK')}")
+    
     # High-level document operations
     
     async def store_document(

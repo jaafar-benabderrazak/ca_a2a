@@ -264,6 +264,14 @@ class AWSMCPServer:
                             }
                         }
                     }
+                ),
+                Tool(
+                    name="postgres_init_schema",
+                    description="Initialize database schema for document storage (creates tables and indexes)",
+                    inputSchema={
+                        "type": "object",
+                        "properties": {}
+                    }
                 )
             ]
             
@@ -287,6 +295,8 @@ class AWSMCPServer:
                     result = await self._tool_postgres_query(**arguments)
                 elif name == "postgres_execute":
                     result = await self._tool_postgres_execute(**arguments)
+                elif name == "postgres_init_schema":
+                    result = await self._tool_postgres_init_schema()
                 elif name == "document_store":
                     result = await self._tool_document_store(**arguments)
                 elif name == "document_list":
@@ -478,6 +488,61 @@ class AWSMCPServer:
                 return {
                     'query': query,
                     'result': result,
+                    'success': True
+                }
+        
+        return await retry_with_backoff(
+            lambda: self.pg_circuit_breaker.call_async(_execute),
+            max_retries=3,
+            exceptions=(asyncpg.PostgresError,)
+        )
+    
+    async def _tool_postgres_init_schema(self) -> Dict[str, Any]:
+        """Initialize database schema for document storage"""
+        schema_sql = """
+        CREATE TABLE IF NOT EXISTS documents (
+            id SERIAL PRIMARY KEY,
+            s3_key VARCHAR(500) UNIQUE NOT NULL,
+            document_type VARCHAR(50) NOT NULL,
+            file_name VARCHAR(255) NOT NULL,
+            file_size INTEGER,
+            upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processing_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            status VARCHAR(50) DEFAULT 'pending',
+            validation_score FLOAT,
+            metadata JSONB,
+            extracted_data JSONB,
+            validation_details JSONB,
+            error_message TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_documents_s3_key ON documents(s3_key);
+        CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+        CREATE INDEX IF NOT EXISTS idx_documents_type ON documents(document_type);
+        CREATE INDEX IF NOT EXISTS idx_documents_date ON documents(processing_date);
+        
+        CREATE TABLE IF NOT EXISTS processing_logs (
+            id SERIAL PRIMARY KEY,
+            document_id INTEGER REFERENCES documents(id),
+            agent_name VARCHAR(50) NOT NULL,
+            action VARCHAR(100) NOT NULL,
+            status VARCHAR(50) NOT NULL,
+            details JSONB,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_logs_document_id ON processing_logs(document_id);
+        CREATE INDEX IF NOT EXISTS idx_logs_agent ON processing_logs(agent_name);
+        """
+        
+        async def _execute():
+            async with self.pg_pool.acquire() as conn:
+                await conn.execute(schema_sql)
+                return {
+                    'message': 'Schema initialized successfully',
+                    'tables': ['documents', 'processing_logs'],
                     'success': True
                 }
         

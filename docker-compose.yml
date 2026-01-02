@@ -19,6 +19,33 @@ services:
       timeout: 5s
       retries: 5
 
+  # MCP Server (HTTP)
+  mcp-server:
+    build:
+      context: .
+      dockerfile: Dockerfile.mcp
+    container_name: mcp_server
+    command: python mcp_server_http.py
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: documents_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   # Orchestrator Agent
   orchestrator:
     build: .
@@ -36,8 +63,11 @@ services:
       EXTRACTOR_HOST: extractor
       VALIDATOR_HOST: validator
       ARCHIVIST_HOST: archivist
+      MCP_SERVER_URL: http://mcp-server:8000
     depends_on:
       postgres:
+        condition: service_healthy
+      mcp-server:
         condition: service_healthy
     env_file:
       - .env
@@ -57,8 +87,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       EXTRACTOR_HOST: 0.0.0.0
+      MCP_SERVER_URL: http://mcp-server:8000
     depends_on:
       postgres:
+        condition: service_healthy
+      mcp-server:
         condition: service_healthy
     env_file:
       - .env
@@ -89,8 +122,11 @@ services:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       ARCHIVIST_HOST: 0.0.0.0
+      MCP_SERVER_URL: http://mcp-server:8000
     depends_on:
       postgres:
+        condition: service_healthy
+      mcp-server:
         condition: service_healthy
     restart: unless-stopped
 

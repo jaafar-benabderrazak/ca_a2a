@@ -1,0 +1,1 @@
+{"errorMessage": "Unable to import module 'lambda_init_db': No module named 'psycopg2'", "errorType": "Runtime.ImportModuleError", "requestId": "", "stackTrace": []}

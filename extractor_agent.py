@@ -15,7 +15,7 @@ import pandas as pd
 
 from base_agent import BaseAgent
 from a2a_protocol import ErrorCodes
-from mcp_protocol import MCPContext
+from mcp_context_auto import get_mcp_context
 from config import AGENTS_CONFIG
 from agent_card import AgentSkill, ResourceRequirements, AgentDependencies
 
@@ -174,7 +174,7 @@ class ExtractorAgent(BaseAgent):
     
     async def initialize(self):
         """Initialize MCP context"""
-        self.mcp = MCPContext()
+        self.mcp = get_mcp_context()
         await self.mcp.__aenter__()
         self.logger.info("Extractor initialized")
     
