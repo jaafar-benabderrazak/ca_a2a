@@ -4,6 +4,7 @@
 $ErrorActionPreference = "Stop"
 
 # Configuration
+$env:AWS_PROFILE = "AWSAdministratorAccess-555043101106"
 $AWS_REGION = "eu-west-3"
 $AWS_ACCOUNT_ID = "555043101106"
 $PROJECT_NAME = "ca-a2a"
