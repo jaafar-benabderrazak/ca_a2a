@@ -126,7 +126,7 @@ if ($orchService.services.Count -gt 0) {
 Write-Host "`n[7/8] Registering ECS task definition..." -ForegroundColor Yellow
 
 # Get DB password from Secrets Manager
-$dbSecretArn = "arn:aws:secretsmanager:${Region}:${ACCOUNT_ID}:secret:ca-a2a-db-password"
+$dbSecretArn = "arn:aws:secretsmanager:${Region}:${ACCOUNT_ID}:secret:ca-a2a/db-password"
 
 $taskDefJson = @"
 {
