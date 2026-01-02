@@ -62,7 +62,8 @@ class MCPServerHTTP:
             database=POSTGRES_CONFIG['database'],
             min_size=2,
             max_size=10,
-            command_timeout=60
+            command_timeout=60,
+            ssl='require'  # RDS requires SSL
         )
         logger.info(f"PostgreSQL pool created: {POSTGRES_CONFIG['database']}")
     
