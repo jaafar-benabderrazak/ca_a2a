@@ -128,12 +128,35 @@ Marie accède au portail web et téléverse la facture PDF.
 
 **Commande de démonstration :**
 
-```powershell
-# Simuler le téléversement par Marie
-aws s3 cp demo/documents/facture_acme_dec2025.pdf s3://ca-a2a-documents/invoices/2026/01/
+```bash
+# Créer un fichier de test PDF (dans CloudShell ou localement)
+cat > facture_acme_dec2025.pdf << 'EOF'
+%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R>>endobj
+4 0 obj<</Length 55>>stream
+BT /F1 12 Tf 100 700 Td (FACTURE ACME INV-2026-001) Tj ET
+endstream endobj
+xref
+0 5
+trailer<</Size 5/Root 1 0 R>>
+startxref
+240
+%%EOF
+EOF
+
+# Simuler le téléversement par Marie (S3 direct upload)
+aws s3 cp facture_acme_dec2025.pdf s3://ca-a2a-documents/invoices/2026/01/ \
+  --metadata uploaded-by=marie.dubois@reply.com
 
 # Vérifier que le document est bien arrivé
 aws s3 ls s3://ca-a2a-documents/invoices/2026/01/
+
+# Vérifier les métadonnées
+aws s3api head-object \
+  --bucket ca-a2a-documents \
+  --key invoices/2026/01/facture_acme_dec2025.pdf
 ```
 
 ### 🔒 Sécurité Niveau 1 : Transport Chiffré
@@ -173,19 +196,46 @@ sequenceDiagram
    - Rotation automatique des clés
    - Audit des accès (CloudTrail)
 
-### 🚨 Démonstration Interactive : Tentative HTTP Non Chiffré
+### 🚨 Démonstration Interactive : Vérification du Chiffrement S3
 
-**Ce qui se passe si quelqu'un essaie d'utiliser HTTP (non chiffré) :**
+**Test de la sécurité du transport et du stockage :**
 
 ```bash
-# Tentative HTTP (doit échouer)
-curl -X POST http://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/upload \
-  -F "file=@facture_acme_dec2025.pdf"
+# 1. Vérifier le chiffrement côté serveur (Server-Side Encryption)
+aws s3api head-object \
+  --bucket ca-a2a-documents \
+  --key invoices/2026/01/facture_acme_dec2025.pdf \
+  --query 'ServerSideEncryption'
 
-# Résultat attendu : Redirection automatique vers HTTPS
-# HTTP 301 Moved Permanently
-# Location: https://ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com/upload
+# Résultat attendu : "AES256"
+
+# 2. Vérifier les métadonnées de sécurité
+aws s3api get-bucket-encryption --bucket ca-a2a-documents
+
+# 3. Tester l'accès sans authentification (doit échouer)
+curl -I https://s3.eu-west-3.amazonaws.com/ca-a2a-documents/invoices/2026/01/facture_acme_dec2025.pdf
+
+# Résultat attendu : 403 Forbidden (bucket privé, accès refusé)
+
+# 4. Vérifier les politiques de bucket
+aws s3api get-bucket-policy --bucket ca-a2a-documents
+
+# Les politiques empêchent l'accès public
 ```
+
+**Ce qui se passe en arrière-plan :**
+
+1. **Upload** : Client → AWS CLI → TLS 1.3 → S3
+2. **Chiffrement** : S3 chiffre automatiquement avec AES-256
+3. **Stockage** : Données chiffrées au repos dans les datacenters AWS
+4. **Accès** : Uniquement via IAM roles authentifiés (ECS tasks)
+
+**Points de sécurité démontrés :**
+- ✅ Chiffrement en transit (TLS 1.3)
+- ✅ Chiffrement au repos (AES-256)
+- ✅ Accès privé uniquement (bucket policy)
+- ✅ Authentification IAM requise
+- ✅ Audit complet (CloudTrail)
 
 ### 🎬 14:36 - L'Orchestrator Prend le Relais
 
