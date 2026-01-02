@@ -80,18 +80,22 @@ if (-not $SkipBuild) {
 
 # Step 4: Tag image
 Write-Host "`n[4/8] Tagging Docker image..." -ForegroundColor Yellow
-docker tag ${ECR_REPO}:${IMAGE_TAG} $ACCOUNT_ID.dkr.ecr.$Region.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+$ecrImageName = "${ACCOUNT_ID}.dkr.ecr.${Region}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+docker tag "${ECR_REPO}:${IMAGE_TAG}" $ecrImageName
 if ($LASTEXITCODE -eq 0) {
     Write-Host "  [OK] Image tagged" -ForegroundColor Green
 } else {
     Write-Host "  [ERROR] Failed to tag image" -ForegroundColor Red
+    Write-Host "  Source: ${ECR_REPO}:${IMAGE_TAG}" -ForegroundColor Gray
+    Write-Host "  Target: $ecrImageName" -ForegroundColor Gray
     exit 1
 }
 
 # Step 5: Push to ECR
 if (-not $SkipPush) {
     Write-Host "`n[5/8] Pushing image to ECR..." -ForegroundColor Yellow
-    docker push $ACCOUNT_ID.dkr.ecr.$Region.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+    $ecrImageName = "${ACCOUNT_ID}.dkr.ecr.${Region}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}"
+    docker push $ecrImageName
     if ($LASTEXITCODE -eq 0) {
         Write-Host "  [OK] Image pushed to ECR" -ForegroundColor Green
     } else {
@@ -104,24 +108,17 @@ if (-not $SkipPush) {
 
 # Step 6: Get VPC and network configuration from existing services
 Write-Host "`n[6/8] Getting network configuration..." -ForegroundColor Yellow
-$orchestratorTasks = aws ecs list-tasks --cluster $CLUSTER_NAME --service-name orchestrator --desired-status RUNNING | ConvertFrom-Json
-if ($orchestratorTasks.taskArns.Count -gt 0) {
-    $taskArn = $orchestratorTasks.taskArns[0]
-    $taskDetails = aws ecs describe-tasks --cluster $CLUSTER_NAME --tasks $taskArn | ConvertFrom-Json
-    $networkConfig = $taskDetails.tasks[0].attachments[0].details
-    
-    $subnets = ($networkConfig | Where-Object { $_.name -eq "subnetId" }).value
-    $securityGroups = ($networkConfig | Where-Object { $_.name -eq "networkInterfaceId" }).value
-    
-    # Get security group from network interface
-    $eni = aws ec2 describe-network-interfaces --network-interface-ids $securityGroups | ConvertFrom-Json
-    $securityGroupId = $eni.NetworkInterfaces[0].Groups[0].GroupId
+$orchService = aws ecs describe-services --cluster $CLUSTER_NAME --services orchestrator | ConvertFrom-Json
+if ($orchService.services.Count -gt 0) {
+    $networkConfig = $orchService.services[0].networkConfiguration.awsvpcConfiguration
+    $subnets = $networkConfig.subnets -join ","
+    $securityGroupId = $networkConfig.securityGroups[0]
     
     Write-Host "  Subnets: $subnets" -ForegroundColor Cyan
     Write-Host "  Security Group: $securityGroupId" -ForegroundColor Cyan
     Write-Host "  [OK] Network configuration retrieved" -ForegroundColor Green
 } else {
-    Write-Host "  [ERROR] No running orchestrator tasks found" -ForegroundColor Red
+    Write-Host "  [ERROR] No orchestrator service found" -ForegroundColor Red
     exit 1
 }
 
@@ -184,8 +181,10 @@ $taskDefJson = @"
 }
 "@
 
-# Create CloudWatch log group
-aws logs create-log-group --log-group-name "/ecs/ca-a2a-mcp-server" 2>$null
+# Create CloudWatch log group (ignore error if already exists)
+$ErrorActionPreference = "SilentlyContinue"
+aws logs create-log-group --log-group-name "/ecs/ca-a2a-mcp-server" 2>&1 | Out-Null
+$ErrorActionPreference = "Stop"
 
 # Register task definition
 $taskDefJson | Out-File -FilePath "mcp-taskdef.json" -Encoding ASCII
@@ -224,6 +223,10 @@ if ($serviceExists.services.Count -gt 0 -and $serviceExists.services[0].status -
 } else {
     Write-Host "  Creating new service..." -ForegroundColor Cyan
     
+    # Format subnets for JSON array
+    $subnetsArray = ($subnets -split ",") | ForEach-Object { "`"$_`"" }
+    $subnetsJson = $subnetsArray -join ","
+    
     $serviceJson = @"
 {
   "cluster": "$CLUSTER_NAME",
@@ -233,7 +236,7 @@ if ($serviceExists.services.Count -gt 0 -and $serviceExists.services[0].status -
   "launchType": "FARGATE",
   "networkConfiguration": {
     "awsvpcConfiguration": {
-      "subnets": ["$subnets"],
+      "subnets": [$subnetsJson],
       "securityGroups": ["$securityGroupId"],
       "assignPublicIp": "DISABLED"
     }
