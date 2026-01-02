@@ -1,7 +1,7 @@
 # MCP Server Dockerfile
 # Provides unified AWS resource access for CA A2A agents via HTTP
 
-FROM python:3.9-slim
+FROM python:3.11-slim
 
 WORKDIR /app
 
@@ -15,8 +15,8 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements
 COPY requirements.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies (excluding mcp SDK - not needed for HTTP server)
+RUN pip install --no-cache-dir aiohttp aioboto3 asyncpg python-json-logger PyJWT cryptography python-dotenv PyYAML
 
 # Copy MCP server files
 COPY mcp_server_http.py .
