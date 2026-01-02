@@ -1,0 +1,15 @@
+{
+  "cluster": "ca-a2a-cluster",
+  "serviceName": "mcp-server",
+  "taskDefinition": "arn:aws:ecs:eu-west-3:555043101106:task-definition/ca-a2a-mcp-server:1",
+  "desiredCount": 1,
+  "launchType": "FARGATE",
+  "networkConfiguration": {
+    "awsvpcConfiguration": {
+      "subnets": [""],
+      "securityGroups": ["sg-0bae968c462dc62c1"],
+      "assignPublicIp": "DISABLED"
+    }
+  },
+  "healthCheckGracePeriodSeconds": 60
+}

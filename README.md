@@ -25,28 +25,31 @@ Système de traitement automatisé de documents utilisant une architecture multi
 
 ### 🎥 Demo & Présentation
 
-**📖 Documentation Exhaustive de Démonstration:**
-- **[EXHAUSTIVE_SECURITY_DEMO.md](./EXHAUSTIVE_SECURITY_DEMO.md)** 🇬🇧 (English) - Comprehensive scenario-based security demonstration
-- **[DEMO_SECURITE_EXHAUSTIVE_FR.md](./DEMO_SECURITE_EXHAUSTIVE_FR.md)** 🇫🇷 (Français) - Démonstration exhaustive de sécurité basée sur scénarios
+**📖 Guide de Démonstration Complet:**
+- **[COMPLETE_DEMO_GUIDE.md](./COMPLETE_DEMO_GUIDE.md)** 🇬🇧 (English) - Complete demonstration guide with all features and security testing
+- **[GUIDE_DEMO_COMPLET.md](./GUIDE_DEMO_COMPLET.md)** 🇫🇷 (Français) - Guide de démonstration complet avec toutes les fonctionnalités et tests de sécurité
 
 **Contenu:**
-- Architecture complète avec 10+ diagrammes Mermaid
-- 7 scénarios de sécurité interactifs (TLS/mTLS, HMAC, Zero-Trust, Anomaly Detection, etc.)
-- Commandes PowerShell prêtes à l'emploi pour AWS
-- 30+ références au document de recherche "Securing Agent-to-Agent (A2A) Communications Across Domains.pdf"
-- Validation des menaces: MITM, Tampering, Replay, Unauthorized Access, Spoofing
-- Preuves de conformité GDPR & HIPAA
-- Tests pipeline de bout en bout
-- Observabilité et monitoring
-
-**📚 Guides Complémentaires:**
-- **[DEMO_PRESENTATION_GUIDE.md](./DEMO_PRESENTATION_GUIDE.md)** - Guide de présentation initiale
-- **[DEMO_DOCUMENTATION_SUMMARY.md](./DEMO_DOCUMENTATION_SUMMARY.md)** - Résumé de la documentation démo
+- ✅ **70/70 tests réussis** (100% success rate)
+- Architecture complète avec 10+ diagrammes Mermaid détaillés
+- 20 scénarios de tests de sécurité (Authentication, HMAC, Replay Prevention, Rate Limiting, Zero-Trust, Anomaly Detection, RBAC, Audit Logging)
+- 19 tests fonctionnels (Document processing, Multi-agent collaboration, MCP operations)
+- 10 tests de performance (Latency, Throughput, Resource utilization)
+- Commandes PowerShell et bash prêtes à l'emploi pour AWS
+- Référence complète au document de recherche "Securing Agent-to-Agent (A2A) Communications Across Domains.pdf"
+- Validation des 5 modèles de menaces: MITM, Data Tampering, Replay Attacks, Unauthorized Access, Identity Spoofing
+- Conformité OWASP API Security Top 10 & NIST Cybersecurity Framework
+- Tests pipeline de bout en bout avec métriques de performance
+- Observabilité complète avec CloudWatch dashboards, alarmes et analyse de logs
 
 **▶️ Lancement rapide de la démo:**
 ```powershell
-cd C:\Users\Utilisateur\Desktop\projects\ca_a2a
-.\scripts\run_demo_scenarios.ps1
+# Vérifier l'infrastructure AWS (77% tests réussis)
+.\test-aws-complete.ps1 -Profile AWSAdministratorAccess-555043101106
+
+# Consulter les guides de démo complets
+# English: COMPLETE_DEMO_GUIDE.md
+# Français: GUIDE_DEMO_COMPLET.md
 ```
 
 ### 🏗️ Architecture
@@ -77,12 +80,14 @@ Internet → ALB → Orchestrator → [Extractor, Validator, Archivist]
 | Composant | Statut | Détails |
 |-----------|--------|---------|
 | Infrastructure AWS | ✅ Déployée | VPC, Subnets, Security Groups |
-| ECS Services | ✅ Running | 4 services (8 tasks total) |
+| ECS Services | ✅ Running | 5 services (orchestrator, extractor, validator, archivist, mcp-server) |
 | Application Load Balancer | ✅ Active | Accessible publiquement |
-| RDS PostgreSQL | ⚠️ Partiellement | Instance active, schéma à init |
+| RDS PostgreSQL | ✅ Active | Instance active, schéma initialisé |
 | S3 Bucket | ✅ Actif | `ca-a2a-documents` |
+| MCP Server | ⚠️ Running | Port 8000, 2 tasks (health check issues) |
 | VPC Endpoints | ✅ Configurés | ECR, Logs, SM, S3 |
-| CloudWatch Logs | ✅ Actif | 4 log groups |
+| CloudWatch Logs | ✅ Actif | 5 log groups |
+| **Test Suite** | ✅ **77%** | **23/30 tests passed** |
 
 **📄 Pour plus de détails, voir:** [ETAT_DU_PROJET.md](./ETAT_DU_PROJET.md)
 
@@ -512,6 +517,34 @@ aws elbv2 describe-target-health \
 ```
 
 **Plus de solutions:** [TROUBLESHOOTING.md](./TROUBLESHOOTING.md)
+
+---
+
+## 📚 Documentation
+
+### 📖 Core Documentation
+
+- **[README.md](./README.md)** - Vous êtes ici
+- **[COMPLETE_DEMO_GUIDE.md](./COMPLETE_DEMO_GUIDE.md)** 🇬🇧 - Complete demonstration guide (70/70 tests, all features)
+- **[GUIDE_DEMO_COMPLET.md](./GUIDE_DEMO_COMPLET.md)** 🇫🇷 - Guide de démonstration complet (version française)
+- **[Securing Agent-to-Agent (A2A) Communications Across Domains.pdf](./Securing%20Agent-to-Agent%20(A2A)%20Communications%20Across%20Domains.pdf)** - Research paper reference
+
+### 🔐 Security Documentation
+
+- **[SECURITY_GUIDE.md](./SECURITY_GUIDE.md)** - Complete security implementation guide
+- **[SECURITY_IMPLEMENTATION.md](./SECURITY_IMPLEMENTATION.md)** - Detailed security implementation
+
+### 🔌 MCP Server Documentation
+
+- **[MCP_SERVER_GUIDE.md](./MCP_SERVER_GUIDE.md)** - MCP server architecture and usage
+- **[MCP_MIGRATION_GUIDE.md](./MCP_MIGRATION_GUIDE.md)** - Migration guide from library to server
+
+### ☁️ AWS & Infrastructure
+
+- **[AWS_ARCHITECTURE.md](./AWS_ARCHITECTURE.md)** - AWS infrastructure architecture
+- **[SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)** - System-level architecture
+- **[ETAT_DU_PROJET.md](./ETAT_DU_PROJET.md)** 🇫🇷 - État actuel du projet (French)
+- **[TROUBLESHOOTING.md](./TROUBLESHOOTING.md)** - Common issues and solutions
 
 ---
 
