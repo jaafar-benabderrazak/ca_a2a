@@ -94,17 +94,49 @@ class MCPS3ClientHTTP:
         content = result.get('content', '')
         return content.encode('utf-8') if isinstance(content, str) else content
     
-    async def put_object(self, key: str, body: bytes, content_type: str = "application/octet-stream") -> Dict[str, Any]:
-        """Upload object to S3"""
-        # Convert bytes to base64 for JSON transport
-        import base64
-        body_b64 = base64.b64encode(body).decode('utf-8')
+    async def put_object(
+        self,
+        key: str,
+        body: bytes = None,
+        content: str = None,
+        content_type: str = "application/octet-stream",
+        metadata: Dict[str, str] = None
+    ) -> Dict[str, Any]:
+        """
+        Upload object to S3
         
-        result = await self.mcp.call_tool("s3_put_object", {
+        Args:
+            key: S3 object key
+            body: Raw bytes content (if provided, takes precedence)
+            content: Base64-encoded string content (alternative to body)
+            content_type: MIME type
+            metadata: Optional metadata dict
+        
+        Returns:
+            Upload result dict
+        """
+        import base64
+        
+        # Handle different input formats
+        if body is not None:
+            # Convert bytes to base64
+            body_b64 = base64.b64encode(body).decode('utf-8')
+        elif content is not None:
+            # Use provided base64 string
+            body_b64 = content
+        else:
+            raise ValueError("Either 'body' or 'content' must be provided")
+        
+        tool_args = {
             "key": key,
             "body": body_b64,
             "content_type": content_type
-        })
+        }
+        
+        if metadata:
+            tool_args["metadata"] = metadata
+        
+        result = await self.mcp.call_tool("s3_put_object", tool_args)
         
         return result
 

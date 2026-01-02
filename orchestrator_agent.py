@@ -13,6 +13,7 @@ from mcp_context_auto import get_mcp_context
 from config import AGENTS_CONFIG
 from agent_card import AgentSkill, AgentRegistry, ResourceRequirements, AgentDependencies
 import aiohttp
+from upload_handler import UploadHandler
 
 
 class OrchestratorAgent(BaseAgent):
@@ -35,9 +36,14 @@ class OrchestratorAgent(BaseAgent):
         
         self.mcp: MCPContext = None
         self.processing_tasks: Dict[str, Dict[str, Any]] = {}
+        self.upload_handler: UploadHandler = None
         
         # Agent registry for discovery
         self.agent_registry = AgentRegistry()
+        
+        # Add upload endpoint
+        self.app.router.add_post('/upload', self.handle_upload_endpoint)
+        self.logger.info("Upload endpoint registered at POST /upload")
         
         # Agent URLs
         self.extractor_url = f"http://{AGENTS_CONFIG['extractor']['host']}:{AGENTS_CONFIG['extractor']['port']}"
@@ -210,6 +216,10 @@ class OrchestratorAgent(BaseAgent):
         # Initialize database schema
         await self.mcp.postgres.initialize_schema()
         
+        # Initialize upload handler
+        self.upload_handler = UploadHandler(self.mcp, max_file_size=100 * 1024 * 1024)
+        self.logger.info("Upload handler initialized")
+        
         # Discover all agents
         await self._discover_agents()
         
@@ -319,6 +329,126 @@ class OrchestratorAgent(BaseAgent):
             'count': len(documents),
             'documents': documents
         }
+    
+    async def handle_upload_document(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Handle document upload (called internally after multipart parsing)
+        This is for programmatic uploads via JSON-RPC
+        
+        Params: {
+            "file_content_base64": "base64 encoded file",
+            "file_name": "document.pdf",
+            "folder": "invoices/2026/01" (optional),
+            "metadata": {} (optional)
+        }
+        """
+        file_content_b64 = params.get('file_content_base64')
+        file_name = params.get('file_name')
+        folder = params.get('folder', 'uploads')
+        metadata = params.get('metadata', {})
+        
+        if not file_content_b64 or not file_name:
+            raise ValueError("Missing required parameters: file_content_base64, file_name")
+        
+        import base64
+        try:
+            file_content = base64.b64decode(file_content_b64)
+        except Exception as e:
+            raise ValueError(f"Invalid base64 content: {str(e)}")
+        
+        # Generate S3 key
+        timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        unique_id = str(uuid.uuid4())[:8]
+        s3_key = f"{folder}/{timestamp}_{unique_id}_{file_name}"
+        
+        # Upload to S3
+        upload_metadata = {
+            'original_filename': file_name,
+            'file_size': str(len(file_content)),
+            'upload_timestamp': datetime.utcnow().isoformat(),
+            **metadata
+        }
+        
+        try:
+            await self.mcp.s3.put_object(
+                key=s3_key,
+                content=file_content_b64,  # MCP expects base64
+                metadata=upload_metadata
+            )
+            
+            self.logger.info(f"Document uploaded: {s3_key}")
+            
+            # Automatically trigger processing
+            process_result = await self.handle_process_document({'s3_key': s3_key})
+            
+            return {
+                'success': True,
+                's3_key': s3_key,
+                'file_name': file_name,
+                'file_size': len(file_content),
+                'upload_id': unique_id,
+                'task_id': process_result['task_id'],
+                'message': 'Document uploaded and processing started'
+            }
+        
+        except Exception as e:
+            self.logger.error(f"Upload failed: {str(e)}")
+            raise Exception(f"Upload error: {str(e)}")
+    
+    async def handle_upload_endpoint(self, request):
+        """
+        HTTP endpoint for multipart file upload
+        Route: POST /upload
+        Content-Type: multipart/form-data
+        
+        Form fields:
+            - file: The file to upload
+            - folder: (optional) Target folder in S3
+            - metadata: (optional) JSON metadata
+        
+        Returns:
+            JSON response with upload result and task_id
+        """
+        from aiohttp import web
+        
+        try:
+            self.logger.info("Handling file upload via /upload endpoint")
+            
+            # Use upload handler to process multipart
+            upload_result = await self.upload_handler.handle_upload(
+                request,
+                default_folder="uploads"
+            )
+            
+            # Automatically trigger processing
+            s3_key = upload_result['s3_key']
+            process_result = await self.handle_process_document({'s3_key': s3_key})
+            
+            # Combine results
+            response = {
+                **upload_result,
+                'task_id': process_result['task_id'],
+                'processing_status': process_result['status'],
+                'message': 'Document uploaded and processing started'
+            }
+            
+            return web.json_response(response, status=200)
+        
+        except ValueError as e:
+            self.logger.warning(f"Upload validation error: {str(e)}")
+            return web.json_response({
+                'success': False,
+                'error': str(e),
+                'code': 'VALIDATION_ERROR'
+            }, status=400)
+        
+        except Exception as e:
+            self.logger.error(f"Upload error: {str(e)}")
+            return web.json_response({
+                'success': False,
+                'error': str(e),
+                'code': 'UPLOAD_ERROR'
+            }, status=500)
     
     async def handle_discover_agents(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
