@@ -311,14 +311,14 @@ class ExtractorAgent(BaseAgent):
                 return await self._extract_pdf_fallback(pdf_data)
             
             try:
-            extracted['total_pages'] = len(pdf_reader.pages)
+                extracted['total_pages'] = len(pdf_reader.pages)
             except Exception as e:
                 self.logger.warning(f"Could not get page count: {str(e)}")
                 extracted['total_pages'] = 0
             
             # Extract metadata safely
             try:
-            if pdf_reader.metadata:
+                if pdf_reader.metadata:
                 extracted['metadata'] = {
                         'title': str(pdf_reader.metadata.get('/Title', '')),
                         'author': str(pdf_reader.metadata.get('/Author', '')),
