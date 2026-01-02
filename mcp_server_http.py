@@ -287,24 +287,36 @@ class MCPServerHTTP:
             }, status=500)
     
     async def handle_health(self, request: web.Request) -> web.Response:
-        """Health check endpoint"""
+        """Health check endpoint - lightweight check without blocking operations"""
         try:
-            # Check PostgreSQL
-            async with self.pg_pool.acquire() as conn:
-                await conn.fetchval("SELECT 1")
+            # Basic health check without actual DB/S3 operations to avoid blocking
+            # Just verify connections are initialized
+            pg_status = 'ok' if self.pg_pool and not self.pg_pool._closed else 'not_initialized'
+            s3_status = 'ok' if self.s3_session else 'not_initialized'
             
-            # Check S3 (simple list operation)
-            async with self.s3_session.client('s3') as s3:
-                await s3.head_bucket(Bucket=AWS_CONFIG['s3_bucket'])
+            # Only do actual checks if connections are initialized
+            if pg_status == 'ok':
+                try:
+                    # Quick non-blocking check with timeout
+                    async with asyncio.timeout(2):
+                        async with self.pg_pool.acquire() as conn:
+                            await conn.fetchval("SELECT 1")
+                except Exception as pg_err:
+                    logger.warning(f"PostgreSQL health check warning: {str(pg_err)}")
+                    pg_status = 'degraded'
+            
+            # Determine overall status
+            is_healthy = pg_status in ('ok', 'degraded') and s3_status == 'ok'
+            status_code = 200 if is_healthy else 503
             
             return web.json_response({
-                'status': 'healthy',
+                'status': 'healthy' if is_healthy else 'unhealthy',
                 'timestamp': datetime.utcnow().isoformat(),
                 'services': {
-                    'postgresql': 'ok',
-                    's3': 'ok'
+                    'postgresql': pg_status,
+                    's3': s3_status
                 }
-            })
+            }, status=status_code)
         
         except Exception as e:
             logger.error(f"Health check failed: {str(e)}")
@@ -339,8 +351,9 @@ def main():
     port = 8000
     logger.info(f"Starting MCP HTTP Server on port {port}")
     
-    app = asyncio.run(create_app())
-    web.run_app(app, host='0.0.0.0', port=port)
+    # Use web.run_app with the async factory function
+    # This properly manages the event loop
+    web.run_app(create_app(), host='0.0.0.0', port=port)
 
 
 if __name__ == '__main__':
