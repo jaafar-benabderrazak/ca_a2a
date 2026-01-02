@@ -1,0 +1,9 @@
+{
+  "jsonrpc": "2.0",
+  "method": "process_document",
+  "params": {
+    "s3_key": "invoices/2026/01/test_invoice_20260102_172853.pdf"
+  },
+  "id": "demo-test-001"
+}
+

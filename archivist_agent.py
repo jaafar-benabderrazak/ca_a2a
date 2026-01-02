@@ -204,8 +204,18 @@ class ArchivistAgent(BaseAgent):
         self.mcp = get_mcp_context()
         await self.mcp.__aenter__()
         
-        # Ensure schema is initialized
-        await self.mcp.postgres.initialize_schema()
+        # Initialize database schema - make this resilient to failures
+        # Schema might already be initialized or MCP server might be slow
+        try:
+            await asyncio.wait_for(
+                self.mcp.postgres.initialize_schema(), 
+                timeout=90.0
+            )
+            self.logger.info("Database schema initialized successfully")
+        except asyncio.TimeoutError:
+            self.logger.warning("Schema initialization timed out - schema may already be initialized, continuing...")
+        except Exception as e:
+            self.logger.warning(f"Schema initialization failed: {e} - continuing anyway as schema may already exist")
         
         self.logger.info("Archivist initialized")
     

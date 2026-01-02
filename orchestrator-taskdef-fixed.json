@@ -1,0 +1,154 @@
+﻿{
+    "executionRoleArn":  "arn:aws:iam::555043101106:role/ca-a2a-ecs-execution-role",
+    "networkMode":  "awsvpc",
+    "cpu":  "512",
+    "requiresCompatibilities":  [
+                                    "FARGATE"
+                                ],
+    "containerDefinitions":  [
+                                 {
+                                     "name":  "orchestrator",
+                                     "image":  "555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/orchestrator:latest",
+                                     "cpu":  0,
+                                     "portMappings":  [
+                                                          {
+                                                              "containerPort":  8001,
+                                                              "hostPort":  8001,
+                                                              "protocol":  "tcp",
+                                                              "name":  "http"
+                                                          }
+                                                      ],
+                                     "essential":  true,
+                                     "environment":  [
+                                                         {
+                                                             "name":  "VALIDATOR_HOST",
+                                                             "value":  "validator.local"
+                                                         },
+                                                         {
+                                                             "name":  "ARCHIVIST_PORT",
+                                                             "value":  "8004"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_USER",
+                                                             "value":  "postgres"
+                                                         },
+                                                         {
+                                                             "name":  "AWS_REGION",
+                                                             "value":  "eu-west-3"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_HOST",
+                                                             "value":  "ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com"
+                                                         },
+                                                         {
+                                                             "name":  "EXTRACTOR_HOST",
+                                                             "value":  "extractor.local"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_PORT",
+                                                             "value":  "5432"
+                                                         },
+                                                         {
+                                                             "name":  "POSTGRES_DB",
+                                                             "value":  "documents_db"
+                                                         },
+                                                         {
+                                                             "name":  "A2A_RATE_LIMIT_PER_MINUTE",
+                                                             "value":  "5"
+                                                         },
+                                                         {
+                                                             "name":  "S3_BUCKET_NAME",
+                                                             "value":  "ca-a2a-documents-555043101106"
+                                                         },
+                                                         {
+                                                             "name":  "A2A_REQUIRE_AUTH",
+                                                             "value":  "true"
+                                                         },
+                                                         {
+                                                             "name":  "A2A_JWT_ALG",
+                                                             "value":  "RS256"
+                                                         },
+                                                         {
+                                                             "name":  "EXTRACTOR_PORT",
+                                                             "value":  "8002"
+                                                         },
+                                                         {
+                                                             "name":  "ARCHIVIST_HOST",
+                                                             "value":  "archivist.local"
+                                                         },
+                                                         {
+                                                             "name":  "VALIDATOR_PORT",
+                                                             "value":  "8003"
+                                                         },
+                                                         {
+                                                             "name":  "ORCHESTRATOR_HOST",
+                                                             "value":  "0.0.0.0"
+                                                         },
+                                                         {
+                                                             "name":  "A2A_JWT_ISSUER",
+                                                             "value":  "ca-a2a"
+                                                         },
+                                                         {
+                                                             "name":  "A2A_RBAC_POLICY_JSON",
+                                                             "value":  "{\"allow\":{\"external_client\":[\"process_document\",\"process_batch\",\"get_task_status\",\"list_pending_documents\",\"discover_agents\",\"get_agent_registry\"]},\"deny\":{}}"
+                                                         },
+                                                         {
+                                                             "name":  "ORCHESTRATOR_PORT",
+                                                             "value":  "8001"
+                                                         },
+                                                         {
+                                                             "value":  "http://10.0.10.142:8000",
+                                                             "name":  "MCP_SERVER_URL"
+                                                         }
+                                                     ],
+                                     "mountPoints":  [
+
+                                                     ],
+                                     "volumesFrom":  [
+
+                                                     ],
+                                     "secrets":  [
+                                                     {
+                                                         "name":  "POSTGRES_PASSWORD",
+                                                         "valueFrom":  "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password"
+                                                     },
+                                                     {
+                                                         "name":  "A2A_JWT_PUBLIC_KEY_PEM",
+                                                         "valueFrom":  "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/a2a-jwt-public-key-pem"
+                                                     },
+                                                     {
+                                                         "name":  "A2A_JWT_PRIVATE_KEY_PEM",
+                                                         "valueFrom":  "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/a2a-jwt-private-key-pem"
+                                                     },
+                                                     {
+                                                         "name":  "A2A_API_KEYS_JSON",
+                                                         "valueFrom":  "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/a2a-client-api-keys-json"
+                                                     }
+                                                 ],
+                                     "logConfiguration":  {
+                                                              "logDriver":  "awslogs",
+                                                              "options":  {
+                                                                              "awslogs-group":  "/ecs/ca-a2a-orchestrator",
+                                                                              "awslogs-region":  "eu-west-3",
+                                                                              "awslogs-stream-prefix":  "ecs"
+                                                                          }
+                                                          },
+                                     "healthCheck":  {
+                                                         "command":  [
+                                                                         "CMD-SHELL",
+                                                                         "curl -f http://localhost:8001/health || exit 1"
+                                                                     ],
+                                                         "interval":  30,
+                                                         "timeout":  5,
+                                                         "retries":  3,
+                                                         "startPeriod":  60
+                                                     },
+                                     "systemControls":  [
+
+                                                        ]
+                                 }
+                             ],
+    "family":  "ca-a2a-orchestrator",
+    "taskRoleArn":  "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+    "memory":  "1024"
+}

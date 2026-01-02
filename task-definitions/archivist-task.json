@@ -9,7 +9,7 @@
   "containerDefinitions": [{
     "name": "archivist",
     "image": "555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/archivist:latest",
-    "portMappings": [{"containerPort": 8004, "protocol": "tcp"}],
+    "portMappings": [{"containerPort": 8004, "protocol": "tcp", "name": "http"}],
     "environment": [
       {"name": "ARCHIVIST_HOST", "value": "0.0.0.0"},
       {"name": "ARCHIVIST_PORT", "value": "8004"},
@@ -18,7 +18,8 @@
       {"name": "POSTGRES_USER", "value": "postgres"},
       {"name": "POSTGRES_PORT", "value": "5432"},
       {"name": "S3_BUCKET_NAME", "value": "ca-a2a-documents-555043101106"},
-      {"name": "AWS_REGION", "value": "eu-west-3"}
+      {"name": "AWS_REGION", "value": "eu-west-3"},
+      {"name": "MCP_SERVER_URL", "value": "http://mcp-server.ca-a2a.local:8000"}
     ],
     "secrets": [
       {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password"}

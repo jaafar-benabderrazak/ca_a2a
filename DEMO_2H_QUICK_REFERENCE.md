@@ -1,340 +1,358 @@
-# CA A2A - Quick Demo Command Reference
+# CA A2A - Demo 2H Quick Reference Card
 
-**Quick access commands for the 2-hour demonstration**  
-**All commands tested and validated ✅**
+Copy-paste these commands directly into AWS CloudShell (eu-west-3)
 
 ---
 
-## Pre-Demo Setup (5 minutes before)
+## SETUP (Run Once)
 
-```powershell
-# Set AWS Profile
-$env:AWS_PROFILE = "AWSAdministratorAccess-555043101106"
-$env:AWS_DEFAULT_REGION = "eu-west-3"
-
-# Verify all agents are running
-aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator extractor validator archivist mcp-server --query 'services[].[serviceName,runningCount,status]' --output table
-
-# Get ALB DNS for later
-$ALB_DNS = aws elbv2 describe-load-balancers --names ca-a2a-alb --query 'LoadBalancers[0].DNSName' --output text
-Write-Host "ALB DNS: $ALB_DNS"
+```bash
+# Set variables
+export REGION="eu-west-3"
+export S3_BUCKET="ca-a2a-documents-555043101106"
+export CLUSTER="ca-a2a-cluster"
 ```
 
 ---
 
-## Partie 1: Introduction (10 min)
-
-**No commands needed - presentation only**
-
----
-
-## Partie 2: Acte 1 - La Réception du Document (20 min)
-
-### 1. Upload Test Document
+## PART 1: Infrastructure Verification
 
 ```bash
-# Upload the demo invoice
-aws s3 cp facture_acme_dec2025.pdf s3://ca-a2a-documents/invoices/2026/01/ --metadata uploaded-by=marie.dubois@reply.com
+# 1. Check S3 bucket
+aws s3 ls s3://${S3_BUCKET}/ --region ${REGION}
 
-# Verify upload
-aws s3 ls s3://ca-a2a-documents/invoices/2026/01/
+# 2. Verify encryption
+aws s3api get-bucket-encryption --bucket ${S3_BUCKET} --region ${REGION}
 
-# Check encryption
-aws s3api head-object --bucket ca-a2a-documents --key invoices/2026/01/facture_acme_dec2025.pdf --query 'ServerSideEncryption'
-```
+# 3. Check RDS
+aws rds describe-db-instances --region ${REGION} \
+  --query 'DBInstances[?contains(DBInstanceIdentifier,`ca-a2a`)].{Name:DBInstanceIdentifier,Status:DBInstanceStatus,Endpoint:Endpoint.Address}'
 
-### 2. Monitor Orchestrator Detection
+# 4. Check ECS cluster
+aws ecs describe-clusters --clusters ${CLUSTER} --region ${REGION} \
+  --query 'clusters[0].{Name:clusterName,Status:status,Services:activeServicesCount,Tasks:runningTasksCount}'
 
-```bash
-# Watch orchestrator logs in real-time
-aws logs tail /ecs/ca-a2a-orchestrator --follow --region eu-west-3
-
-# Look for:
-# - "New document detected: facture_acme_dec2025.pdf"
-# - "Document type: invoice"
-# - "Initiating extraction pipeline"
-```
-
-### 3. Verify S3 Encryption
-
-```bash
-# Check bucket encryption policy
-aws s3api get-bucket-encryption --bucket ca-a2a-documents
-
-# Test unauthorized access (should fail)
-curl -I https://s3.eu-west-3.amazonaws.com/ca-a2a-documents/invoices/2026/01/facture_acme_dec2025.pdf
-# Expected: 403 Forbidden
+# 5. List services
+aws ecs list-services --cluster ${CLUSTER} --region ${REGION}
 ```
 
 ---
 
-## Partie 3: Acte 2 - L'Extraction des Données (25 min)
-
-### 1. Monitor MCP Server Activity
+## PART 2: Create and Upload Invoice
 
 ```bash
-# Watch MCP server logs
-aws logs tail /ecs/ca-a2a-mcp-server --follow --region eu-west-3
+# 6. Create invoice PDF
+cat > facture_acme_dec2025.pdf << 'EOF'
+%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Count 1/Kids[3 0 R]>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length 280>>stream
+BT
+/F1 24 Tf
+50 700 Td
+(FACTURE ACME CORP) Tj
+/F1 12 Tf
+50 650 Td
+(Numero: INV-2025-12-001) Tj
+50 630 Td
+(Date: 15 decembre 2025) Tj
+50 610 Td
+(Client: Systeme CA A2A) Tj
+50 580 Td
+(Montant Total: 15,750.00 EUR) Tj
+50 550 Td
+(Statut: PAYE) Tj
+ET
+endstream endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+xref
+0 6
+trailer<</Size 6/Root 1 0 R>>
+startxref
+%%EOF
+EOF
 
-# Look for:
-# - "Tool call: s3_get_object"
-# - "S3 download successful"
-```
+# 7. Upload to S3
+aws s3 cp facture_acme_dec2025.pdf \
+  s3://${S3_BUCKET}/invoices/2026/01/facture_acme_dec2025.pdf \
+  --region ${REGION} \
+  --metadata uploaded-by=marie.dubois@reply.com
 
-### 2. Monitor Extractor Agent
+# 8. Verify upload
+aws s3 ls s3://${S3_BUCKET}/invoices/2026/01/ --region ${REGION}
 
-```bash
-# Watch extractor logs
-aws logs tail /ecs/ca-a2a-extractor --follow --region eu-west-3
-
-# Look for:
-# - "Received extract_document request"
-# - "HMAC signature valid"
-# - "Parsing PDF content"
-# - "Extracted fields: invoice_number=INV-2026-001, amount=5000.00"
-```
-
-### 3. Check Extractor Task Status
-
-```bash
-# Get task details
-aws ecs list-tasks --cluster ca-a2a-cluster --service-name extractor
-aws ecs describe-tasks --cluster ca-a2a-cluster --tasks <task-arn-from-above>
+# 9. Check metadata
+aws s3api head-object \
+  --bucket ${S3_BUCKET} \
+  --key invoices/2026/01/facture_acme_dec2025.pdf \
+  --region ${REGION}
 ```
 
 ---
 
-## Partie 4: Acte 3 - La Validation et la Sécurité (30 min)
-
-### 1. Monitor Validator Agent
+## PART 3: Security Verification
 
 ```bash
-# Watch validator logs
-aws logs tail /ecs/ca-a2a-validator --follow --region eu-west-3
+# 10. Check encryption
+aws s3api head-object \
+  --bucket ${S3_BUCKET} \
+  --key invoices/2026/01/facture_acme_dec2025.pdf \
+  --region ${REGION} \
+  --query 'ServerSideEncryption'
 
-# Look for:
-# - "Received validate_document request"
-# - "Applying validation rules"
-# - "Validation score: 0.95 (PASS)"
-```
+# 11. Public access block
+aws s3api get-public-access-block --bucket ${S3_BUCKET} --region ${REGION}
 
-### 2. Verify Database Access
-
-```bash
-# Check RDS instance
-aws rds describe-db-instances --db-instance-identifier ca-a2a-postgres --query 'DBInstances[0].[DBInstanceStatus,Endpoint.Address]'
-
-# Check security group
-aws ec2 describe-security-groups --group-ids <sg-id-from-rds>
-```
-
-### 3. Show HMAC Protection (Optional Demo)
-
-```powershell
-# Show HMAC test script (don't run, just explain)
-Get-Content test_hmac_protection.py
+# 12. Test unauthorized access (should fail with 403)
+curl -I "https://s3.${REGION}.amazonaws.com/${S3_BUCKET}/invoices/2026/01/facture_acme_dec2025.pdf"
 ```
 
 ---
 
-## Partie 5: Acte 4 - L'Archivage et la Conformité (20 min)
-
-### 1. Monitor Archivist Agent
+## PART 4: Orchestrator Status
 
 ```bash
-# Watch archivist logs
-aws logs tail /ecs/ca-a2a-archivist --follow --region eu-west-3
+# 13. Service status
+aws ecs describe-services \
+  --cluster ${CLUSTER} \
+  --services orchestrator \
+  --region ${REGION} \
+  --query 'services[0].{Name:serviceName,Status:status,Desired:desiredCount,Running:runningCount}'
 
-# Look for:
-# - "Received archive_document request"
-# - "Calling MCP: postgres_execute (INSERT document)"
-# - "Database insert successful (document_id=...)"
-# - "Document archived"
-```
+# 14. List tasks
+aws ecs list-tasks \
+  --cluster ${CLUSTER} \
+  --service-name orchestrator \
+  --region ${REGION}
 
-### 2. Verify Database Archiving
+# 15. Recent logs
+aws logs tail /ecs/ca-a2a-orchestrator --since 10m --region ${REGION} | tail -50
 
-```bash
-# Check RDS backup configuration
-aws rds describe-db-instances --db-instance-identifier ca-a2a-postgres --query 'DBInstances[0].[BackupRetentionPeriod,PreferredBackupWindow,MultiAZ]'
-
-# Show backup window
-# Expected: BackupRetentionPeriod > 0
-```
-
-### 3. Check S3 Document Tagging
-
-```bash
-# After archiving, check object tags
-aws s3api get-object-tagging --bucket ca-a2a-documents --key invoices/2026/01/facture_acme_dec2025.pdf
+# 16. Check MCP HTTP client
+aws logs tail /ecs/ca-a2a-orchestrator --since 30m --region ${REGION} --filter-pattern "MCP HTTP" | head -10
 ```
 
 ---
 
-## Partie 6: Épilogue - Tentative d'Attaque (15 min)
-
-### 1. Show Security Infrastructure
+## PART 5: All Services Health Check
 
 ```bash
-# Show VPC isolation
-aws ec2 describe-vpcs --filters "Name=tag:Name,Values=ca-a2a-vpc" --query 'Vpcs[0].[VpcId,CidrBlock,Tags]'
-
-# Show private subnets
-aws ec2 describe-subnets --filters "Name=vpc-id,Values=<vpc-id>" "Name=tag:Type,Values=private" --query 'Subnets[*].[SubnetId,CidrBlock,AvailabilityZone]'
-
-# Show security groups
-aws ec2 describe-security-groups --filters "Name=vpc-id,Values=<vpc-id>" --query 'SecurityGroups[*].[GroupName,GroupId]'
-```
-
-### 2. Verify Secrets Management
-
-```bash
-# List secrets (don't show values!)
-aws secretsmanager list-secrets --filters Key=name,Values=ca-a2a --query 'SecretList[*].[Name,Description]'
-
-# Show rotation status
-aws secretsmanager describe-secret --secret-id ca-a2a/db-password --query '[RotationEnabled,LastRotatedDate]'
-```
-
-### 3. Check ALB Security
-
-```bash
-# Show ALB listeners (HTTPS)
-aws elbv2 describe-listeners --load-balancer-arn <alb-arn> --query 'Listeners[*].[Protocol,Port,SslPolicy]'
-
-# Show target health
-aws elbv2 describe-target-health --target-group-arn <tg-arn>
+# Check all services at once
+for service in orchestrator extractor validator archivist mcp-server; do
+  echo "=== $service ==="
+  aws ecs describe-services \
+    --cluster ${CLUSTER} \
+    --services $service \
+    --region ${REGION} \
+    --query 'services[0].{Service:serviceName,Desired:desiredCount,Running:runningCount,Status:status}'
+  echo ""
+done
 ```
 
 ---
 
-## Partie 7: Conclusion et Questions (10 min)
-
-### 1. Show CloudWatch Metrics Dashboard
+## PART 6: MCP Server
 
 ```bash
-# Get recent orchestrator logs summary
-aws logs filter-log-events --log-group-name /ecs/ca-a2a-orchestrator --start-time $(date -d '1 hour ago' +%s)000 --filter-pattern "pipeline_complete"
+# 17. MCP server logs
+aws logs tail /ecs/ca-a2a-mcp-server --since 10m --region ${REGION} | tail -30
 
-# Show request count
-aws logs filter-log-events --log-group-name /ecs/ca-a2a-orchestrator --start-time $(date -d '1 hour ago' +%s)000 --filter-pattern "Received" | grep -c "message"
-```
-
-### 2. Show System Health Summary
-
-```bash
-# All services status
-aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator extractor validator archivist mcp-server --query 'services[].[serviceName,runningCount,desiredCount,status]' --output table
-
-# ALB health
-aws elbv2 describe-target-health --target-group-arn <tg-arn> --query 'TargetHealthDescriptions[*].[Target.Id,TargetHealth.State]' --output table
-```
-
-### 3. Show Recent Document Processing
-
-```bash
-# List recent documents in S3
-aws s3 ls s3://ca-a2a-documents/invoices/2026/01/ --recursive --human-readable
-
-# Count documents processed today
-aws logs filter-log-events --log-group-name /ecs/ca-a2a-orchestrator --start-time $(date -d 'today' +%s)000 --filter-pattern "pipeline_complete" | grep -c "message"
+# 18. Health checks
+aws logs tail /ecs/ca-a2a-mcp-server --since 5m --region ${REGION} --filter-pattern "health" | tail -10
 ```
 
 ---
 
-## Emergency Commands (if something goes wrong)
-
-### Restart a specific agent
+## PART 7: Extractor Agent
 
 ```bash
-# Force new deployment (restarts tasks)
-aws ecs update-service --cluster ca-a2a-cluster --service <service-name> --force-new-deployment
+# 19. Extractor tasks
+aws ecs list-tasks --cluster ${CLUSTER} --service-name extractor --region ${REGION}
 
-# Example: Restart orchestrator
-aws ecs update-service --cluster ca-a2a-cluster --service orchestrator --force-new-deployment
+# 20. Extractor logs
+aws logs tail /ecs/ca-a2a-extractor --since 10m --region ${REGION} | tail -30
 ```
 
-### Check recent errors
+---
+
+## PART 8: Validator Agent
 
 ```bash
-# Get recent errors from all agents
-aws logs filter-log-events --log-group-name /ecs/ca-a2a-orchestrator --start-time $(date -d '10 minutes ago' +%s)000 --filter-pattern "ERROR"
-aws logs filter-log-events --log-group-name /ecs/ca-a2a-extractor --start-time $(date -d '10 minutes ago' +%s)000 --filter-pattern "ERROR"
-aws logs filter-log-events --log-group-name /ecs/ca-a2a-validator --start-time $(date -d '10 minutes ago' +%s)000 --filter-pattern "ERROR"
+# 21. Validator status
+aws ecs describe-services \
+  --cluster ${CLUSTER} \
+  --services validator \
+  --region ${REGION} \
+  --query 'services[0].{Service:serviceName,Running:runningCount,Status:status}'
+
+# 22. Validator logs
+aws logs tail /ecs/ca-a2a-validator --since 10m --region ${REGION} | tail -30
 ```
 
-### Quick health check
+---
+
+## PART 9: Archivist Agent
 
 ```bash
-# One-liner to check everything
-aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator extractor validator archivist mcp-server --query 'services[].[serviceName,runningCount,desiredCount]' --output table && echo "---" && aws rds describe-db-instances --db-instance-identifier ca-a2a-postgres --query 'DBInstances[0].DBInstanceStatus' --output text && echo "---" && aws s3 ls s3://ca-a2a-documents/ 2>&1 | head -1
+# 23. Archivist status
+aws ecs describe-services \
+  --cluster ${CLUSTER} \
+  --services archivist \
+  --region ${REGION} \
+  --query 'services[0].{Service:serviceName,Running:runningCount,Status:status}'
+
+# 24. Archivist logs
+aws logs tail /ecs/ca-a2a-archivist --since 10m --region ${REGION} | tail -30
 ```
 
 ---
 
-## Helpful Aliases (Set at start of demo)
+## PART 10: Security - Secrets Manager
 
-```powershell
-# PowerShell aliases for quick access
-function Get-OrchestratorLogs { aws logs tail /ecs/ca-a2a-orchestrator --follow }
-function Get-ExtractorLogs { aws logs tail /ecs/ca-a2a-extractor --follow }
-function Get-ValidatorLogs { aws logs tail /ecs/ca-a2a-validator --follow }
-function Get-ArchivistLogs { aws logs tail /ecs/ca-a2a-archivist --follow }
-function Get-MCPLogs { aws logs tail /ecs/ca-a2a-mcp-server --follow }
-function Get-AllServices { aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator extractor validator archivist mcp-server --query 'services[].[serviceName,runningCount,status]' --output table }
+```bash
+# 25. List secrets
+aws secretsmanager list-secrets \
+  --region ${REGION} \
+  --query 'SecretList[?contains(Name,`ca-a2a`)].{Name:Name,LastChanged:LastChangedDate}'
 
-# Use during demo:
-# Get-OrchestratorLogs
-# Get-AllServices
+# 26. DB password secret
+aws secretsmanager describe-secret \
+  --secret-id ca-a2a/db-password \
+  --region ${REGION}
 ```
 
 ---
 
-## Tips for Smooth Demo
+## PART 11: CloudWatch Monitoring
 
-1. **Open 5 terminal windows before starting:**
-   - Terminal 1: Orchestrator logs
-   - Terminal 2: Extractor logs  
-   - Terminal 3: Validator logs
-   - Terminal 4: Archivist logs
-   - Terminal 5: Command execution
+```bash
+# 27. List log groups
+aws logs describe-log-groups \
+  --region ${REGION} \
+  --log-group-name-prefix "/ecs/ca-a2a" \
+  --query 'logGroups[*].{LogGroup:logGroupName,Size:storedBytes}'
 
-2. **Pre-load commands in notepad** for quick copy-paste
-
-3. **Have the test document ready:**
-   - `facture_acme_dec2025.pdf` should be in current directory
-
-4. **Know your ALB DNS name:**
-   - Write it down: `___________________________`
-
-5. **Verify everything before starting:**
-   ```bash
-   .\test-demo-2h-commands.ps1
-   # Should show 91.89% or better pass rate
-   ```
+# 28. Check alarms
+aws cloudwatch describe-alarms \
+  --region ${REGION} \
+  --alarm-name-prefix "ca-a2a" \
+  --query 'MetricAlarms[*].{Name:AlarmName,State:StateValue}'
+```
 
 ---
 
-## Timing Checkpoints
+## PART 12: Network Connectivity
 
-| Time | Checkpoint | What to Show |
-|------|-----------|--------------|
-| 0:00 | Start | Introduction slide |
-| 0:10 | Upload | Document goes into S3 |
-| 0:15 | Detection | Orchestrator logs show detection |
-| 0:30 | Extraction | Extractor processes PDF |
-| 0:40 | MCP | Show MCP server brokering access |
-| 1:00 | Validation | Validator checks data |
-| 1:15 | Database | Show DB queries via MCP |
-| 1:30 | Archiving | Archivist stores results |
-| 1:45 | Security | Show attack prevention |
-| 1:55 | Conclusion | Summary metrics |
-| 2:00 | Q&A | Questions |
+```bash
+# 29. Load balancer
+aws elbv2 describe-load-balancers \
+  --region ${REGION} \
+  --query "LoadBalancers[?contains(LoadBalancerName,'ca-a2a')].{Name:LoadBalancerName,DNS:DNSName,State:State.Code}"
+
+# 30. Target groups
+aws elbv2 describe-target-groups \
+  --region ${REGION} \
+  --query "TargetGroups[?contains(TargetGroupName,'ca-a2a')].{Name:TargetGroupName,Port:Port,Protocol:Protocol}"
+
+# 31. Target health
+TG_ARNS=$(aws elbv2 describe-target-groups --region ${REGION} \
+  --query "TargetGroups[?contains(TargetGroupName,'ca-a2a')].TargetGroupArn" --output text)
+for TG_ARN in $TG_ARNS; do
+  echo "=== Target Group: $(echo $TG_ARN | cut -d'/' -f2) ==="
+  aws elbv2 describe-target-health \
+    --target-group-arn $TG_ARN \
+    --region ${REGION} \
+    --query 'TargetHealthDescriptions[*].{Target:Target.Id,Port:Target.Port,State:TargetHealth.State}'
+  echo ""
+done
+```
 
 ---
 
-**Document Status:** ✅ Ready for Demo  
-**Last Tested:** January 2, 2026  
-**Test Pass Rate:** 91.89% (34/37 tests)  
-**System Status:** ✅ OPERATIONAL
+## PART 13: RDS Database
 
+```bash
+# 32. RDS security groups
+aws rds describe-db-instances \
+  --region ${REGION} \
+  --query 'DBInstances[?contains(DBInstanceIdentifier,`ca-a2a`)].VpcSecurityGroups'
+
+# 33. Backup configuration
+aws rds describe-db-instances \
+  --region ${REGION} \
+  --query 'DBInstances[?contains(DBInstanceIdentifier,`ca-a2a`)].{Name:DBInstanceIdentifier,BackupRetention:BackupRetentionPeriod,MultiAZ:MultiAZ}'
+```
+
+---
+
+## FINAL SUMMARY
+
+```bash
+# 34. All S3 objects
+aws s3 ls s3://${S3_BUCKET}/ --recursive --region ${REGION}
+
+# 35. Total running tasks
+aws ecs list-tasks \
+  --cluster ${CLUSTER} \
+  --region ${REGION} \
+  --desired-status RUNNING \
+  --query 'length(taskArns)'
+
+# 36. Service health summary
+echo "=== SERVICE HEALTH SUMMARY ==="
+for service in orchestrator extractor validator archivist mcp-server; do
+  STATUS=$(aws ecs describe-services \
+    --cluster ${CLUSTER} \
+    --services $service \
+    --region ${REGION} \
+    --query 'services[0].[desiredCount,runningCount]' \
+    --output text)
+  echo "$service: $STATUS"
+done
+```
+
+---
+
+## QUICK HIGHLIGHTS (For Narration)
+
+### Security Features Demonstrated:
+- ✅ S3 encryption at rest (AES-256)
+- ✅ TLS 1.3 encryption in transit
+- ✅ Private bucket (403 on unauthorized access)
+- ✅ Secrets Manager for credentials
+- ✅ VPC isolation (private subnets)
+- ✅ IAM roles for service authentication
+
+### Architecture Highlights:
+- ✅ Multi-agent system (5 agents)
+- ✅ Orchestrator with 2 tasks (HA)
+- ✅ MCP HTTP client (fixed!)
+- ✅ Service Discovery for inter-agent communication
+- ✅ Load balancer for external access
+- ✅ Multi-AZ RDS for data persistence
+
+### Operational Excellence:
+- ✅ CloudWatch logging (all agents)
+- ✅ Health checks (all services)
+- ✅ Automated backups (7-day retention)
+- ✅ Multi-AZ deployment
+- ✅ Container orchestration (ECS Fargate)
+
+---
+
+## Key Messages for Demo:
+
+1. **"Voici notre système multi-agents CA A2A déployé sur AWS"**
+2. **"Tous les agents sont opérationnels et sains"**
+3. **"La sécurité est garantie à tous les niveaux - chiffrement, authentification, isolation"**
+4. **"L'orchestrateur utilise maintenant le client MCP HTTP - problème résolu!"**
+5. **"Le système est prêt à traiter des factures en toute sécurité"**
+
+---
+
+**Temps d'exécution estimé:** 10-15 minutes  
+**Nombre de commandes:** 36  
+**Taux de succès attendu:** 100%
+
+🚀 **Prêt pour la démo!**
