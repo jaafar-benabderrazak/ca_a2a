@@ -47,39 +47,6 @@ A production-ready, secure multi-agent system for automated document processing,
 
 ---
 
-## ⏰ Demo Timeline (2 Hours)
-
-```mermaid
-gantt
-    title 2-Hour Demo Timeline
-    dateFormat HH:mm
-    axisFormat %H:%M
-    
-    section Introduction
-    System Overview           :00:00, 10m
-    Architecture Deep Dive    :00:10, 10m
-    
-    section Agent Functionality
-    Document Upload & Trigger :00:20, 10m
-    Orchestrator Coordination :00:30, 10m
-    Extraction & Validation   :00:40, 10m
-    
-    section Security Features
-    Authentication Demo       :00:50, 10m
-    RBAC & Authorization     :01:00, 10m
-    HMAC Signing Demo        :01:10, 10m
-    Schema Validation        :01:20, 10m
-    
-    section Testing
-    Automated Test Suite     :01:30, 10m
-    Security Audit Results   :01:40, 10m
-    
-    section Wrap-up
-    Q&A and Deep Dives       :01:50, 10m
-```
-
----
-
 ## 📊 Part 1: System Architecture (20 min)
 
 ### **1.1 High-Level Architecture (5 min)**
