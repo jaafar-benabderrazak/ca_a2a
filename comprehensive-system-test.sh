@@ -148,33 +148,44 @@ echo "TEST 3: MCP IMPLEMENTATION"
 echo "============================================"
 echo ""
 
-# Test 3.1: Check Extractor MCP
+# Test 3.1: Check Extractor MCP configuration
 echo "3.1 Checking Extractor MCP configuration..."
-aws logs tail /ecs/ca-a2a-extractor --since 5m --region ${REGION} 2>/dev/null | grep -q "Using native MCP implementation"
-if [ $? -eq 0 ]; then
-    test_result 0 "Extractor: Using native MCP implementation"
+# Native MCP = no MCP_SERVER_URL environment variable
+EXT_MCP_URL=$(aws ecs describe-task-definition \
+    --task-definition ca-a2a-extractor \
+    --region ${REGION} \
+    --query 'taskDefinition.containerDefinitions[0].environment[?name==`MCP_SERVER_URL`].value' \
+    --output text 2>/dev/null)
+
+if [ -z "$EXT_MCP_URL" ]; then
+    test_result 0 "Extractor: Using native MCP (no MCP_SERVER_URL configured)"
 else
-    test_result 1 "Extractor: Not using native MCP"
+    test_result 1 "Extractor: Using HTTP MCP mode (MCP_SERVER_URL=$EXT_MCP_URL)"
 fi
 
-# Test 3.2: Check Archivist MCP
+# Test 3.2: Check Archivist MCP configuration
 echo ""
 echo "3.2 Checking Archivist MCP configuration..."
-aws logs tail /ecs/ca-a2a-archivist --since 5m --region ${REGION} 2>/dev/null | grep -q "Using native MCP implementation"
-if [ $? -eq 0 ]; then
-    test_result 0 "Archivist: Using native MCP implementation"
+ARCH_MCP_URL=$(aws ecs describe-task-definition \
+    --task-definition ca-a2a-archivist \
+    --region ${REGION} \
+    --query 'taskDefinition.containerDefinitions[0].environment[?name==`MCP_SERVER_URL`].value' \
+    --output text 2>/dev/null)
+
+if [ -z "$ARCH_MCP_URL" ]; then
+    test_result 0 "Archivist: Using native MCP (no MCP_SERVER_URL configured)"
 else
-    test_result 1 "Archivist: Not using native MCP"
+    test_result 1 "Archivist: Using HTTP MCP mode (MCP_SERVER_URL=$ARCH_MCP_URL)"
 fi
 
-# Test 3.3: Check for MCP errors
+# Test 3.3: Check for recent MCP errors
 echo ""
 echo "3.3 Checking for MCP connection errors..."
-MCP_ERRORS=$(aws logs tail /ecs/ca-a2a-archivist --since 10m --region ${REGION} 2>/dev/null | grep -c "Cannot connect to host mcp-server")
+MCP_ERRORS=$(aws logs tail /ecs/ca-a2a-extractor /ecs/ca-a2a-archivist --since 10m --region ${REGION} 2>/dev/null | grep -c "Cannot connect to host mcp-server\|RuntimeError: MCP stdio client")
 if [ "$MCP_ERRORS" -eq 0 ]; then
-    test_result 0 "Archivist: No MCP connection errors"
+    test_result 0 "MCP: No connection errors in last 10 minutes"
 else
-    test_warning "Archivist: Found $MCP_ERRORS MCP connection errors (old tasks)"
+    test_result 1 "MCP: Found $MCP_ERRORS connection errors (check logs)"
 fi
 
 echo ""
