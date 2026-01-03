@@ -23,9 +23,9 @@ def get_mcp_context():
     if mcp_server_url:
         # HTTP mode (distributed deployment with separate MCP server)
         try:
-            from mcp_client_http import MCPContextHTTP
-            logger.info(f"Using MCP HTTP client: {mcp_server_url}")
-            return MCPContextHTTP(server_url=mcp_server_url)
+        from mcp_client_http import MCPContextHTTP
+        logger.info(f"Using MCP HTTP client: {mcp_server_url}")
+        return MCPContextHTTP(server_url=mcp_server_url)
         except ImportError as e:
             logger.warning(f"MCPContextHTTP not available: {e}. Falling back to native implementation.")
     
