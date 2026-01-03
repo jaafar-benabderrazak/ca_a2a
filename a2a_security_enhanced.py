@@ -1,646 +1,655 @@
 """
-Enhanced A2A Security Implementation
-Based on "Securing Agent-to-Agent (A2A) Communications Across Domains" best practices
+Enhanced A2A Security Features
 
-Implements:
-1. TLS/mTLS configuration
-2. Message integrity verification (HMAC)
-3. Zero-trust principles
-4. Enhanced anomaly detection
-5. Certificate management
+Implements additional security mechanisms from research paper:
+1. HMAC request signing for message integrity
+2. JSON Schema validation for input validation
+3. Token revocation system
+4. mTLS certificate authentication support
+
+Based on: "Securing Agent-to-Agent (A2A) Communications Across Domains"
 """
-import ssl
-import os
+
+from __future__ import annotations
+
 import hmac
 import hashlib
 import json
-import logging
-from typing import Dict, Any, Optional, Tuple, List
-from datetime import datetime, timedelta
+import os
+import time
 from dataclasses import dataclass
-from pathlib import Path
-from collections import defaultdict, deque
-import asyncio
+from typing import Any, Dict, Optional, List, Tuple
+from datetime import datetime, timedelta
 
-from security import SecurityManager, AuthContext, AuthMethod
+import logging
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class MessageIntegrity:
-    """Message integrity verification using HMAC"""
-    message_id: str
-    timestamp: str
-    hmac_signature: str
-    algorithm: str = "sha256"
+# ============================================================================
+# 1. HMAC REQUEST SIGNING
+# ============================================================================
 
-
-class TLSConfigManager:
+class RequestSigner:
     """
-    Manages TLS/mTLS configuration for agent-to-agent communication
-    
-    Implements best practices:
-    - TLS 1.3 with strong cipher suites
-    - Mutual TLS authentication
-    - Certificate validation
-    - Perfect forward secrecy
-    
-    Reference: PDF Section "Transport Layer Encryption (TLS/DTLS)"
-    """
-    
-    def __init__(
-        self,
-        cert_path: Optional[str] = None,
-        key_path: Optional[str] = None,
-        ca_cert_path: Optional[str] = None,
-        require_client_cert: bool = False
-    ):
-        self.cert_path = cert_path or os.getenv('TLS_CERT_PATH')
-        self.key_path = key_path or os.getenv('TLS_KEY_PATH')
-        self.ca_cert_path = ca_cert_path or os.getenv('TLS_CA_CERT_PATH')
-        self.require_client_cert = require_client_cert
-        
-        logger.info(
-            f"TLS Config: cert={self.cert_path}, "
-            f"require_client_cert={require_client_cert}"
-        )
-    
-    def create_server_ssl_context(self) -> Optional[ssl.SSLContext]:
-        """
-        Create SSL context for server with strong security settings
-        
-        Returns:
-            SSLContext configured for TLS 1.3 with mutual auth if enabled
-        """
-        if not self.cert_path or not self.key_path:
-            logger.warning("TLS certificates not configured - running without TLS")
-            return None
-        
-        # Create SSL context with TLS 1.3
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-        
-        # Require TLS 1.2 minimum (1.3 preferred)
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        
-        # Load server certificate and private key
-        try:
-            context.load_cert_chain(self.cert_path, self.key_path)
-        except FileNotFoundError as e:
-            logger.error(f"TLS certificate files not found: {e}")
-            return None
-        
-        # Strong cipher suites (AES-256, ChaCha20)
-        context.set_ciphers(
-            'ECDHE+AESGCM:ECDHE+CHACHA20:DHE+AESGCM:DHE+CHACHA20:!aNULL:!MD5:!DSS'
-        )
-        
-        # Mutual TLS authentication
-        if self.require_client_cert and self.ca_cert_path:
-            context.verify_mode = ssl.CERT_REQUIRED
-            context.load_verify_locations(self.ca_cert_path)
-            logger.info("Mutual TLS (mTLS) enabled - clients must present certificates")
-        else:
-            context.verify_mode = ssl.CERT_NONE
-            logger.info("TLS enabled (server-side only)")
-        
-        # Disable weak protocols and compression
-        context.options |= ssl.OP_NO_SSLv2
-        context.options |= ssl.OP_NO_SSLv3
-        context.options |= ssl.OP_NO_TLSv1
-        context.options |= ssl.OP_NO_TLSv1_1
-        context.options |= ssl.OP_NO_COMPRESSION
-        
-        logger.info("Server SSL context created with TLS 1.2+ and strong ciphers")
-        return context
-    
-    def create_client_ssl_context(self) -> ssl.SSLContext:
-        """
-        Create SSL context for client connections
-        
-        Returns:
-            SSLContext for outbound agent-to-agent connections
-        """
-        context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        context.minimum_version = ssl.TLSVersion.TLSv1_2
-        
-        # Verify server certificates
-        context.check_hostname = True
-        context.verify_mode = ssl.CERT_REQUIRED
-        
-        # Load CA certificates
-        if self.ca_cert_path:
-            context.load_verify_locations(self.ca_cert_path)
-        else:
-            context.load_default_certs()
-        
-        # Load client certificate for mutual TLS
-        if self.cert_path and self.key_path:
-            try:
-                context.load_cert_chain(self.cert_path, self.key_path)
-                logger.info("Client certificate loaded for mTLS")
-            except FileNotFoundError:
-                logger.warning("Client certificate not found - connecting without mTLS")
-        
-        return context
-
-
-class MessageIntegrityVerifier:
-    """
-    Implements message-level integrity verification using HMAC
-    
-    Protects against:
-    - Man-in-the-middle tampering
-    - Message injection
-    - Partial message alteration
-    
-    Reference: PDF Section "HMAC/MAC on Messages"
+    HMAC-based request signing for message integrity protection.
+    Prevents tampering and MITM attacks.
     """
     
     def __init__(self, secret_key: str):
-        self.secret_key = secret_key.encode() if isinstance(secret_key, str) else secret_key
-        self.algorithm = hashlib.sha256
-        
-        logger.info("Message integrity verification enabled (HMAC-SHA256)")
+        if not secret_key or len(secret_key) < 32:
+            raise ValueError("Secret key must be at least 32 characters")
+        self.secret_key = secret_key.encode('utf-8')
     
-    def sign_message(self, message: Dict[str, Any]) -> MessageIntegrity:
+    def sign_request(
+        self,
+        method: str,
+        path: str,
+        body: bytes,
+        timestamp: Optional[int] = None
+    ) -> str:
         """
-        Sign A2A message with HMAC
+        Generate HMAC signature for a request.
         
-        Args:
-            message: A2A message dictionary
-        
-        Returns:
-            MessageIntegrity object with signature
+        Signature includes:
+        - HTTP method
+        - Request path
+        - Request body
+        - Timestamp (for replay protection)
         """
-        # Canonical JSON representation
-        message_bytes = json.dumps(message, sort_keys=True).encode()
+        if timestamp is None:
+            timestamp = int(time.time())
         
-        # Generate HMAC
+        # Construct signing string
+        signing_parts = [
+            method.upper(),
+            path,
+            str(timestamp),
+            body.decode('utf-8') if isinstance(body, bytes) else body
+        ]
+        signing_string = '\n'.join(signing_parts)
+        
+        # Generate HMAC-SHA256 signature
         signature = hmac.new(
             self.secret_key,
-            message_bytes,
-            self.algorithm
+            signing_string.encode('utf-8'),
+            hashlib.sha256
         ).hexdigest()
         
-        message_id = message.get('id', 'notification')
-        timestamp = datetime.utcnow().isoformat()
-        
-        return MessageIntegrity(
-            message_id=message_id,
-            timestamp=timestamp,
-            hmac_signature=signature,
-            algorithm='sha256'
-        )
+        return f"{timestamp}:{signature}"
     
-    def verify_message(
+    def verify_signature(
         self,
-        message: Dict[str, Any],
-        integrity: MessageIntegrity,
+        signature_header: str,
+        method: str,
+        path: str,
+        body: bytes,
         max_age_seconds: int = 300
     ) -> Tuple[bool, Optional[str]]:
         """
-        Verify message HMAC and freshness
+        Verify HMAC signature.
+        
+        Returns: (is_valid, error_message)
+        """
+        try:
+            # Parse signature header
+            if ':' not in signature_header:
+                return False, "Invalid signature format (expected timestamp:signature)"
+            
+            timestamp_str, provided_signature = signature_header.split(':', 1)
+            timestamp = int(timestamp_str)
+            
+            # Check timestamp freshness (replay protection)
+            now = int(time.time())
+            age = now - timestamp
+            if age > max_age_seconds:
+                return False, f"Signature too old ({age}s > {max_age_seconds}s)"
+            if age < -30:  # Allow 30s clock skew
+                return False, "Signature from future (clock skew)"
+            
+            # Compute expected signature
+            signing_parts = [
+                method.upper(),
+                path,
+                str(timestamp),
+                body.decode('utf-8') if isinstance(body, bytes) else body
+            ]
+            signing_string = '\n'.join(signing_parts)
+            
+            expected_signature = hmac.new(
+                self.secret_key,
+                signing_string.encode('utf-8'),
+                hashlib.sha256
+            ).hexdigest()
+            
+            # Constant-time comparison
+            if not hmac.compare_digest(provided_signature, expected_signature):
+                return False, "Invalid signature"
+            
+            return True, None
+            
+        except Exception as e:
+            logger.warning(f"Signature verification error: {e}")
+            return False, f"Signature verification failed: {str(e)}"
+
+
+# ============================================================================
+# 2. JSON SCHEMA VALIDATION
+# ============================================================================
+
+class JSONSchemaValidator:
+    """
+    Validates JSON-RPC method parameters against predefined schemas.
+    Prevents injection attacks and malformed data.
+    """
+    
+    # Define schemas for all agent methods
+    SCHEMAS = {
+        "process_document": {
+            "type": "object",
+            "properties": {
+                "s3_key": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9/_.-]+$",
+                    "minLength": 1,
+                    "maxLength": 1024
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "normal", "high"]
+                },
+                "correlation_id": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9-]+$",
+                    "maxLength": 128
+                }
+            },
+            "required": ["s3_key"],
+            "additionalProperties": False
+        },
+        
+        "extract_document": {
+            "type": "object",
+            "properties": {
+                "s3_key": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9/_.-]+$",
+                    "minLength": 1,
+                    "maxLength": 1024
+                },
+                "correlation_id": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            },
+            "required": ["s3_key"],
+            "additionalProperties": False
+        },
+        
+        "validate_document": {
+            "type": "object",
+            "properties": {
+                "extracted_data": {
+                    "type": "object"
+                },
+                "s3_key": {
+                    "type": "string",
+                    "maxLength": 1024
+                },
+                "correlation_id": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            },
+            "required": ["extracted_data"],
+            "additionalProperties": False
+        },
+        
+        "archive_document": {
+            "type": "object",
+            "properties": {
+                "s3_key": {
+                    "type": "string",
+                    "maxLength": 1024
+                },
+                "extracted_data": {
+                    "type": "object"
+                },
+                "validation_result": {
+                    "type": "object"
+                },
+                "correlation_id": {
+                    "type": "string",
+                    "maxLength": 128
+                }
+            },
+            "required": ["s3_key", "extracted_data", "validation_result"],
+            "additionalProperties": False
+        },
+        
+        "get_document": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "minimum": 1
+                }
+            },
+            "required": ["document_id"],
+            "additionalProperties": False
+        }
+    }
+    
+    def __init__(self):
+        try:
+            import jsonschema
+            self.validator = jsonschema
+            self.enabled = True
+        except ImportError:
+            logger.warning("jsonschema not installed, validation disabled")
+            self.enabled = False
+    
+    def validate(self, method: str, params: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """
+        Validate method parameters against schema.
+        
+        Returns: (is_valid, error_message)
+        """
+        if not self.enabled:
+            return True, None
+        
+        schema = self.SCHEMAS.get(method)
+        if not schema:
+            # No schema defined = allow (backwards compatibility)
+            return True, None
+        
+        try:
+            self.validator.validate(instance=params, schema=schema)
+            return True, None
+        except self.validator.ValidationError as e:
+            error_msg = f"Schema validation failed: {e.message}"
+            logger.warning(f"Method {method} validation error: {error_msg}")
+            return False, error_msg
+        except Exception as e:
+            logger.error(f"Unexpected validation error: {e}")
+            return False, f"Validation error: {str(e)}"
+
+
+# ============================================================================
+# 3. TOKEN REVOCATION SYSTEM
+# ============================================================================
+
+@dataclass
+class RevokedToken:
+    """Represents a revoked JWT token"""
+    jti: str
+    revoked_at: datetime
+    revoked_by: str
+    reason: str
+    expires_at: datetime
+
+
+class TokenRevocationList:
+    """
+    Manages revoked JWT tokens.
+    
+    Supports both in-memory (dev) and database-backed (prod) storage.
+    """
+    
+    def __init__(self, db_pool=None):
+        self.db_pool = db_pool
+        self._memory_cache: Dict[str, RevokedToken] = {}
+        self._last_cleanup = time.time()
+    
+    async def revoke_token(
+        self,
+        jti: str,
+        reason: str,
+        revoked_by: str,
+        expires_at: Optional[datetime] = None
+    ) -> bool:
+        """
+        Add token to revocation list.
         
         Args:
-            message: A2A message dictionary
-            integrity: MessageIntegrity with signature
-            max_age_seconds: Maximum message age (prevents replay)
-        
-        Returns:
-            Tuple of (valid, error_message)
+            jti: JWT ID (jti claim)
+            reason: Reason for revocation
+            revoked_by: Who revoked the token
+            expires_at: When the token expires (for cleanup)
         """
-        # Check message age (anti-replay)
-        try:
-            msg_time = datetime.fromisoformat(integrity.timestamp)
-            age = (datetime.utcnow() - msg_time).total_seconds()
-            
-            if age > max_age_seconds:
-                return False, f"Message too old ({age}s > {max_age_seconds}s)"
-            
-            if age < -60:  # Clock skew tolerance
-                return False, f"Message timestamp in future"
-        except ValueError as e:
-            return False, f"Invalid timestamp: {e}"
+        if expires_at is None:
+            expires_at = datetime.utcnow() + timedelta(days=30)
         
-        # Compute expected HMAC
-        message_bytes = json.dumps(message, sort_keys=True).encode()
-        expected_signature = hmac.new(
-            self.secret_key,
-            message_bytes,
-            self.algorithm
-        ).hexdigest()
+        revoked = RevokedToken(
+            jti=jti,
+            revoked_at=datetime.utcnow(),
+            revoked_by=revoked_by,
+            reason=reason,
+            expires_at=expires_at
+        )
         
-        # Constant-time comparison
-        if not hmac.compare_digest(integrity.hmac_signature, expected_signature):
-            return False, "HMAC verification failed - message may be tampered"
+        # Store in memory cache
+        self._memory_cache[jti] = revoked
         
-        return True, None
+        # Store in database if available
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    await conn.execute('''
+                        INSERT INTO revoked_tokens (jti, revoked_at, revoked_by, reason, expires_at)
+                        VALUES ($1, $2, $3, $4, $5)
+                        ON CONFLICT (jti) DO UPDATE
+                        SET revoked_at = EXCLUDED.revoked_at,
+                            reason = EXCLUDED.reason
+                    ''', jti, revoked.revoked_at, revoked_by, reason, expires_at)
+                logger.info(f"Token {jti} revoked in database: {reason}")
+                return True
+            except Exception as e:
+                logger.error(f"Failed to revoke token in database: {e}")
+                # Continue with memory cache
+        
+        logger.info(f"Token {jti} revoked in memory cache: {reason}")
+        return True
     
-    def attach_integrity_headers(self, message: Dict[str, Any]) -> Dict[str, str]:
+    async def is_revoked(self, jti: str) -> bool:
         """
-        Generate HTTP headers for message integrity
-        
-        Returns:
-            Headers dictionary with X-Message-Integrity fields
+        Check if token is revoked.
         """
-        integrity = self.sign_message(message)
+        # Check memory cache first (fast)
+        if jti in self._memory_cache:
+            revoked = self._memory_cache[jti]
+            if revoked.expires_at > datetime.utcnow():
+                return True
+            else:
+                # Expired, remove from cache
+                del self._memory_cache[jti]
         
-        return {
-            'X-Message-ID': integrity.message_id,
-            'X-Message-Timestamp': integrity.timestamp,
-            'X-Message-HMAC': integrity.hmac_signature,
-            'X-Message-HMAC-Algorithm': integrity.algorithm
-        }
+        # Check database if available
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    result = await conn.fetchrow('''
+                        SELECT jti, expires_at FROM revoked_tokens
+                        WHERE jti = $1 AND expires_at > NOW()
+                    ''', jti)
+                    if result:
+                        # Cache for future checks
+                        self._memory_cache[jti] = RevokedToken(
+                            jti=result['jti'],
+                            revoked_at=datetime.utcnow(),
+                            revoked_by="db",
+                            reason="cached from db",
+                            expires_at=result['expires_at']
+                        )
+                        return True
+            except Exception as e:
+                logger.error(f"Failed to check revocation in database: {e}")
+        
+        # Periodic cleanup
+        self._cleanup_expired()
+        
+        return False
     
-    def verify_from_headers(
-        self,
-        message: Dict[str, Any],
-        headers: Dict[str, str]
-    ) -> Tuple[bool, Optional[str]]:
-        """
-        Verify message integrity from HTTP headers
+    def _cleanup_expired(self):
+        """Remove expired tokens from memory cache"""
+        now = time.time()
+        if now - self._last_cleanup < 300:  # Cleanup every 5 minutes
+            return
         
-        Returns:
-            Tuple of (valid, error_message)
+        self._last_cleanup = now
+        now_dt = datetime.utcnow()
+        expired = [jti for jti, rev in self._memory_cache.items() if rev.expires_at <= now_dt]
+        for jti in expired:
+            del self._memory_cache[jti]
+        
+        if expired:
+            logger.info(f"Cleaned up {len(expired)} expired revoked tokens from cache")
+    
+    async def get_revoked_tokens(self, limit: int = 100) -> List[RevokedToken]:
+        """Get list of currently revoked tokens (for admin UI)"""
+        tokens = []
+        
+        # Get from database if available
+        if self.db_pool:
+            try:
+                async with self.db_pool.acquire() as conn:
+                    rows = await conn.fetch('''
+                        SELECT jti, revoked_at, revoked_by, reason, expires_at
+                        FROM revoked_tokens
+                        WHERE expires_at > NOW()
+                        ORDER BY revoked_at DESC
+                        LIMIT $1
+                    ''', limit)
+                    tokens = [RevokedToken(**dict(row)) for row in rows]
+            except Exception as e:
+                logger.error(f"Failed to fetch revoked tokens: {e}")
+        
+        # Merge with memory cache
+        memory_tokens = [
+            rev for rev in self._memory_cache.values()
+            if rev.expires_at > datetime.utcnow()
+        ]
+        
+        # Combine and deduplicate
+        all_tokens = {t.jti: t for t in (tokens + memory_tokens)}
+        return sorted(all_tokens.values(), key=lambda t: t.revoked_at, reverse=True)[:limit]
+
+
+# ============================================================================
+# 4. mTLS CERTIFICATE AUTHENTICATION
+# ============================================================================
+
+@dataclass
+class CertificateInfo:
+    """Parsed certificate information"""
+    subject: str
+    issuer: str
+    serial_number: str
+    not_before: datetime
+    not_after: datetime
+    fingerprint: str
+
+
+class MTLSAuthenticator:
+    """
+    Mutual TLS certificate-based authentication.
+    
+    Validates client certificates and extracts identity information.
+    """
+    
+    def __init__(self, ca_cert_path: Optional[str] = None):
+        self.ca_cert_path = ca_cert_path
+        self.enabled = bool(ca_cert_path and os.path.exists(ca_cert_path))
+        
+        if self.enabled:
+            try:
+                from OpenSSL import crypto, SSL
+                self.crypto = crypto
+                self.SSL = SSL
+                
+                # Load CA certificate
+                with open(ca_cert_path, 'rb') as f:
+                    ca_cert_data = f.read()
+                self.ca_cert = crypto.load_certificate(crypto.FILETYPE_PEM, ca_cert_data)
+                logger.info(f"mTLS enabled with CA: {ca_cert_path}")
+            except ImportError:
+                logger.warning("pyOpenSSL not installed, mTLS disabled")
+                self.enabled = False
+            except Exception as e:
+                logger.error(f"Failed to load CA certificate: {e}")
+                self.enabled = False
+        else:
+            logger.info("mTLS disabled (no CA certificate configured)")
+    
+    def verify_certificate(self, cert_pem: bytes) -> Tuple[bool, Optional[CertificateInfo], Optional[str]]:
         """
+        Verify client certificate against CA.
+        
+        Returns: (is_valid, cert_info, error_message)
+        """
+        if not self.enabled:
+            return False, None, "mTLS not enabled"
+        
         try:
-            integrity = MessageIntegrity(
-                message_id=headers.get('X-Message-ID', ''),
-                timestamp=headers.get('X-Message-Timestamp', ''),
-                hmac_signature=headers.get('X-Message-HMAC', ''),
-                algorithm=headers.get('X-Message-HMAC-Algorithm', 'sha256')
+            # Parse certificate
+            cert = self.crypto.load_certificate(self.crypto.FILETYPE_PEM, cert_pem)
+            
+            # Create certificate store with CA
+            store = self.crypto.X509Store()
+            store.add_cert(self.ca_cert)
+            
+            # Verify certificate
+            store_ctx = self.crypto.X509StoreContext(store, cert)
+            try:
+                store_ctx.verify_certificate()
+            except Exception as e:
+                return False, None, f"Certificate verification failed: {str(e)}"
+            
+            # Check validity period
+            now = datetime.utcnow()
+            not_before = datetime.strptime(cert.get_notBefore().decode('ascii'), '%Y%m%d%H%M%SZ')
+            not_after = datetime.strptime(cert.get_notAfter().decode('ascii'), '%Y%m%d%H%M%SZ')
+            
+            if now < not_before:
+                return False, None, "Certificate not yet valid"
+            if now > not_after:
+                return False, None, "Certificate expired"
+            
+            # Extract certificate information
+            subject = cert.get_subject()
+            issuer = cert.get_issuer()
+            
+            cert_info = CertificateInfo(
+                subject=f"{subject.CN}" if hasattr(subject, 'CN') else str(subject),
+                issuer=f"{issuer.CN}" if hasattr(issuer, 'CN') else str(issuer),
+                serial_number=str(cert.get_serial_number()),
+                not_before=not_before,
+                not_after=not_after,
+                fingerprint=cert.digest('sha256').decode('ascii')
             )
             
-            return self.verify_message(message, integrity)
-        
+            logger.info(f"Certificate verified: {cert_info.subject}")
+            return True, cert_info, None
+            
         except Exception as e:
-            return False, f"Header verification failed: {e}"
-
-
-class ZeroTrustEnforcer:
-    """
-    Implements Zero-Trust Architecture principles for A2A communication
+            logger.error(f"Certificate verification error: {e}")
+            return False, None, f"Certificate verification error: {str(e)}"
     
-    Principles:
-    - Never trust, always verify
-    - Verify explicitly on every request
-    - Use least privilege access
-    - Assume breach
-    
-    Reference: PDF Section "Zero-Trust Architecture"
-    """
-    
-    def __init__(self, security_manager: SecurityManager):
-        self.security_manager = security_manager
-        self.trust_decisions: Dict[str, int] = defaultdict(int)  # Track decisions per agent
-        
-        logger.info("Zero-Trust enforcement enabled")
-    
-    async def verify_request(
-        self,
-        headers: Dict[str, str],
-        message: Dict[str, Any],
-        source_ip: Optional[str] = None
-    ) -> Tuple[bool, Optional[AuthContext], List[str]]:
+    def extract_principal_from_cert(self, cert_info: CertificateInfo) -> str:
         """
-        Comprehensive zero-trust verification
+        Extract principal/agent ID from certificate subject.
         
-        Checks (in order):
-        1. Authentication (who are you?)
-        2. Authorization (what can you do?)
-        3. Rate limiting (are you behaving normally?)
-        4. Message integrity (is this message authentic?)
-        
-        Returns:
-            Tuple of (allowed, auth_context, violations)
+        Expected format: CN=agent-name or CN=orchestrator
         """
-        violations = []
-        
-        # Step 1: Authentication - verify identity
-        success, auth_context, error = await self.security_manager.authenticate_request(
-            headers, source_ip
-        )
-        
-        if not success:
-            violations.append(f"Authentication failed: {error}")
-            return False, None, violations
-        
-        # Step 2: Rate limiting - detect anomalies
-        allowed, error = self.security_manager.check_rate_limit(auth_context.agent_id)
-        if not allowed:
-            violations.append(f"Rate limit exceeded: {error}")
-            return False, auth_context, violations
-        
-        # Step 3: Authorization - verify permissions for this method
-        method = message.get('method')
-        if method:
-            has_permission = self.security_manager.check_permission(auth_context, method)
-            if not has_permission:
-                violations.append(f"Insufficient permissions for method: {method}")
-                return False, auth_context, violations
-        
-        # All checks passed
-        self.trust_decisions[auth_context.agent_id] += 1
-        return True, auth_context, []
-    
-    def get_trust_metrics(self, agent_id: str) -> Dict[str, Any]:
-        """Get trust metrics for an agent"""
-        return {
-            'agent_id': agent_id,
-            'successful_verifications': self.trust_decisions.get(agent_id, 0),
-            'trust_level': self._calculate_trust_level(agent_id)
-        }
-    
-    def _calculate_trust_level(self, agent_id: str) -> str:
-        """Calculate trust level based on history"""
-        count = self.trust_decisions.get(agent_id, 0)
-        
-        if count >= 100:
-            return "established"
-        elif count >= 10:
-            return "trusted"
-        else:
-            return "new"
+        subject = cert_info.subject
+        if subject.startswith("CN="):
+            return subject[3:].lower()
+        return subject.lower()
 
 
-class AnomalyDetector:
+# ============================================================================
+# DATABASE SCHEMA FOR TOKEN REVOCATION
+# ============================================================================
+
+SQL_SCHEMA_REVOCATION = """
+-- Table for revoked JWT tokens
+CREATE TABLE IF NOT EXISTS revoked_tokens (
+    jti VARCHAR(255) PRIMARY KEY,
+    revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_by VARCHAR(100) NOT NULL,
+    reason TEXT,
+    expires_at TIMESTAMP NOT NULL
+);
+
+-- Index for efficient expiration cleanup
+CREATE INDEX IF NOT EXISTS idx_revoked_expires ON revoked_tokens(expires_at);
+
+-- Index for lookup by revoked_by
+CREATE INDEX IF NOT EXISTS idx_revoked_by ON revoked_tokens(revoked_by);
+"""
+
+
+async def init_revocation_schema(db_pool):
+    """Initialize database schema for token revocation"""
+    try:
+        async with db_pool.acquire() as conn:
+            await conn.execute(SQL_SCHEMA_REVOCATION)
+        logger.info("Token revocation schema initialized")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to initialize revocation schema: {e}")
+        return False
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+def generate_signature_secret(length: int = 64) -> str:
+    """Generate a random secret for HMAC signing"""
+    import secrets
+    import string
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
+def generate_test_certificate(
+    common_name: str,
+    output_dir: str = "certs",
+    validity_days: int = 365
+) -> Tuple[str, str]:
     """
-    AI-enhanced anomaly detection for A2A communication patterns
+    Generate self-signed certificate for testing.
     
-    Detects:
-    - Unusual request patterns
-    - Spike in error rates
-    - Suspicious timing patterns
-    - Abnormal method usage
-    
-    Reference: PDF Section "AI Anomaly Detection"
+    Returns: (cert_path, key_path)
     """
-    
-    def __init__(self, window_size: int = 100):
-        self.window_size = window_size
-        self.request_history: Dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=window_size)
-        )
-        self.error_history: Dict[str, deque] = defaultdict(
-            lambda: deque(maxlen=window_size)
-        )
-        self.method_counts: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    try:
+        from OpenSSL import crypto
         
-        logger.info(f"Anomaly detection enabled (window={window_size})")
-    
-    def record_request(
-        self,
-        agent_id: str,
-        method: str,
-        success: bool,
-        response_time: float
-    ):
-        """Record request for anomaly detection"""
-        timestamp = datetime.utcnow()
+        os.makedirs(output_dir, exist_ok=True)
         
-        self.request_history[agent_id].append({
-            'timestamp': timestamp,
-            'method': method,
-            'success': success,
-            'response_time': response_time
-        })
+        # Generate key pair
+        key = crypto.PKey()
+        key.generate_key(crypto.TYPE_RSA, 2048)
         
-        if not success:
-            self.error_history[agent_id].append(timestamp)
+        # Generate certificate
+        cert = crypto.X509()
+        cert.get_subject().CN = common_name
+        cert.get_subject().O = "CA-A2A Test"
+        cert.set_serial_number(int(time.time()))
+        cert.gmtime_adj_notBefore(0)
+        cert.gmtime_adj_notAfter(validity_days * 24 * 60 * 60)
+        cert.set_issuer(cert.get_subject())
+        cert.set_pubkey(key)
+        cert.sign(key, 'sha256')
         
-        self.method_counts[agent_id][method] += 1
-    
-    def detect_anomalies(self, agent_id: str) -> List[Dict[str, Any]]:
-        """
-        Detect anomalies in agent behavior
+        # Write files
+        cert_path = os.path.join(output_dir, f"{common_name}-cert.pem")
+        key_path = os.path.join(output_dir, f"{common_name}-key.pem")
         
-        Returns:
-            List of detected anomalies with severity
-        """
-        anomalies = []
+        with open(cert_path, 'wb') as f:
+            f.write(crypto.dump_certificate(crypto.FILETYPE_PEM, cert))
         
-        # Check error rate
-        error_rate = self._calculate_error_rate(agent_id)
-        if error_rate > 0.3:  # 30% error threshold
-            anomalies.append({
-                'type': 'high_error_rate',
-                'severity': 'high' if error_rate > 0.5 else 'medium',
-                'value': error_rate,
-                'description': f"Error rate: {error_rate:.1%}"
-            })
+        with open(key_path, 'wb') as f:
+            f.write(crypto.dump_privatekey(crypto.FILETYPE_PEM, key))
         
-        # Check request frequency
-        freq_anomaly = self._check_frequency_anomaly(agent_id)
-        if freq_anomaly:
-            anomalies.append(freq_anomaly)
+        logger.info(f"Generated certificate: {cert_path}")
+        return cert_path, key_path
         
-        # Check method distribution
-        method_anomaly = self._check_method_anomaly(agent_id)
-        if method_anomaly:
-            anomalies.append(method_anomaly)
-        
-        return anomalies
-    
-    def _calculate_error_rate(self, agent_id: str) -> float:
-        """Calculate recent error rate"""
-        requests = self.request_history.get(agent_id, [])
-        if not requests:
-            return 0.0
-        
-        errors = sum(1 for r in requests if not r['success'])
-        return errors / len(requests)
-    
-    def _check_frequency_anomaly(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """Detect unusual request frequency"""
-        requests = list(self.request_history.get(agent_id, []))
-        if len(requests) < 10:
-            return None
-        
-        # Calculate requests per minute for recent activity
-        recent_requests = [r for r in requests[-10:]]
-        if not recent_requests:
-            return None
-        
-        time_span = (recent_requests[-1]['timestamp'] - recent_requests[0]['timestamp']).total_seconds()
-        if time_span > 0:
-            rpm = (len(recent_requests) / time_span) * 60
-            
-            if rpm > 120:  # More than 120 requests per minute
-                return {
-                    'type': 'high_frequency',
-                    'severity': 'medium',
-                    'value': rpm,
-                    'description': f"Unusual request frequency: {rpm:.1f} req/min"
-                }
-        
-        return None
-    
-    def _check_method_anomaly(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        """Detect unusual method usage patterns"""
-        methods = self.method_counts.get(agent_id, {})
-        if not methods:
-            return None
-        
-        total = sum(methods.values())
-        if total < 20:
-            return None
-        
-        # Check if one method dominates (>80%)
-        for method, count in methods.items():
-            if count / total > 0.8:
-                return {
-                    'type': 'method_concentration',
-                    'severity': 'low',
-                    'value': count / total,
-                    'description': f"Method '{method}' used {count/total:.1%} of time"
-                }
-        
-        return None
+    except ImportError:
+        raise ImportError("pyOpenSSL required for certificate generation")
+    except Exception as e:
+        raise Exception(f"Failed to generate certificate: {e}")
 
 
-class EnhancedSecurityManager:
-    """
-    Enhanced security manager combining all security best practices
-    
-    Integrates:
-    - TLS/mTLS encryption
-    - Message integrity verification
-    - Zero-trust enforcement
-    - Anomaly detection
-    - Existing authentication & authorization
-    """
-    
-    def __init__(
-        self,
-        base_security: SecurityManager,
-        enable_tls: bool = True,
-        enable_mtls: bool = False,
-        enable_message_integrity: bool = True,
-        enable_zero_trust: bool = True,
-        enable_anomaly_detection: bool = True
-    ):
-        self.base_security = base_security
-        
-        # TLS/mTLS
-        self.tls_config: Optional[TLSConfigManager] = None
-        if enable_tls:
-            self.tls_config = TLSConfigManager(
-                require_client_cert=enable_mtls
-            )
-        
-        # Message integrity
-        self.integrity_verifier: Optional[MessageIntegrityVerifier] = None
-        if enable_message_integrity:
-            secret = os.getenv('MESSAGE_INTEGRITY_KEY', 'dev-integrity-secret')
-            self.integrity_verifier = MessageIntegrityVerifier(secret)
-        
-        # Zero-trust
-        self.zero_trust: Optional[ZeroTrustEnforcer] = None
-        if enable_zero_trust:
-            self.zero_trust = ZeroTrustEnforcer(base_security)
-        
-        # Anomaly detection
-        self.anomaly_detector: Optional[AnomalyDetector] = None
-        if enable_anomaly_detection:
-            self.anomaly_detector = AnomalyDetector()
-        
-        logger.info(
-            f"Enhanced security initialized: TLS={enable_tls}, "
-            f"mTLS={enable_mtls}, Integrity={enable_message_integrity}, "
-            f"ZeroTrust={enable_zero_trust}, Anomaly={enable_anomaly_detection}"
-        )
-    
-    async def verify_secure_request(
-        self,
-        headers: Dict[str, str],
-        message: Dict[str, Any],
-        source_ip: Optional[str] = None
-    ) -> Tuple[bool, Optional[AuthContext], List[str]]:
-        """
-        Comprehensive security verification for A2A requests
-        
-        Returns:
-            Tuple of (allowed, auth_context, security_violations)
-        """
-        violations = []
-        
-        # Message integrity check
-        if self.integrity_verifier:
-            valid, error = self.integrity_verifier.verify_from_headers(message, headers)
-            if not valid:
-                violations.append(f"Message integrity: {error}")
-                return False, None, violations
-        
-        # Zero-trust verification
-        if self.zero_trust:
-            allowed, auth_context, zt_violations = await self.zero_trust.verify_request(
-                headers, message, source_ip
-            )
-            if not allowed:
-                return False, auth_context, zt_violations
-        else:
-            # Fallback to base authentication
-            success, auth_context, error = await self.base_security.authenticate_request(
-                headers, source_ip
-            )
-            if not success:
-                violations.append(f"Authentication: {error}")
-                return False, None, violations
-        
-        return True, auth_context, []
-    
-    def record_request_for_anomaly_detection(
-        self,
-        agent_id: str,
-        method: str,
-        success: bool,
-        response_time: float
-    ):
-        """Record request for anomaly detection"""
-        if self.anomaly_detector:
-            self.anomaly_detector.record_request(agent_id, method, success, response_time)
-    
-    def check_for_anomalies(self, agent_id: str) -> List[Dict[str, Any]]:
-        """Check if agent behavior shows anomalies"""
-        if self.anomaly_detector:
-            return self.anomaly_detector.detect_anomalies(agent_id)
-        return []
-    
-    def get_ssl_context(self) -> Optional[ssl.SSLContext]:
-        """Get SSL context for server"""
-        if self.tls_config:
-            return self.tls_config.create_server_ssl_context()
-        return None
-    
-    def sign_outgoing_message(self, message: Dict[str, Any]) -> Dict[str, str]:
-        """Sign outgoing message with integrity headers"""
-        if self.integrity_verifier:
-            return self.integrity_verifier.attach_integrity_headers(message)
-        return {}
-
-
-# Example usage
-if __name__ == "__main__":
-    from security import SecurityManager
-    
-    # Create base security
-    base_security = SecurityManager()
-    
-    # Create enhanced security with all features
-    enhanced_security = EnhancedSecurityManager(
-        base_security=base_security,
-        enable_tls=True,
-        enable_mtls=True,
-        enable_message_integrity=True,
-        enable_zero_trust=True,
-        enable_anomaly_detection=True
-    )
-    
-    print("Enhanced A2A security configured:")
-    print("- TLS 1.3 encryption with strong ciphers")
-    print("- Mutual TLS authentication")
-    print("- Message integrity verification (HMAC)")
-    print("- Zero-trust request verification")
-    print("- AI-enhanced anomaly detection")
-
+__all__ = [
+    'RequestSigner',
+    'JSONSchemaValidator',
+    'TokenRevocationList',
+    'MTLSAuthenticator',
+    'RevokedToken',
+    'CertificateInfo',
+    'init_revocation_schema',
+    'generate_signature_secret',
+    'generate_test_certificate',
+]

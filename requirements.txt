@@ -18,16 +18,13 @@ pydantic>=2.5.0
 jsonschema>=4.20.0  # Keep for backward compatibility with Agent Cards
 
 # Security
-PyJWT>=2.8.0  # JWT token generation and verification
-cryptography>=41.0.0  # Required by PyJWT for secure algorithms
+PyJWT>=2.10.1  # JWT token generation and verification
+cryptography>=43.0.0  # Required by PyJWT for secure algorithms
+PyYAML>=6.0.2
+pyOpenSSL>=24.0.0  # For mTLS certificate handling
 
 # Environment
 python-dotenv>=1.0.0
-
-# Security
-PyJWT>=2.10.1
-cryptography>=43.0.0
-PyYAML>=6.0.2
 
 # MCP (Model Context Protocol)
 mcp>=0.9.0  # Official MCP SDK
