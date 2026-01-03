@@ -28,7 +28,7 @@ cd ~/ca_a2a
 # Stash any local changes
 git stash
 
-# Pull latest code
+# Pull latest code (includes pytest fix)
 git pull origin main
 
 # Verify deployment script exists
@@ -40,15 +40,12 @@ ls -lh deploy-enhanced-security.sh
 ```
 Saved working directory and index state WIP on main: ff24693 ...
 From https://github.com/jaafar-benabderrazak/ca_a2a
-   aef0e81..d0111e3  main       -> origin/main
-Updating ff24693..d0111e3
+   9477808..e5dd6f1  main       -> origin/main
+Updating ff24693..e5dd6f1
 Fast-forward
+ CLOUDSHELL_DEPLOYMENT_GUIDE.md                 | 422 +++++++++
  SECURITY_TESTING_DOCUMENTATION.md              | 846 +++++++++
- a2a_security_enhanced.py                       | 740 ++++++++
- a2a_security_integrated.py                     | 275 +++
- test_security_enhanced.py                      | 490 ++++++
- env.security.enhanced.example                  | 240 +++
- deploy-enhanced-security.sh                    | 490 ++++++
+ deploy-enhanced-security.sh                    | 497 ++++++
  ...
 ```
 
@@ -281,13 +278,21 @@ git pull   # Pull latest
 
 ---
 
-### **Issue 3: "pip install: command not found"**
+### **Issue 3: "pip install: command not found" or "No module named pytest"**
 
-**Cause:** Python not in PATH (rare in CloudShell)
+**Cause:** Missing dependencies or pip not in PATH
 
 **Solution:**
 ```bash
-python3 -m pip install jsonschema pyOpenSSL
+# The script now auto-detects pip/pip3 and installs:
+# - pytest, pytest-asyncio (for testing)
+# - jsonschema (for validation)
+# - pyOpenSSL (for mTLS)
+# - boto3 (for AWS services)
+# - asyncpg (for database)
+
+# If script fails, manually install:
+python3 -m pip install pytest pytest-asyncio jsonschema pyOpenSSL boto3 asyncpg
 ```
 
 ---
