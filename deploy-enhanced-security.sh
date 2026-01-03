@@ -39,7 +39,14 @@ test_result() {
 echo "Step 1: Installing enhanced security dependencies..."
 echo ""
 
-pip install -q jsonschema pyOpenSSL
+# Try pip3 first, fall back to pip
+if command -v pip3 &> /dev/null; then
+    pip3 install -q pytest pytest-asyncio jsonschema pyOpenSSL boto3 asyncpg
+elif command -v pip &> /dev/null; then
+    pip install -q pytest pytest-asyncio jsonschema pyOpenSSL boto3 asyncpg
+else
+    python3 -m pip install -q pytest pytest-asyncio jsonschema pyOpenSSL boto3 asyncpg
+fi
 
 echo "✓ Dependencies installed"
 echo ""
