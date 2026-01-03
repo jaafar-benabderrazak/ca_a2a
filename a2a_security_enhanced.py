@@ -150,7 +150,8 @@ class JSONSchemaValidator:
             "properties": {
                 "s3_key": {
                     "type": "string",
-                    "pattern": "^[a-zA-Z0-9/_.-]+$",
+                    "pattern": "^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$",  # Must not start with dot, no path traversal
+                    "not": {"pattern": "\\.\\."},  # Reject ../ patterns
                     "minLength": 1,
                     "maxLength": 1024
                 },
@@ -173,7 +174,8 @@ class JSONSchemaValidator:
             "properties": {
                 "s3_key": {
                     "type": "string",
-                    "pattern": "^[a-zA-Z0-9/_.-]+$",
+                    "pattern": "^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$",
+                    "not": {"pattern": "\\.\\."},
                     "minLength": 1,
                     "maxLength": 1024
                 },
