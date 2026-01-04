@@ -49,6 +49,36 @@ echo "Current region: $(aws configure get region)"
 # Should show: eu-west-3
 ```
 
+**📝 Command Explanation:**
+```bash
+aws configure get region
+```
+**What it does:**
+- Queries the AWS CLI configuration for the current default region
+- Returns the region name (e.g., `eu-west-3`, `us-east-1`)
+
+**Why it matters:**
+- Ensures you're working in the correct AWS region where your agents are deployed
+- All subsequent commands will target this region
+- Prevents confusion if you have resources in multiple regions
+
+**Expected Output:**
+```
+eu-west-3
+```
+
+**Interpreting the Result:**
+- ✅ Shows `eu-west-3` → You're in the correct region, proceed
+- ❌ Shows different region → Set region: `export AWS_DEFAULT_REGION=eu-west-3`
+- ❌ Shows nothing → CloudShell not configured, wait for initialization
+
+**Common Issues:**
+| Issue | Cause | Solution |
+|-------|-------|----------|
+| "Unable to locate credentials" | CloudShell still initializing | Wait 30 seconds, retry |
+| Wrong region shown | Multi-region setup | Run `export AWS_DEFAULT_REGION=eu-west-3` |
+| Command not found | Shell not ready | Refresh browser, reopen CloudShell |
+
 ### **Step 2: Clone Repository and Setup**
 
 ```bash
@@ -70,6 +100,85 @@ aws ecs describe-services \
     --output table
 ```
 
+**📝 Command Breakdown:**
+
+**Command 1: Clone Repository**
+```bash
+git clone https://github.com/jaafar-benabderrazak/ca_a2a.git
+```
+**What it does:**
+- Downloads the complete ca_a2a repository from GitHub to CloudShell
+- Creates a local `ca_a2a/` directory with all project files
+
+**Why it matters:**
+- Provides access to demo scripts, configuration files, and documentation
+- Ensures you're working with the latest code version
+
+**Expected Output:**
+```
+Cloning into 'ca_a2a'...
+remote: Enumerating objects: 1234, done.
+remote: Counting objects: 100% (1234/1234), done.
+remote: Compressing objects: 100% (789/789), done.
+remote: Total 1234 (delta 567), reused 1100 (delta 445)
+Receiving objects: 100% (1234/1234), 5.67 MiB | 12.34 MiB/s, done.
+Resolving deltas: 100% (567/567), done.
+```
+
+---
+
+**Command 2: Set Environment Variables**
+```bash
+export REGION="eu-west-3"
+export CLUSTER="ca-a2a-cluster"
+```
+**What it does:**
+- Creates shell variables that persist for the current session
+- `REGION`: AWS region where resources are deployed
+- `CLUSTER`: Name of the ECS cluster hosting our agents
+
+**Why it matters:**
+- Eliminates repetition in subsequent commands
+- Reduces typos and ensures consistency
+- Makes scripts reusable across different regions/clusters
+
+**Verification:**
+```bash
+echo "Region: $REGION, Cluster: $CLUSTER"
+# Should show: Region: eu-west-3, Cluster: ca-a2a-cluster
+```
+
+---
+
+**Command 3: Verify Services Running**
+```bash
+aws ecs describe-services \
+    --cluster ${CLUSTER} \
+    --services orchestrator extractor validator archivist \
+    --region ${REGION} \
+    --query 'services[*].[serviceName,runningCount,desiredCount]' \
+    --output table
+```
+
+**What it does:**
+- Queries AWS ECS for the status of all 4 agent services
+- Checks how many tasks are running vs. how many should be running
+- Formats output as an ASCII table for readability
+
+**Parameter Breakdown:**
+| Parameter | Value | Purpose |
+|-----------|-------|---------|
+| `--cluster` | `ca-a2a-cluster` | Which ECS cluster to query |
+| `--services` | `orchestrator extractor validator archivist` | List of 4 services to check |
+| `--region` | `eu-west-3` | AWS region |
+| `--query` | `services[*].[serviceName,runningCount,desiredCount]` | Extract only name and counts |
+| `--output` | `table` | Format as ASCII table (vs JSON) |
+
+**Why it matters:**
+- Confirms all agents are deployed and healthy before demo
+- Identifies issues (crashed tasks, scaling problems)
+- Validates infrastructure readiness
+
 **📹 Video Capture: Record terminal showing services running**
 
 **Expected Output:**
@@ -83,6 +192,45 @@ aws ecs describe-services \
 |  archivist   |   1    |   1     |
 +--------------+--------+---------+
 ```
+
+**Interpreting the Result:**
+
+**Column Meanings:**
+1. **serviceName**: Name of the ECS service
+2. **runningCount**: Number of tasks currently running
+3. **desiredCount**: Number of tasks that should be running
+
+**Health Status Guide:**
+| runningCount | desiredCount | Status | Action |
+|--------------|--------------|--------|--------|
+| 1 | 1 | ✅ Healthy | Proceed with demo |
+| 0 | 1 | ❌ Service down | Investigate logs: `aws logs tail /ecs/ca-a2a-orchestrator` |
+| 2 | 1 | ⚠️ Scaling up | Wait 30s for convergence |
+| 1 | 2 | ⚠️ Deployment in progress | Wait for completion |
+
+**Common Issues:**
+```bash
+# Issue 1: Service shows 0/1 (not running)
+# Solution: Check service events
+aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator \
+    --query 'services[0].events[0:5]' --output table
+
+# Issue 2: Service not found
+# Solution: Verify cluster name
+aws ecs list-services --cluster ca-a2a-cluster --output table
+
+# Issue 3: Permission denied
+# Solution: Verify IAM permissions
+aws sts get-caller-identity
+```
+
+**What Success Looks Like:**
+- All 4 services show `1 | 1` (running = desired)
+- This means:
+  - ✅ Orchestrator is ready to receive requests on port 8001
+  - ✅ Extractor is ready to parse documents on port 8002
+  - ✅ Validator is ready to validate data on port 8003
+  - ✅ Archivist is ready to store documents on port 8004
 
 ### **Step 3: Get Agent IP Addresses**
 
@@ -122,7 +270,201 @@ echo "Validator:    $VAL_IP:8003"
 echo "Archivist:    $ARCH_IP:8004"
 ```
 
+**📝 Command Explanation:**
+
+**Step-by-Step Breakdown:**
+
+**1. Define IP Discovery Function**
+```bash
+get_agent_ip() {
+    local SERVICE=$1  # Take service name as parameter
+    ...
+}
+```
+**What it does:**
+- Creates a reusable function to find any agent's IP address
+- Takes service name as input (e.g., "orchestrator")
+- Returns the private IPv4 address or nothing if service not found
+
+---
+
+**2. Find Running Task ARN**
+```bash
+TASK_ARN=$(aws ecs list-tasks \
+    --cluster ${CLUSTER} \
+    --service-name ${SERVICE} \
+    --region ${REGION} \
+    --query 'taskArns[0]' \
+    --output text)
+```
+
+**What it does:**
+- Lists all tasks for a specific service (e.g., orchestrator)
+- Extracts the ARN (Amazon Resource Name) of the first running task
+- ARN format: `arn:aws:ecs:eu-west-3:555043101106:task/ca-a2a-cluster/abc123...`
+
+**Why ARN is needed:**
+- Task ARN is the unique identifier for a running container
+- Required to query task details (including IP address)
+- Changes every time a task is restarted
+
+**Example Output:**
+```
+arn:aws:ecs:eu-west-3:555043101106:task/ca-a2a-cluster/1a2b3c4d5e6f7890
+```
+
+---
+
+**3. Extract IP Address from Task**
+```bash
+if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
+    IP=$(aws ecs describe-tasks \
+        --cluster ${CLUSTER} \
+        --tasks ${TASK_ARN} \
+        --region ${REGION} \
+        --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+        --output text)
+    echo "$IP"
+fi
+```
+
+**What it does:**
+- Checks if task ARN exists (service is running)
+- Queries detailed task information
+- Navigates JSON structure to find the private IP address:
+  ```
+  tasks[0]                    # First task in response
+    → containers[0]           # First container in task
+      → networkInterfaces[0]  # First network interface
+        → privateIpv4Address  # The actual IP (e.g., 10.0.10.25)
+  ```
+
+**Why this query path:**
+- ECS tasks can have multiple containers (we have 1)
+- Containers can have multiple network interfaces (we use 1)
+- We need the private IP for VPC-internal communication
+
+**Example IP Address:**
+```
+10.0.10.25
+```
+
+---
+
+**4. Call Function for Each Agent**
+```bash
+export ORCH_IP=$(get_agent_ip orchestrator)
+export EXTR_IP=$(get_agent_ip extractor)
+export VAL_IP=$(get_agent_ip validator)
+export ARCH_IP=$(get_agent_ip archivist)
+```
+
+**What it does:**
+- Calls `get_agent_ip()` 4 times, once per service
+- Stores each IP in an environment variable
+- `export` makes variables available to all subsequent commands
+
+**Why separate variables:**
+- Each agent listens on a different IP (dynamic ECS assignment)
+- Agents listen on fixed ports (8001, 8002, 8003, 8004)
+- Full address = `${ORCH_IP}:8001` (e.g., `10.0.10.25:8001`)
+
+---
+
+**5. Display Results**
+```bash
+echo "=== AGENT IP ADDRESSES ==="
+echo "Orchestrator: $ORCH_IP:8001"
+echo "Extractor:    $EXTR_IP:8002"
+echo "Validator:    $VAL_IP:8003"
+echo "Archivist:    $ARCH_IP:8004"
+```
+
 **📹 Video Capture: Show agent IPs being discovered**
+
+**Expected Output:**
+```
+=== AGENT IP ADDRESSES ===
+Orchestrator: 10.0.10.25:8001
+Extractor:    10.0.20.158:8002
+Validator:    10.0.30.47:8003
+Archivist:    10.0.40.92:8004
+```
+
+**Interpreting the Result:**
+
+**IP Address Structure:**
+```
+10.0.10.25
+│  │ │  │
+│  │ │  └─ Host (last octet, assigned by ECS)
+│  │ └──── Subnet (10.x = private subnet 1, 20.x = subnet 2, etc.)
+│  └─────── VPC network (always 0 for our VPC)
+└────────── Private IP space (10.x.x.x = RFC 1918 private)
+```
+
+**Why IPs Differ:**
+| Agent | Subnet | Reason |
+|-------|--------|--------|
+| Orchestrator | 10.0.10.x | Private subnet 1 (AZ eu-west-3a) |
+| Extractor | 10.0.20.x | Private subnet 2 (AZ eu-west-3b) |
+| Validator | 10.0.30.x | Private subnet 3 (AZ eu-west-3c) |
+| Archivist | 10.0.40.x | Private subnet 1 (AZ eu-west-3a) |
+
+**Benefits of Different Subnets:**
+- ✅ High availability across 3 availability zones
+- ✅ Fault isolation (subnet failure doesn't kill all agents)
+- ✅ Network segmentation for security
+
+**Port Assignment:**
+| Port | Agent | Protocol | Purpose |
+|------|-------|----------|---------|
+| 8001 | Orchestrator | HTTP | Coordinates pipeline |
+| 8002 | Extractor | HTTP | Parses documents |
+| 8003 | Validator | HTTP | Validates data |
+| 8004 | Archivist | HTTP | Stores to database |
+
+**Common Issues:**
+
+**Issue 1: Empty IP (nothing displayed)**
+```bash
+# Symptom: "Orchestrator: :8001" (missing IP)
+# Cause: No tasks running for that service
+
+# Solution: Check service status
+aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator \
+    --query 'services[0].events[0:3]' --output table
+
+# Look for: "service orchestrator has reached a steady state" (good)
+#      or: "service orchestrator was unable to place a task" (bad)
+```
+
+**Issue 2: IP Changes Between Runs**
+```bash
+# Symptom: Different IPs each time you run the script
+# Cause: ECS assigns IPs dynamically from subnet CIDR range
+# Solution: This is normal! Re-run discovery before each demo
+```
+
+**Issue 3: Can't Reach Agent on IP**
+```bash
+# Symptom: curl times out when testing IP
+# Cause: Security group might not allow CloudShell source
+
+# Test connectivity:
+curl -s --max-time 5 http://${ORCH_IP}:8001/health
+
+# If timeout, check security group:
+aws ec2 describe-security-groups \
+    --filters "Name=group-name,Values=ca-a2a-agents-sg" \
+    --query 'SecurityGroups[0].IpPermissions'
+```
+
+**What Success Looks Like:**
+- ✅ All 4 IPs displayed (none empty)
+- ✅ IPs in 10.0.x.x range (private VPC)
+- ✅ Different subnets (10.x, 20.x, 30.x, 40.x)
+- ✅ Each IP:port combination unique
 
 ### **Step 4: Get API Key for Authentication**
 
@@ -138,7 +480,237 @@ echo "API Key (first 20 chars): ${API_KEY:0:20}..."
 echo "API Key Length: ${#API_KEY} characters"
 ```
 
+**📝 Command Explanation:**
+
+**Step-by-Step Breakdown:**
+
+**1. Query ECS Task Definition**
+```bash
+aws ecs describe-task-definition \
+    --task-definition ca-a2a-orchestrator \
+    --region ${REGION}
+```
+
+**What it does:**
+- Retrieves the complete task definition for the orchestrator service
+- Task definition contains:
+  - Container image (`555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/orchestrator:latest`)
+  - Environment variables (including `A2A_API_KEYS_JSON`)
+  - Resource limits (CPU, memory)
+  - Port mappings (8001)
+
+**Why we query task definition:**
+- API keys are stored as environment variables in the task definition
+- More secure than hardcoding in scripts
+- Centralized configuration management
+
+---
+
+**2. Extract API Keys JSON**
+```bash
+--query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value'
+```
+
+**What this JMESPath query does:**
+```
+taskDefinition                     # Root object
+  → containerDefinitions[0]        # First container (we have only 1)
+    → environment                  # Array of {name, value} objects
+      → [?name==`A2A_API_KEYS_JSON`]  # Filter: find entry named "A2A_API_KEYS_JSON"
+        → .value                   # Extract the value field
+```
+
+**Example environment array:**
+```json
+[
+  {"name": "AWS_REGION", "value": "eu-west-3"},
+  {"name": "A2A_REQUIRE_AUTH", "value": "true"},
+  {"name": "A2A_API_KEYS_JSON", "value": "{\"lambda-s3-processor\":\"Kx9mN2pL5vQ8...\"}"},
+  {"name": "LOG_LEVEL", "value": "INFO"}
+]
+```
+
+**Filter result:**
+```json
+"{\"lambda-s3-processor\":\"Kx9mN2pL5vQ8wR4tY7uI1oP3aS6dF0gH...\"}"
+```
+
+---
+
+**3. Parse JSON with jq**
+```bash
+| jq -r '.["lambda-s3-processor"]'
+```
+
+**What it does:**
+- Receives JSON string: `{"lambda-s3-processor": "Kx9mN2pL..."}`
+- `-r` flag: Output raw string (without quotes)
+- `.["lambda-s3-processor"]`: Access key by name
+- Returns just the API key value
+
+**Why "lambda-s3-processor":**
+- This is the principal name (identity) for the Lambda function
+- When Lambda calls orchestrator, it identifies itself with this name
+- RBAC policies use this name to grant permissions
+
+**Example:** Multiple API keys in production:
+```json
+{
+  "lambda-s3-processor": "Kx9mN2pL5vQ8...",
+  "admin-cli": "Zq2wE5rT8yU1...",
+  "monitoring-service": "Pq8wR3tY6uI9..."
+}
+```
+
+---
+
+**4. Store in Environment Variable**
+```bash
+export API_KEY=$(...)
+```
+
+**What it does:**
+- Executes the AWS CLI + jq pipeline
+- Stores result in `$API_KEY` environment variable
+- `export` makes it available to all subsequent commands
+
+**Security Consideration:**
+```bash
+# ✅ Good: Store in variable (not visible in process list)
+export API_KEY="..."
+
+# ❌ Bad: Pass directly in command (visible in ps aux)
+curl -H "X-API-Key: Kx9mN2pL5vQ8..."  # Anyone can see this!
+```
+
+---
+
+**5. Display Partial Key (Security)**
+```bash
+echo "API Key (first 20 chars): ${API_KEY:0:20}..."
+echo "API Key Length: ${#API_KEY} characters"
+```
+
+**What ${API_KEY:0:20} does:**
+- Bash substring extraction
+- Format: `${variable:start:length}`
+- `${API_KEY:0:20}` = first 20 characters
+- Prevents full key from being displayed in terminal/video
+
+**What ${#API_KEY} does:**
+- Bash string length operator
+- `${#variable}` returns character count
+- Useful for validating key length (should be 64)
+
 **📹 Video Capture: Show API key retrieval (partial display for security)**
+
+**Expected Output:**
+```
+API Key (first 20 chars): Kx9mN2pL5vQ8wR4tY7uI...
+API Key Length: 64 characters
+```
+
+**Interpreting the Result:**
+
+**Key Length Validation:**
+| Length | Status | Interpretation |
+|--------|--------|----------------|
+| 64 | ✅ Correct | Standard base64-encoded 48-byte key |
+| 32 | ⚠️ Short | Old format, still works but less secure |
+| 0 | ❌ Missing | Key not configured, authentication will fail |
+| > 64 | ⚠️ Long | Possible extra whitespace or newline |
+
+**Key Format:**
+```
+Kx9mN2pL5vQ8wR4tY7uI1oP3aS6dF0gH2jK4lM7nP9qR1sT3uV5wX7yZ0aB2cD4e
+│├─────────────────────────────────────────────────────────────────┤│
+└─ Base64 alphabet: [A-Za-z0-9+/] (no special characters)        └─ Padding
+
+Properties:
+- Alphanumeric only (Base64)
+- No spaces, quotes, or special chars
+- Case-sensitive
+- URL-safe variant (may use - and _ instead of + and /)
+```
+
+**Common Issues:**
+
+**Issue 1: Empty API_KEY**
+```bash
+# Symptom: "API Key Length: 0 characters"
+# Cause: jq query returned nothing
+
+# Debug: Check raw output
+aws ecs describe-task-definition \
+    --task-definition ca-a2a-orchestrator \
+    --query 'taskDefinition.containerDefinitions[0].environment' \
+    --output json | grep "A2A_API_KEYS_JSON"
+
+# Solution: Verify environment variable exists in task definition
+```
+
+**Issue 2: jq command not found**
+```bash
+# Symptom: "bash: jq: command not found"
+# Cause: jq not installed in CloudShell
+
+# Solution: Install jq
+sudo yum install -y jq
+
+# Or parse differently:
+export API_KEY=$(aws ecs describe-task-definition \
+    --task-definition ca-a2a-orchestrator \
+    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+    --output text | python3 -c "import sys, json; print(json.loads(sys.stdin.read())['lambda-s3-processor'])")
+```
+
+**Issue 3: JSON parsing error**
+```bash
+# Symptom: "parse error: Invalid numeric literal"
+# Cause: JSON contains escaped characters or is malformed
+
+# Debug: View raw JSON
+aws ecs describe-task-definition \
+    --task-definition ca-a2a-orchestrator \
+    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+    --output text
+
+# Check for:
+# - Missing quotes
+# - Extra backslashes
+# - Truncated value
+```
+
+**Security Best Practices:**
+
+**✅ What We Do Right:**
+1. Store keys in environment variables (not in code)
+2. Display only partial key in output
+3. Use Base64 encoding (prevents special character issues)
+4. Retrieve from task definition (centralized management)
+
+**🔒 Additional Production Hardening:**
+```bash
+# Option 1: Use AWS Secrets Manager (even more secure)
+export API_KEY=$(aws secretsmanager get-secret-value \
+    --secret-id ca-a2a/api-keys \
+    --query 'SecretString' \
+    --output text | jq -r '.["lambda-s3-processor"]')
+
+# Option 2: Use AWS Systems Manager Parameter Store
+export API_KEY=$(aws ssm get-parameter \
+    --name /ca-a2a/api-keys/lambda-s3-processor \
+    --with-decryption \
+    --query 'Parameter.Value' \
+    --output text)
+```
+
+**What Success Looks Like:**
+- ✅ API key displays first 20 chars (e.g., `Kx9mN2pL5vQ8wR4tY7uI`)
+- ✅ Length is exactly 64 characters
+- ✅ No error messages from AWS CLI or jq
+- ✅ Key is now stored in `$API_KEY` environment variable
+- ✅ Ready to use in authentication headers for all demos
 
 ---
 
