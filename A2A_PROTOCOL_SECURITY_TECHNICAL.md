@@ -136,6 +136,7 @@ This screenshot shows the actual deployed network architecture:
 - ✅ Security groups act as virtual firewalls at the instance level (default deny all)
 
 ### **Protocol Encapsulation**
+<img width="808" height="491" alt="image" src="https://github.com/user-attachments/assets/0399c2d4-7c73-4365-8d3c-47d75ebe13e3" />
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -380,19 +381,18 @@ graph TB
 ```
 
 ### **Security Layer Details**
+<img width="1196" height="493" alt="image" src="https://github.com/user-attachments/assets/e1fe5aee-1ffa-45f9-947a-c34074c031bb" />
 
-| Layer | Technology | Protection Against | Performance Impact |
-|-------|------------|-------------------|-------------------|
-| **1. Network** | AWS VPC + SG | Unauthorized IPs, DDoS | None (AWS managed) |
-| **2. Transport** | TLS 1.3 | Eavesdropping, MITM | ~2-5ms (handshake) |
-| **3. Integrity** | HMAC-SHA256 | Message tampering | ~0.3ms per request |
-| **4. Authentication** | API Key / JWT | Impersonation | ~0.1ms (lookup) |
-| **5. Authorization** | RBAC | Privilege escalation | ~0.1ms (policy check) |
-| **6. Validation** | JSON Schema | Injection, XSS, path traversal | ~1.5ms per request |
-| **7. Rate Limiting** | Token bucket | DoS, abuse | ~0.1ms (counter check) |
-| **8. Replay Protection** | Timestamp + nonce | Replay attacks | ~0.1ms (timestamp check) |
-
-**Total Security Overhead:** ~4-7ms per request (~0.8% of 515ms pipeline)
+| Layer | Technology | Protection Against | 
+|-------|------------|-------------------|
+| **1. Network** | AWS VPC + SG | Unauthorized IPs, DDoS |
+| **2. Transport** | TLS 1.3 | Eavesdropping, MITM | 
+| **3. Integrity** | HMAC-SHA256 | Message tampering | 
+| **4. Authentication** | API Key / JWT | Impersonation |
+| **5. Authorization** | RBAC | Privilege escalation |
+| **6. Validation** | JSON Schema | Injection, XSS, path traversal | 
+| **7. Rate Limiting** | Token bucket | DoS, abuse | 
+| **8. Replay Protection** | Timestamp + nonce | Replay attacks | 
 
 ###  **Production Deployment: ECS Fargate Cluster**
 
@@ -1358,6 +1358,7 @@ X-RateLimit-Reset: 1735867300
 ## Token Revocation
 
 ### **Revocation Architecture**
+<img width="561" height="89" alt="image" src="https://github.com/user-attachments/assets/7f44f9ef-2203-4569-b353-ef9128c26b2a" />
 
 ```mermaid
 graph TB
@@ -1855,6 +1856,7 @@ validate(params) # Pattern mismatch
 ```
 
 ### **Attack Scenario 2: Path Traversal**
+<img width="1149" height="231" alt="image" src="https://github.com/user-attachments/assets/64f9fb54-6927-465c-a9c8-4014dd3d82c9" />
 
 **Attack:**
 ```python
@@ -1885,6 +1887,7 @@ validate(params) # Pattern mismatch
 ```
 
 ### **Attack Scenario 3: Replay Attack**
+<img width="1171" height="236" alt="image" src="https://github.com/user-attachments/assets/9729bb01-038e-4985-aaea-38d8109b30c4" />
 
 **Attack:**
 ```python
