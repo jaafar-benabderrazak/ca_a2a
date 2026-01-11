@@ -1,4 +1,4 @@
-# 📚 Understanding the Comprehensive System Test Suite
+# Understanding the Comprehensive System Test Suite
 
 **For Non-Technical Stakeholders**
 
@@ -6,54 +6,54 @@ This document explains what the `comprehensive-system-test.sh` script does, why 
 
 ---
 
-## 🎯 What Does This Test Suite Do?
+## What Does This Test Suite Do?
 
 The test suite automatically checks that our multi-agent document processing system is working correctly, securely, and efficiently. Think of it as a **health check-up** for the entire system.
 
 **Simple Analogy:**
 Imagine checking if a car is safe to drive. You'd check:
-- ✅ Engine running? (Infrastructure)
-- ✅ Doors locked? (Security)
-- ✅ Fuel in tank? (Resources)
-- ✅ Brakes working? (Safety features)
-- ✅ Can it drive from A to B? (End-to-end test)
+- Engine running? (Infrastructure)
+- Doors locked? (Security)
+- Fuel in tank? (Resources)
+- Brakes working? (Safety features)
+- Can it drive from A to B? (End-to-end test)
 
 Our test suite does the same for our document processing system.
 
 ---
 
-## 🏗️ System Architecture Overview
+## ️ System Architecture Overview
 
 Before diving into tests, let's understand what we're testing:
 
 ```mermaid
 graph TB
-    subgraph "Document Upload"
-        User[User] -->|1. Upload PDF| S3[S3 Storage]
-    end
-    
-    subgraph "Event Processing"
-        S3 -->|2. Event| SQS[SQS Queue]
-        SQS -->|3. Trigger| Lambda[Lambda Function]
-    end
-    
-    subgraph "Multi-Agent Pipeline"
-        Lambda -->|4. API Key Auth| Orch[Orchestrator<br/>Coordinator]
-        Orch -->|5a. RBAC| Ext[Extractor<br/>PDF Parser]
-        Orch -->|5b. RBAC| Val[Validator<br/>Quality Check]
-        Orch -->|5c. RBAC| Arch[Archivist<br/>Storage]
-    end
-    
-    subgraph "Data Access"
-        Ext -.->|Read PDF| S3
-        Arch -.->|Store| DB[(PostgreSQL<br/>Database)]
-    end
-    
-    style Orch fill:#90EE90
-    style Ext fill:#87CEEB
-    style Val fill:#FFD700
-    style Arch fill:#FFA07A
-    style Lambda fill:#DDA0DD
+ subgraph "Document Upload"
+ User[User] -->|1. Upload PDF| S3[S3 Storage]
+ end
+ 
+ subgraph "Event Processing"
+ S3 -->|2. Event| SQS[SQS Queue]
+ SQS -->|3. Trigger| Lambda[Lambda Function]
+ end
+ 
+ subgraph "Multi-Agent Pipeline"
+ Lambda -->|4. API Key Auth| Orch[Orchestrator<br/>Coordinator]
+ Orch -->|5a. RBAC| Ext[Extractor<br/>PDF Parser]
+ Orch -->|5b. RBAC| Val[Validator<br/>Quality Check]
+ Orch -->|5c. RBAC| Arch[Archivist<br/>Storage]
+ end
+ 
+ subgraph "Data Access"
+ Ext -.->|Read PDF| S3
+ Arch -.->|Store| DB[(PostgreSQL<br/>Database)]
+ end
+ 
+ style Orch fill:#90EE90
+ style Ext fill:#87CEEB
+ style Val fill:#FFD700
+ style Arch fill:#FFA07A
+ style Lambda fill:#DDA0DD
 ```
 
 **Flow Explanation:**
@@ -66,9 +66,9 @@ graph TB
 
 ---
 
-## 📋 Test Categories (8 Total)
+## Test Categories (8 Total)
 
-### **TEST 1: Infrastructure Status** 🏗️
+### **TEST 1: Infrastructure Status** ️
 
 **What It Checks:** Are all the system components running?
 
@@ -76,10 +76,10 @@ graph TB
 
 ```bash
 aws ecs describe-services \
-    --cluster ca-a2a-cluster \
-    --services orchestrator \
-    --region eu-west-3 \
-    --query 'services[0].runningCount'
+ --cluster ca-a2a-cluster \
+ --services orchestrator \
+ --region eu-west-3 \
+ --query 'services[0].runningCount'
 ```
 
 **Breaking it down:**
@@ -97,24 +97,24 @@ Section 2.1 discusses "Agent Infrastructure Requirements" - agents must be avail
 
 ```mermaid
 graph LR
-    subgraph "Infrastructure Check"
-        Test[Test Script] -->|Query| ECS[AWS ECS]
-        ECS -->|Response| Test
-        Test -->|Check| O[Orchestrator: 2/2?]
-        Test -->|Check| E[Extractor: 2/2?]
-        Test -->|Check| V[Validator: 2/2?]
-        Test -->|Check| A[Archivist: 2/2?]
-    end
-    
-    style O fill:#90EE90
-    style E fill:#90EE90
-    style V fill:#90EE90
-    style A fill:#90EE90
+ subgraph "Infrastructure Check"
+ Test[Test Script] -->|Query| ECS[AWS ECS]
+ ECS -->|Response| Test
+ Test -->|Check| O[Orchestrator: 2/2?]
+ Test -->|Check| E[Extractor: 2/2?]
+ Test -->|Check| V[Validator: 2/2?]
+ Test -->|Check| A[Archivist: 2/2?]
+ end
+ 
+ style O fill:#90EE90
+ style E fill:#90EE90
+ style V fill:#90EE90
+ style A fill:#90EE90
 ```
 
 ---
 
-### **TEST 2: Security Configuration** 🔒
+### **TEST 2: Security Configuration** 
 
 **What It Checks:** Are security features properly configured?
 
@@ -124,8 +124,8 @@ graph LR
 
 ```bash
 aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value'
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value'
 ```
 
 **Breaking it down:**
@@ -146,7 +146,7 @@ Section 3.2 "Authentication Mechanisms":
 
 ```bash
 aws ecs describe-task-definition \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_RBAC_POLICY_JSON`].value'
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_RBAC_POLICY_JSON`].value'
 ```
 
 **Simple Explanation:**
@@ -164,23 +164,23 @@ Section 3.4 "Authorization and Access Control":
 
 ```mermaid
 graph TB
-    subgraph "RBAC Authorization Model"
-        Lambda[Lambda<br/>Role: Trigger] -->|Can: Call Orchestrator| Orch[Orchestrator<br/>Role: Coordinator]
-        
-        Orch -->|Can: extract_document| Ext[Extractor<br/>Role: Parser]
-        Orch -->|Can: validate_document| Val[Validator<br/>Role: Checker]
-        Orch -->|Can: archive_document| Arch[Archivist<br/>Role: Storer]
-        
-        Ext -.->|❌ Cannot| Val
-        Ext -.->|❌ Cannot| Arch
-        Val -.->|❌ Cannot| Arch
-    end
-    
-    style Lambda fill:#DDA0DD
-    style Orch fill:#90EE90
-    style Ext fill:#87CEEB
-    style Val fill:#FFD700
-    style Arch fill:#FFA07A
+ subgraph "RBAC Authorization Model"
+ Lambda[Lambda<br/>Role: Trigger] -->|Can: Call Orchestrator| Orch[Orchestrator<br/>Role: Coordinator]
+ 
+ Orch -->|Can: extract_document| Ext[Extractor<br/>Role: Parser]
+ Orch -->|Can: validate_document| Val[Validator<br/>Role: Checker]
+ Orch -->|Can: archive_document| Arch[Archivist<br/>Role: Storer]
+ 
+ Ext -.->| Cannot| Val
+ Ext -.->| Cannot| Arch
+ Val -.->| Cannot| Arch
+ end
+ 
+ style Lambda fill:#DDA0DD
+ style Orch fill:#90EE90
+ style Ext fill:#87CEEB
+ style Val fill:#FFD700
+ style Arch fill:#FFA07A
 ```
 
 #### **Test 2.3: Authentication Requirement**
@@ -189,7 +189,7 @@ graph TB
 
 ```bash
 aws ecs describe-task-definition \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_REQUIRE_AUTH`].value'
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_REQUIRE_AUTH`].value'
 ```
 
 **Simple Explanation:**
@@ -201,7 +201,7 @@ Section 3.1 "Zero-Trust Architecture":
 
 ---
 
-### **TEST 3: MCP Implementation** 🔌
+### **TEST 3: MCP Implementation** 
 
 **What It Checks:** How agents access resources (S3, Database)
 
@@ -213,42 +213,42 @@ Section 3.1 "Zero-Trust Architecture":
 
 ```bash
 aws ecs describe-task-definition \
-    --task-definition ca-a2a-extractor \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`MCP_SERVER_URL`].value'
+ --task-definition ca-a2a-extractor \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`MCP_SERVER_URL`].value'
 ```
 
 **Simple Explanation:**
 We check if there's a `MCP_SERVER_URL` environment variable:
-- **Not present** = Using "native MCP" (direct access, faster) ✅
-- **Present** = Using external MCP server (slower, more complex) ❌
+- **Not present** = Using "native MCP" (direct access, faster) 
+- **Present** = Using external MCP server (slower, more complex) 
 
 **Analogy:**
 - **Native MCP:** Agent directly opens the file cabinet (S3) or database
 - **HTTP MCP:** Agent asks a middleman to open the file cabinet for them
 
 **Why Native is Better:**
-- ⚡ Faster (no middleman)
-- 🔒 More secure (fewer components to compromise)
-- 🎯 Simpler (fewer moving parts)
+- Faster (no middleman)
+- More secure (fewer components to compromise)
+- Simpler (fewer moving parts)
 
 ```mermaid
 graph TB
-    subgraph "Native MCP (What We Use)"
-        ExtN[Extractor Agent] -.->|Direct Access<br/>via aioboto3| S3N[S3 Storage]
-        ArchN[Archivist Agent] -.->|Direct Access<br/>via asyncpg| DBN[(PostgreSQL)]
-    end
-    
-    subgraph "HTTP MCP (Alternative, Not Used)"
-        ExtH[Extractor Agent] -->|HTTP Request| MCP[MCP Server]
-        MCP -->|Access| S3H[S3 Storage]
-        ArchH[Archivist Agent] -->|HTTP Request| MCP
-        MCP -->|Access| DBH[(PostgreSQL)]
-    end
-    
-    style ExtN fill:#90EE90
-    style ArchN fill:#90EE90
-    style ExtH fill:#FFE4B5
-    style ArchH fill:#FFE4B5
+ subgraph "Native MCP (What We Use)"
+ ExtN[Extractor Agent] -.->|Direct Access<br/>via aioboto3| S3N[S3 Storage]
+ ArchN[Archivist Agent] -.->|Direct Access<br/>via asyncpg| DBN[(PostgreSQL)]
+ end
+ 
+ subgraph "HTTP MCP (Alternative, Not Used)"
+ ExtH[Extractor Agent] -->|HTTP Request| MCP[MCP Server]
+ MCP -->|Access| S3H[S3 Storage]
+ ArchH[Archivist Agent] -->|HTTP Request| MCP
+ MCP -->|Access| DBH[(PostgreSQL)]
+ end
+ 
+ style ExtN fill:#90EE90
+ style ArchN fill:#90EE90
+ style ExtH fill:#FFE4B5
+ style ArchH fill:#FFE4B5
 ```
 
 #### **Test 3.3: MCP Connection Errors**
@@ -257,7 +257,7 @@ graph TB
 
 ```bash
 aws logs tail /ecs/ca-a2a-extractor --since 10m --region eu-west-3 | \
-    grep -c "Cannot connect to host mcp-server"
+ grep -c "Cannot connect to host mcp-server"
 ```
 
 **Breaking it down:**
@@ -271,7 +271,7 @@ If agents can't connect to resources, they can't do their job. This checks for c
 
 ---
 
-### **TEST 4: End-to-End Pipeline** 🔄
+### **TEST 4: End-to-End Pipeline** 
 
 **What It Checks:** Can we process a complete document from start to finish?
 
@@ -305,8 +305,8 @@ Total: 14,400.00 EUR
 
 ```bash
 aws s3 cp comprehensive_test_invoice.pdf \
-    s3://ca-a2a-documents-555043101106/invoices/2026/01/ \
-    --region eu-west-3
+ s3://ca-a2a-documents-555043101106/invoices/2026/01/ \
+ --region eu-west-3
 ```
 
 **Simple Explanation:**
@@ -314,24 +314,24 @@ Upload the test document to cloud storage (S3). This simulates a user uploading 
 
 ```mermaid
 sequenceDiagram
-    participant Test as Test Script
-    participant S3 as S3 Storage
-    participant SQS as SQS Queue
-    participant Lambda as Lambda
-    
-    Test->>S3: Upload test_invoice.pdf
-    S3-->>Test: Upload successful
-    
-    Note over S3,Lambda: Automatic event chain
-    S3->>SQS: Send event notification
-    SQS->>Lambda: Trigger function
-    
-    Note over Test: Wait 45 seconds for processing
+ participant Test as Test Script
+ participant S3 as S3 Storage
+ participant SQS as SQS Queue
+ participant Lambda as Lambda
+ 
+ Test->>S3: Upload test_invoice.pdf
+ S3-->>Test: Upload successful
+ 
+ Note over S3,Lambda: Automatic event chain
+ S3->>SQS: Send event notification
+ SQS->>Lambda: Trigger function
+ 
+ Note over Test: Wait 45 seconds for processing
 ```
 
 ---
 
-### **TEST 5: Pipeline Stage Validation** ✅
+### **TEST 5: Pipeline Stage Validation** 
 
 **What It Checks:** Did each agent do its job correctly?
 
@@ -341,11 +341,11 @@ sequenceDiagram
 
 ```bash
 aws logs tail /aws/lambda/ca-a2a-s3-processor --since 2m --region eu-west-3 | \
-    grep -c "✓ Success"
+ grep -c " Success"
 ```
 
 **Simple Explanation:**
-Check Lambda's recent logs for success messages. If we find "✓ Success", the Lambda successfully triggered the pipeline.
+Check Lambda's recent logs for success messages. If we find " Success", the Lambda successfully triggered the pipeline.
 
 #### **Test 5.2: Orchestrator Coordination**
 
@@ -353,7 +353,7 @@ Check Lambda's recent logs for success messages. If we find "✓ Success", the L
 
 ```bash
 aws logs tail /ecs/ca-a2a-orchestrator --since 2m --region eu-west-3 | \
-    grep -c "Pipeline completed successfully"
+ grep -c "Pipeline completed successfully"
 ```
 
 **Simple Explanation:**
@@ -369,17 +369,17 @@ Section 2.2 "Agent Coordination Patterns":
 
 ```bash
 aws logs tail /ecs/ca-a2a-extractor --since 2m --region eu-west-3 | \
-    grep -c "Successfully extracted document"
+ grep -c "Successfully extracted document"
 ```
 
 **Simple Explanation:**
 The Extractor reads the PDF and pulls out the text and data. This checks if extraction was successful.
 
 **What Extraction Does:**
-- 📄 Counts pages
-- 📝 Extracts all text
-- 📊 Finds tables
-- 📋 Reads metadata (author, creation date, etc.)
+- Counts pages
+- Extracts all text
+- Finds tables
+- Reads metadata (author, creation date, etc.)
 
 #### **Test 5.4: Validator Processing**
 
@@ -387,17 +387,17 @@ The Extractor reads the PDF and pulls out the text and data. This checks if extr
 
 ```bash
 aws logs tail /ecs/ca-a2a-validator --since 2m --region eu-west-3 | \
-    grep -c "Validation completed"
+ grep -c "Validation completed"
 ```
 
 **Simple Explanation:**
 The Validator checks if the extracted data makes sense. It's like a quality control inspector checking if a product meets standards.
 
 **What Validation Checks:**
-- ✅ Required fields present?
-- ✅ Data format correct?
-- ✅ Values within acceptable ranges?
-- ✅ Business rules satisfied?
+- Required fields present?
+- Data format correct?
+- Values within acceptable ranges?
+- Business rules satisfied?
 
 **Research Paper Reference:**
 Section 4.3 "Data Integrity Validation":
@@ -409,7 +409,7 @@ Section 4.3 "Data Integrity Validation":
 
 ```bash
 aws logs tail /ecs/ca-a2a-archivist --since 2m --region eu-west-3 | \
-    grep -c "Successfully archived document"
+ grep -c "Successfully archived document"
 ```
 
 **Simple Explanation:**
@@ -417,39 +417,39 @@ The Archivist stores the processed document in the database for long-term storag
 
 ```mermaid
 sequenceDiagram
-    participant O as Orchestrator
-    participant E as Extractor
-    participant V as Validator
-    participant A as Archivist
-    participant DB as Database
-    
-    Note over O,A: Pipeline Execution
-    
-    O->>E: 1. Extract document
-    activate E
-    E->>E: Parse PDF<br/>Extract text & tables
-    E-->>O: Extracted data
-    deactivate E
-    
-    O->>V: 2. Validate data
-    activate V
-    V->>V: Check schema<br/>Validate business rules
-    V-->>O: Validation score: 100%
-    deactivate V
-    
-    O->>A: 3. Archive document
-    activate A
-    A->>DB: INSERT INTO documents
-    DB-->>A: Document ID: 4
-    A-->>O: Archive successful
-    deactivate A
-    
-    Note over O: Pipeline Complete ✅
+ participant O as Orchestrator
+ participant E as Extractor
+ participant V as Validator
+ participant A as Archivist
+ participant DB as Database
+ 
+ Note over O,A: Pipeline Execution
+ 
+ O->>E: 1. Extract document
+ activate E
+ E->>E: Parse PDF<br/>Extract text & tables
+ E-->>O: Extracted data
+ deactivate E
+ 
+ O->>V: 2. Validate data
+ activate V
+ V->>V: Check schema<br/>Validate business rules
+ V-->>O: Validation score: 100%
+ deactivate V
+ 
+ O->>A: 3. Archive document
+ activate A
+ A->>DB: INSERT INTO documents
+ DB-->>A: Document ID: 4
+ A-->>O: Archive successful
+ deactivate A
+ 
+ Note over O: Pipeline Complete 
 ```
 
 ---
 
-### **TEST 6: Data Persistence** 💾
+### **TEST 6: Data Persistence** 
 
 **What It Checks:** Are processed documents actually saved in the database?
 
@@ -457,7 +457,7 @@ sequenceDiagram
 
 ```bash
 aws logs tail /ecs/ca-a2a-archivist --since 1h --region eu-west-3 | \
-    grep -c "Successfully archived document"
+ grep -c "Successfully archived document"
 ```
 
 **Simple Explanation:**
@@ -472,30 +472,30 @@ Section 5.2 "Audit Trail and Persistence":
 
 ```mermaid
 graph TB
-    subgraph "Database Persistence Flow"
-        A[Archivist Agent] -->|1. Connect| Pool[Connection Pool]
-        Pool -->|2. Get Connection| DB[(PostgreSQL<br/>documents_db)]
-        
-        A -->|3. Prepare Data| JSON[JSON Payload]
-        JSON -->|4. INSERT| Table[documents Table]
-        
-        Table -->|5. Return| ID[Document ID + Status]
-        ID -->|6. Log| Logs[CloudWatch Logs]
-    end
-    
-    subgraph "Test Verification"
-        Test[Test Script] -->|7. Query| Logs
-        Logs -->|8. Count Successes| Test
-        Test -->|9. Verify ≥3| Pass[✅ Test Pass]
-    end
-    
-    style A fill:#FFA07A
-    style Pass fill:#90EE90
+ subgraph "Database Persistence Flow"
+ A[Archivist Agent] -->|1. Connect| Pool[Connection Pool]
+ Pool -->|2. Get Connection| DB[(PostgreSQL<br/>documents_db)]
+ 
+ A -->|3. Prepare Data| JSON[JSON Payload]
+ JSON -->|4. INSERT| Table[documents Table]
+ 
+ Table -->|5. Return| ID[Document ID + Status]
+ ID -->|6. Log| Logs[CloudWatch Logs]
+ end
+ 
+ subgraph "Test Verification"
+ Test[Test Script] -->|7. Query| Logs
+ Logs -->|8. Count Successes| Test
+ Test -->|9. Verify ≥3| Pass[ Test Pass]
+ end
+ 
+ style A fill:#FFA07A
+ style Pass fill:#90EE90
 ```
 
 ---
 
-### **TEST 7: Error Handling** 🛡️
+### **TEST 7: Error Handling** ️
 
 **What It Checks:** Are we handling errors gracefully?
 
@@ -505,7 +505,7 @@ graph TB
 
 ```bash
 aws logs tail /ecs/ca-a2a-extractor --since 10m --region eu-west-3 | \
-    grep -c "IndentationError"
+ grep -c "IndentationError"
 ```
 
 **Simple Explanation:**
@@ -520,7 +520,7 @@ Syntax errors crash the entire agent. It's like having a typo in a recipe that m
 
 ```bash
 aws logs tail /ecs/ca-a2a-orchestrator --since 10m --region eu-west-3 | \
-    grep -c "Unauthorized"
+ grep -c "Unauthorized"
 ```
 
 **Simple Explanation:**
@@ -536,7 +536,7 @@ Section 3.3 "Authentication Attack Mitigation":
 
 ```bash
 aws logs tail /ecs/ca-a2a-orchestrator /ecs/ca-a2a-extractor --since 10m --region eu-west-3 | \
-    grep -c "CRITICAL"
+ grep -c "CRITICAL"
 ```
 
 **Simple Explanation:**
@@ -544,34 +544,34 @@ aws logs tail /ecs/ca-a2a-orchestrator /ecs/ca-a2a-extractor --since 10m --regio
 
 ```mermaid
 graph TB
-    subgraph "Error Detection"
-        Logs[CloudWatch Logs] --> Test[Test Script]
-        
-        Test -->|Check 1| Syntax{Syntax Errors?}
-        Test -->|Check 2| Auth{Auth Failures?}
-        Test -->|Check 3| Crit{Critical Errors?}
-        
-        Syntax -->|0 errors| P1[✅ Pass]
-        Syntax -->|>0 errors| F1[❌ Fail]
-        
-        Auth -->|0 failures| P2[✅ Pass]
-        Auth -->|>0 failures| W2[⚠️ Warning]
-        
-        Crit -->|0 critical| P3[✅ Pass]
-        Crit -->|>0 critical| W3[⚠️ Warning]
-    end
-    
-    style P1 fill:#90EE90
-    style P2 fill:#90EE90
-    style P3 fill:#90EE90
-    style F1 fill:#FFB6C1
-    style W2 fill:#FFD700
-    style W3 fill:#FFD700
+ subgraph "Error Detection"
+ Logs[CloudWatch Logs] --> Test[Test Script]
+ 
+ Test -->|Check 1| Syntax{Syntax Errors?}
+ Test -->|Check 2| Auth{Auth Failures?}
+ Test -->|Check 3| Crit{Critical Errors?}
+ 
+ Syntax -->|0 errors| P1[ Pass]
+ Syntax -->|>0 errors| F1[ Fail]
+ 
+ Auth -->|0 failures| P2[ Pass]
+ Auth -->|>0 failures| W2[️ Warning]
+ 
+ Crit -->|0 critical| P3[ Pass]
+ Crit -->|>0 critical| W3[️ Warning]
+ end
+ 
+ style P1 fill:#90EE90
+ style P2 fill:#90EE90
+ style P3 fill:#90EE90
+ style F1 fill:#FFB6C1
+ style W2 fill:#FFD700
+ style W3 fill:#FFD700
 ```
 
 ---
 
-### **TEST 8: Performance Metrics** ⚡
+### **TEST 8: Performance Metrics** 
 
 **What It Checks:** How fast is the system processing documents?
 
@@ -600,36 +600,36 @@ We measure how long it takes from starting to process a document until it's comp
 **Current Performance:**
 - **Average:** < 1 second
 - **Breakdown:**
-  - Lambda trigger: ~15ms
-  - Orchestrator coordination: ~50ms
-  - Extractor: ~180ms
-  - Validator: ~50ms
-  - Archivist: ~220ms
-  - **Total: ~515ms** ⚡
+ - Lambda trigger: ~15ms
+ - Orchestrator coordination: ~50ms
+ - Extractor: ~180ms
+ - Validator: ~50ms
+ - Archivist: ~220ms
+ - **Total: ~515ms** 
 
 ```mermaid
 gantt
-    title Document Processing Timeline (Target: < 2s)
-    dateFormat X
-    axisFormat %Lms
-    
-    section Lambda
-    Trigger & Auth           :0, 15
-    
-    section Orchestrator
-    Receive & Coordinate     :15, 50
-    
-    section Extractor
-    Download & Parse PDF     :65, 180
-    
-    section Validator
-    Validate Schema & Rules  :245, 50
-    
-    section Archivist
-    Store in Database        :295, 220
-    
-    section Complete
-    Response to Lambda       :515, 20
+ title Document Processing Timeline (Target: < 2s)
+ dateFormat X
+ axisFormat %Lms
+ 
+ section Lambda
+ Trigger & Auth :0, 15
+ 
+ section Orchestrator
+ Receive & Coordinate :15, 50
+ 
+ section Extractor
+ Download & Parse PDF :65, 180
+ 
+ section Validator
+ Validate Schema & Rules :245, 50
+ 
+ section Archivist
+ Store in Database :295, 220
+ 
+ section Complete
+ Response to Lambda :515, 20
 ```
 
 **Research Paper Reference:**
@@ -638,7 +638,7 @@ Section 6.1 "Performance Considerations":
 
 ---
 
-## 🎓 Key Concepts from Research Paper
+## Key Concepts from Research Paper
 
 ### **1. Zero-Trust Architecture**
 
@@ -648,9 +648,9 @@ Section 6.1 "Performance Considerations":
 "Never trust, always verify" - even agents inside our system must authenticate.
 
 **How We Implement:**
-- ✅ API key authentication
-- ✅ RBAC authorization
-- ✅ Every request is verified
+- API key authentication
+- RBAC authorization
+- Every request is verified
 
 **Test Coverage:**
 - Test 2.1: API keys configured
@@ -682,10 +682,10 @@ All of Test 2 (Security Configuration)
 Each agent only has permissions for its specific job, nothing more.
 
 **Example:**
-- Extractor can read S3 ✅
-- Extractor cannot write to database ❌
-- Archivist can write to database ✅
-- Archivist cannot delete from S3 ❌
+- Extractor can read S3 
+- Extractor cannot write to database 
+- Archivist can write to database 
+- Archivist cannot delete from S3 
 
 **Test Coverage:**
 Test 2.2: RBAC policy configuration
@@ -707,64 +707,64 @@ All log-based tests (5.1-5.5, 6.1, 7.1-7.3)
 
 ```mermaid
 graph TB
-    subgraph "Security Architecture (Research Paper Implementation)"
-        subgraph "Layer 1: Network Security"
-            VPC[VPC Isolation]
-            SG[Security Groups]
-        end
-        
-        subgraph "Layer 2: Authentication"
-            API[API Key Auth]
-            JWT[JWT Tokens]
-        end
-        
-        subgraph "Layer 3: Authorization"
-            RBAC[RBAC Policies]
-            Princ[Least Privilege]
-        end
-        
-        subgraph "Layer 4: Application"
-            Valid[Input Validation]
-            Rate[Rate Limiting]
-        end
-        
-        subgraph "Layer 5: Data"
-            Encrypt[Encryption at Rest]
-            Audit[Audit Logging]
-        end
-        
-        VPC --> SG
-        SG --> API
-        API --> JWT
-        JWT --> RBAC
-        RBAC --> Princ
-        Princ --> Valid
-        Valid --> Rate
-        Rate --> Encrypt
-        Encrypt --> Audit
-    end
-    
-    subgraph "Test Coverage"
-        T1[Test 1: Infrastructure] -.-> VPC
-        T2[Test 2: Security] -.-> API
-        T2 -.-> RBAC
-        T7[Test 7: Error Handling] -.-> Valid
-        T6[Test 6: Persistence] -.-> Audit
-    end
-    
-    style T1 fill:#87CEEB
-    style T2 fill:#90EE90
-    style T6 fill:#FFD700
-    style T7 fill:#FFA07A
+ subgraph "Security Architecture (Research Paper Implementation)"
+ subgraph "Layer 1: Network Security"
+ VPC[VPC Isolation]
+ SG[Security Groups]
+ end
+ 
+ subgraph "Layer 2: Authentication"
+ API[API Key Auth]
+ JWT[JWT Tokens]
+ end
+ 
+ subgraph "Layer 3: Authorization"
+ RBAC[RBAC Policies]
+ Princ[Least Privilege]
+ end
+ 
+ subgraph "Layer 4: Application"
+ Valid[Input Validation]
+ Rate[Rate Limiting]
+ end
+ 
+ subgraph "Layer 5: Data"
+ Encrypt[Encryption at Rest]
+ Audit[Audit Logging]
+ end
+ 
+ VPC --> SG
+ SG --> API
+ API --> JWT
+ JWT --> RBAC
+ RBAC --> Princ
+ Princ --> Valid
+ Valid --> Rate
+ Rate --> Encrypt
+ Encrypt --> Audit
+ end
+ 
+ subgraph "Test Coverage"
+ T1[Test 1: Infrastructure] -.-> VPC
+ T2[Test 2: Security] -.-> API
+ T2 -.-> RBAC
+ T7[Test 7: Error Handling] -.-> Valid
+ T6[Test 6: Persistence] -.-> Audit
+ end
+ 
+ style T1 fill:#87CEEB
+ style T2 fill:#90EE90
+ style T6 fill:#FFD700
+ style T7 fill:#FFA07A
 ```
 
 ---
 
-## 📊 Test Results Interpretation
+## Test Results Interpretation
 
 ### **What "Passed" Means**
 
-When a test passes (✅), it means:
+When a test passes (), it means:
 - The component is working as designed
 - Security controls are in place
 - Performance meets targets
@@ -772,7 +772,7 @@ When a test passes (✅), it means:
 
 ### **What "Failed" Means**
 
-When a test fails (❌), investigate:
+When a test fails (), investigate:
 1. Check the service logs
 2. Verify configuration
 3. Check network connectivity
@@ -780,31 +780,31 @@ When a test fails (❌), investigate:
 
 ### **What "Warning" Means**
 
-Warnings (⚠️) indicate:
+Warnings (️) indicate:
 - System is functional but not optimal
 - Potential issue to monitor
 - Non-critical deviation from best practices
 
 ---
 
-## 🎯 Success Criteria
+## Success Criteria
 
 For the system to be considered **fully operational**, we need:
 
 | Category | Requirement | Critical? |
 |----------|-------------|-----------|
-| Infrastructure | All services running | ✅ Yes |
-| Security | Auth + RBAC configured | ✅ Yes |
-| MCP | Native implementation | ✅ Yes |
-| Pipeline | End-to-end processing | ✅ Yes |
-| Performance | < 2 second processing | ⚠️ Important |
-| Errors | Zero critical errors | ✅ Yes |
+| Infrastructure | All services running | Yes |
+| Security | Auth + RBAC configured | Yes |
+| MCP | Native implementation | Yes |
+| Pipeline | End-to-end processing | Yes |
+| Performance | < 2 second processing | ️ Important |
+| Errors | Zero critical errors | Yes |
 
-**Current Status:** ✅ **24/24 tests passed (100%)**
+**Current Status:** **24/24 tests passed (100%)**
 
 ---
 
-## 🚀 Running the Tests Yourself
+## Running the Tests Yourself
 
 ```bash
 # In AWS CloudShell or terminal with AWS CLI
@@ -823,20 +823,20 @@ cd ~/ca_a2a
 ============================================
 TEST SUMMARY
 ============================================
-Passed:   24
-Failed:   0
+Passed: 24
+Failed: 0
 Warnings: 0
 
 Success Rate: 100%
 
 ============================================
-✅ ALL TESTS PASSED - SYSTEM OPERATIONAL
+ ALL TESTS PASSED - SYSTEM OPERATIONAL
 ============================================
 ```
 
 ---
 
-## 📚 Further Reading
+## Further Reading
 
 **Research Paper:**
 "Securing Agent-to-Agent (A2A) Communications Across Domains"
@@ -852,7 +852,7 @@ Success Rate: 100%
 
 ---
 
-## ❓ Common Questions
+## Common Questions
 
 ### **Q: Why 24 tests?**
 **A:** Each test validates a specific aspect of the system. More tests = more confidence that everything works correctly.
@@ -871,24 +871,24 @@ Success Rate: 100%
 
 ### **Q: Can non-technical people understand the results?**
 **A:** Yes! Look for:
-- ✅ Green checkmarks = good
-- ❌ Red X's = problem
+- Green checkmarks = good
+- Red X's = problem
 - Success rate percentage at the end
 
 ---
 
-## 🎉 Conclusion
+## Conclusion
 
 This test suite is your **confidence builder**. When all 24 tests pass, you can confidently say:
 
 > "Our multi-agent document processing system is operational, secure, performant, and implements industry best practices from peer-reviewed research."
 
-**Remember:** Tests are not just about finding problems - they're about **proving the system works correctly**! 🚀
+**Remember:** Tests are not just about finding problems - they're about **proving the system works correctly**! 
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 3, 2026  
-**Test Coverage:** 24 tests across 8 categories  
-**Current Success Rate:** 100% ✅
+**Document Version:** 1.0 
+**Last Updated:** January 3, 2026 
+**Test Coverage:** 24 tests across 8 categories 
+**Current Success Rate:** 100% 
 

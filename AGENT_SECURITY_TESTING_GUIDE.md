@@ -1,10 +1,10 @@
-# 🧪 Comprehensive Agent & Security Testing Guide
+# Comprehensive Agent & Security Testing Guide
 
 **Complete Testing Framework for Multi-Agent System with Enhanced Security**
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Overview](#overview)
 2. [Test Categories](#test-categories)
@@ -16,20 +16,20 @@
 
 ---
 
-## 🎯 Overview
+## Overview
 
 The enhanced deployment script now includes **40+ comprehensive tests** across:
-- ✅ **24 Security Feature Tests** (HMAC, Schema, Revocation, mTLS, Performance)
-- ✅ **8 Agent Functionality Tests** (Health, Skills, Communication)
-- ✅ **8 RBAC & Rate Limiting Tests**
-- ✅ **6 Security Audit Checks**
-- ✅ **10 Compliance Criteria**
+- **24 Security Feature Tests** (HMAC, Schema, Revocation, mTLS, Performance)
+- **8 Agent Functionality Tests** (Health, Skills, Communication)
+- **8 RBAC & Rate Limiting Tests**
+- **6 Security Audit Checks**
+- **10 Compliance Criteria**
 
 **Total Test Coverage:** ~56 distinct validation points
 
 ---
 
-## 📊 Test Categories
+## Test Categories
 
 ### **Category A: Core Security Features (Step 3)**
 - Local unit tests before deployment
@@ -49,7 +49,7 @@ The enhanced deployment script now includes **40+ comprehensive tests** across:
 
 ---
 
-## 🤖 Agent Functionality Tests
+## Agent Functionality Tests
 
 ### **Test 6.5.1: Orchestrator Agent**
 
@@ -59,18 +59,18 @@ The enhanced deployment script now includes **40+ comprehensive tests** across:
 ```bash
 # Get orchestrator IP
 ORCH_IP=$(aws ecs describe-tasks \
-    --cluster ca-a2a-cluster \
-    --tasks ${ORCH_TASK_ARN} \
-    --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
-    --output text)
+ --cluster ca-a2a-cluster \
+ --tasks ${ORCH_TASK_ARN} \
+ --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+ --output text)
 
 # Test health endpoint
 curl -s http://${ORCH_IP}:8001/health
 
 # Test skills endpoint
 curl -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"test"}'
+ -H "Content-Type: application/json" \
+ -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"test"}'
 ```
 
 **What It Tests:**
@@ -81,11 +81,11 @@ curl -X POST http://${ORCH_IP}:8001/message \
 
 **Expected Output:**
 ```
-✓ Orchestrator health endpoint
-  - Orchestrator IP: 10.0.10.25
-  - Health status: OK
-✓ Orchestrator skills registration
-  - Skills detected: process_document, coordinate_pipeline
+ Orchestrator health endpoint
+ - Orchestrator IP: 10.0.10.25
+ - Health status: OK
+ Orchestrator skills registration
+ - Skills detected: process_document, coordinate_pipeline
 ```
 
 **Why This Matters:** Ensures the orchestrator can receive and route requests
@@ -117,16 +117,16 @@ curl -s http://${ARCH_IP}:8004/health
 
 **Expected Output:**
 ```
-✓ Extractor health endpoint
-✓ Validator health endpoint
-✓ Archivist health endpoint
+ Extractor health endpoint
+ Validator health endpoint
+ Archivist health endpoint
 ```
 
 **Why This Matters:** Ensures the entire agent pipeline is online and ready
 
 ---
 
-## 🔐 RBAC Security Tests
+## RBAC Security Tests
 
 ### **Test 6.5.5: RBAC Authorization Policies**
 
@@ -137,14 +137,14 @@ curl -s http://${ARCH_IP}:8004/health
 ```bash
 # Get valid API key from task definition
 API_KEY=$(aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
-    --output text | jq -r '.["lambda-s3-processor"]')
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+ --output text | jq -r '.["lambda-s3-processor"]')
 
 # Send authorized request
 curl -X POST http://${ORCH_IP}:8001/message \
-    -H "X-API-Key: $API_KEY" \
-    -d '{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"test.pdf"},"id":"test"}'
+ -H "X-API-Key: $API_KEY" \
+ -d '{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"test.pdf"},"id":"test"}'
 ```
 
 **Expected Result:** Request succeeds (no 401/403 error)
@@ -154,8 +154,8 @@ curl -X POST http://${ORCH_IP}:8001/message \
 ```bash
 # Send request with invalid API key
 curl -X POST http://${ORCH_IP}:8001/message \
-    -H "X-API-Key: INVALID_KEY_12345" \
-    -d '{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"test.pdf"},"id":"test"}'
+ -H "X-API-Key: INVALID_KEY_12345" \
+ -d '{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"test.pdf"},"id":"test"}'
 ```
 
 **Expected Result:** HTTP 401 Unauthorized error
@@ -168,21 +168,21 @@ curl -X POST http://${ORCH_IP}:8001/message \
 **RBAC Policy:**
 ```json
 {
-  "allow": {
-    "lambda-s3-processor": ["*"],
-    "orchestrator": ["extract_document", "validate_document", "archive_document"]
-  },
-  "deny": {}
+ "allow": {
+ "lambda-s3-processor": ["*"],
+ "orchestrator": ["extract_document", "validate_document", "archive_document"]
+ },
+ "deny": {}
 }
 ```
 
 **Expected Output:**
 ```
-✓ RBAC authorized request
-  - API key authentication: PASSED
-  - RBAC policy check: PASSED
-✓ RBAC unauthorized request rejection
-  - Invalid API key correctly rejected
+ RBAC authorized request
+ - API key authentication: PASSED
+ - RBAC policy check: PASSED
+ RBAC unauthorized request rejection
+ - Invalid API key correctly rejected
 ```
 
 ---
@@ -195,9 +195,9 @@ curl -X POST http://${ORCH_IP}:8001/message \
 ```bash
 # Send 10 rapid requests
 for i in {1..10}; do
-    curl -X POST http://${ORCH_IP}:8001/message \
-        -H "X-API-Key: $API_KEY" \
-        -d "{\"jsonrpc\":\"2.0\",\"method\":\"list_skills\",\"id\":\"$i\"}"
+ curl -X POST http://${ORCH_IP}:8001/message \
+ -H "X-API-Key: $API_KEY" \
+ -d "{\"jsonrpc\":\"2.0\",\"method\":\"list_skills\",\"id\":\"$i\"}"
 done
 ```
 
@@ -210,19 +210,19 @@ done
 
 **Scenario A: Under Threshold**
 ```
-✓ Rate limiting (under threshold)
-  - 10 requests completed without hitting limit
+ Rate limiting (under threshold)
+ - 10 requests completed without hitting limit
 ```
 
 **Scenario B: Limit Hit**
 ```
-✓ Rate limiting (limit enforced)
-  - Rate limit correctly enforced after multiple requests
+ Rate limiting (limit enforced)
+ - Rate limit correctly enforced after multiple requests
 ```
 
 **Rate Limit Configuration:**
 ```python
-DEFAULT_RATE_LIMIT = 100  # requests per minute per principal
+DEFAULT_RATE_LIMIT = 100 # requests per minute per principal
 ```
 
 **Why This Matters:** Prevents DoS attacks and resource exhaustion
@@ -239,7 +239,7 @@ DEFAULT_RATE_LIMIT = 100  # requests per minute per principal
 ```bash
 # Check orchestrator logs for A2A calls
 aws logs tail /ecs/ca-a2a-orchestrator --since 10m --region eu-west-3 | \
-  grep -E "Calling.*extractor.*extract_document|Calling.*validator.*validate_document|Calling.*archivist.*archive_document"
+ grep -E "Calling.*extractor.*extract_document|Calling.*validator.*validate_document|Calling.*archivist.*archive_document"
 ```
 
 **What This Tests:**
@@ -258,9 +258,9 @@ INFO: Calling archivist.archive_document with params={'document_id': '123'}
 
 **Expected Output:**
 ```
-✓ Orchestrator -> Extractor A2A call
-✓ Orchestrator -> Validator A2A call
-✓ Orchestrator -> Archivist A2A call
+ Orchestrator -> Extractor A2A call
+ Orchestrator -> Validator A2A call
+ Orchestrator -> Archivist A2A call
 ```
 
 **Why This Matters:** Validates the core multi-agent coordination mechanism
@@ -276,20 +276,20 @@ INFO: Calling archivist.archive_document with params={'document_id': '123'}
 import asyncpg
 
 async def test_persistence():
-    conn = await asyncpg.connect(host=DB_HOST, user='postgres', ...)
-    
-    # Check tables exist
-    tables = await conn.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'")
-    
-    # Count documents
-    count = await conn.fetchval("SELECT COUNT(*) FROM documents")
-    
-    # Check recent documents
-    recent = await conn.fetchval(
-        "SELECT COUNT(*) FROM documents WHERE created_at > NOW() - INTERVAL '24 hours'"
-    )
-    
-    return count, recent
+ conn = await asyncpg.connect(host=DB_HOST, user='postgres', ...)
+ 
+ # Check tables exist
+ tables = await conn.fetch("SELECT tablename FROM pg_tables WHERE schemaname='public'")
+ 
+ # Count documents
+ count = await conn.fetchval("SELECT COUNT(*) FROM documents")
+ 
+ # Check recent documents
+ recent = await conn.fetchval(
+ "SELECT COUNT(*) FROM documents WHERE created_at > NOW() - INTERVAL '24 hours'"
+ )
+ 
+ return count, recent
 ```
 
 **What This Tests:**
@@ -299,11 +299,11 @@ async def test_persistence():
 
 **Expected Output:**
 ```
-✓ Documents table exists
-✓ Revoked tokens table exists
-✓ Documents in database: 47
-✓ Recent documents (24h): 12
-✓ Database persistence and schema
+ Documents table exists
+ Revoked tokens table exists
+ Documents in database: 47
+ Recent documents (24h): 12
+ Database persistence and schema
 ```
 
 **Schema Verification:**
@@ -319,7 +319,7 @@ SELECT jti, revoked_at, revoked_by, reason FROM revoked_tokens;
 
 ---
 
-## 🔍 Comprehensive Security Audit
+## Comprehensive Security Audit
 
 ### **Audit 7.1: Security Configuration Scoring**
 
@@ -339,25 +339,25 @@ SELECT jti, revoked_at, revoked_by, reason FROM revoked_tokens;
 **Test Code:**
 ```bash
 ENV_VARS=$(aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.containerDefinitions[0].environment' ...)
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.containerDefinitions[0].environment' ...)
 
 # Check each security feature
-grep "A2A_REQUIRE_AUTH.*true" <<< "$ENV_VARS"  # Score +1
-grep "A2A_ENABLE_HMAC_SIGNING.*true" <<< "$ENV_VARS"  # Score +1
+grep "A2A_REQUIRE_AUTH.*true" <<< "$ENV_VARS" # Score +1
+grep "A2A_ENABLE_HMAC_SIGNING.*true" <<< "$ENV_VARS" # Score +1
 # ... etc
 ```
 
 **Expected Output:**
 ```
 Auditing orchestrator...
-  ✓ A2A_REQUIRE_AUTH: enabled
-  ✓ A2A_ENABLE_HMAC_SIGNING: enabled
-  ✓ A2A_ENABLE_SCHEMA_VALIDATION: enabled
-  ✓ A2A_ENABLE_TOKEN_REVOCATION: enabled
-  - A2A_ENABLE_RATE_LIMIT: default (likely enabled)
-  Security Score: 5/5
-✓ orchestrator security configuration (score: 5/5)
+ A2A_REQUIRE_AUTH: enabled
+ A2A_ENABLE_HMAC_SIGNING: enabled
+ A2A_ENABLE_SCHEMA_VALIDATION: enabled
+ A2A_ENABLE_TOKEN_REVOCATION: enabled
+ - A2A_ENABLE_RATE_LIMIT: default (likely enabled)
+ Security Score: 5/5
+ orchestrator security configuration (score: 5/5)
 ```
 
 **Pass Criteria:** Score ≥ 4/5
@@ -373,7 +373,7 @@ Auditing orchestrator...
 **1. VPC Isolation**
 ```bash
 aws ecs describe-clusters --clusters ca-a2a-cluster \
-    --query 'clusters[0].tags[?key==`VPC`].value'
+ --query 'clusters[0].tags[?key==`VPC`].value'
 ```
 
 **Expected:** VPC ID present (e.g., `vpc-abc123`)
@@ -381,17 +381,17 @@ aws ecs describe-clusters --clusters ca-a2a-cluster \
 **2. Security Group Rules**
 ```bash
 aws ec2 describe-security-groups --group-ids ${SG_ID} \
-    --query 'SecurityGroups[0].IpPermissions[*].IpRanges[*].CidrIp'
+ --query 'SecurityGroups[0].IpPermissions[*].IpRanges[*].CidrIp'
 ```
 
 **Expected:** NO `0.0.0.0/0` rules (no public access)
 
 **Output:**
 ```
-✓ VPC isolation: enabled (VPC: vpc-0a1b2c3d)
-✓ Security groups: configured (sg-xyz789)
-  ✓ Security group rules: restrictive (no public access)
-✓ Security group rules
+ VPC isolation: enabled (VPC: vpc-0a1b2c3d)
+ Security groups: configured (sg-xyz789)
+ Security group rules: restrictive (no public access)
+ Security group rules
 ```
 
 ---
@@ -403,7 +403,7 @@ aws ec2 describe-security-groups --group-ids ${SG_ID} \
 **Check:**
 ```bash
 aws secretsmanager list-secrets --region eu-west-3 \
-    --query 'SecretList[?starts_with(Name, `ca-a2a`)].Name'
+ --query 'SecretList[?starts_with(Name, `ca-a2a`)].Name'
 ```
 
 **Expected Secrets:**
@@ -413,9 +413,9 @@ aws secretsmanager list-secrets --region eu-west-3 \
 
 **Output:**
 ```
-✓ Secrets in AWS Secrets Manager: 3
-  Secrets: ca-a2a/db-password ca-a2a/jwt-secret ca-a2a/hmac-secret
-✓ Secrets management (using AWS Secrets Manager)
+ Secrets in AWS Secrets Manager: 3
+ Secrets: ca-a2a/db-password ca-a2a/jwt-secret ca-a2a/hmac-secret
+ Secrets management (using AWS Secrets Manager)
 ```
 
 ---
@@ -427,8 +427,8 @@ aws secretsmanager list-secrets --region eu-west-3 \
 **Check:**
 ```bash
 for SERVICE in orchestrator extractor validator archivist; do
-    aws logs describe-log-groups \
-        --log-group-name-prefix "/ecs/ca-a2a-${SERVICE}"
+ aws logs describe-log-groups \
+ --log-group-name-prefix "/ecs/ca-a2a-${SERVICE}"
 done
 ```
 
@@ -436,11 +436,11 @@ done
 
 **Output:**
 ```
-✓ orchestrator logs: enabled (retention: 30 days)
-✓ extractor logs: enabled (retention: 30 days)
-✓ validator logs: enabled (retention: 30 days)
-✓ archivist logs: enabled (retention: 30 days)
-✓ CloudWatch logging configuration
+ orchestrator logs: enabled (retention: 30 days)
+ extractor logs: enabled (retention: 30 days)
+ validator logs: enabled (retention: 30 days)
+ archivist logs: enabled (retention: 30 days)
+ CloudWatch logging configuration
 ```
 
 ---
@@ -453,33 +453,33 @@ done
 ```bash
 # Get task role
 TASK_ROLE=$(aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.taskRoleArn')
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.taskRoleArn')
 
 # Check attached policies
 aws iam list-attached-role-policies --role-name ${ROLE_NAME}
 ```
 
 **Red Flags:**
-- ❌ `AdministratorAccess`
-- ❌ `PowerUserAccess`
-- ❌ `*` permissions
+- `AdministratorAccess`
+- `PowerUserAccess`
+- `*` permissions
 
 **Expected:**
-- ✅ Scoped S3 access
-- ✅ Scoped RDS access
-- ✅ Scoped CloudWatch Logs access
+- Scoped S3 access
+- Scoped RDS access
+- Scoped CloudWatch Logs access
 
 **Output:**
 ```
-✓ Task IAM role: configured (ca-a2a-orchestrator-task-role)
-  ✓ IAM role permissions: principle of least privilege
-✓ IAM role permissions
+ Task IAM role: configured (ca-a2a-orchestrator-task-role)
+ IAM role permissions: principle of least privilege
+ IAM role permissions
 ```
 
 ---
 
-## 📜 Compliance Matrix
+## Compliance Matrix
 
 ### **Audit 7.6: Research Paper Compliance**
 
@@ -501,26 +501,26 @@ aws iam list-attached-role-policies --role-name ${ROLE_NAME}
 | 10 | **Logging & Monitoring** | Audit trail | Mandatory |
 
 **Scoring:**
-- ✅ **Mandatory (7 items):** Must all pass for production
+- **Mandatory (7 items):** Must all pass for production
 - ⭐ **Recommended (3 items):** Optional but highly advised
 
 **Expected Output:**
 ```
 Research Paper Compliance:
-  ✓ Authentication: COMPLIANT (JWT/API Key)
-  ✓ Authorization (RBAC): COMPLIANT
-  ✓ Message Integrity (HMAC): COMPLIANT
-  ✓ Input Validation: COMPLIANT
-  ✓ Replay Protection: COMPLIANT (default enabled)
-  ✓ Rate Limiting: COMPLIANT (default enabled)
-  ✓ Token Revocation: COMPLIANT
-  ✓ TLS/Encryption: COMPLIANT (AWS VPC + internal TLS)
-  ✓ Network Isolation: COMPLIANT (VPC)
-  ✓ Logging & Monitoring: COMPLIANT (CloudWatch)
+ Authentication: COMPLIANT (JWT/API Key)
+ Authorization (RBAC): COMPLIANT
+ Message Integrity (HMAC): COMPLIANT
+ Input Validation: COMPLIANT
+ Replay Protection: COMPLIANT (default enabled)
+ Rate Limiting: COMPLIANT (default enabled)
+ Token Revocation: COMPLIANT
+ TLS/Encryption: COMPLIANT (AWS VPC + internal TLS)
+ Network Isolation: COMPLIANT (VPC)
+ Logging & Monitoring: COMPLIANT (CloudWatch)
 
 Overall Compliance Score: 10/10 (100%)
-✓ Security compliance (10/10)
-  Status: PRODUCTION READY
+ Security compliance (10/10)
+ Status: PRODUCTION READY
 ```
 
 **Pass Criteria:**
@@ -529,7 +529,7 @@ Overall Compliance Score: 10/10 (100%)
 
 ---
 
-## 🚀 Running the Tests
+## Running the Tests
 
 ### **Full Test Suite (In CloudShell):**
 
@@ -569,28 +569,28 @@ chmod +x security-audit.sh
 
 ---
 
-## 📊 Expected Final Output
+## Expected Final Output
 
 ```
 ============================================
 TEST SUMMARY
 ============================================
-Passed:   51
-Failed:   0
+Passed: 51
+Failed: 0
 
 Success Rate: 100%
 
 Overall Compliance Score: 10/10 (100%)
-  Status: PRODUCTION READY
+ Status: PRODUCTION READY
 
 ============================================
-✓ ALL TESTS PASSED - ENHANCED SECURITY OPERATIONAL
+ ALL TESTS PASSED - ENHANCED SECURITY OPERATIONAL
 ============================================
 ```
 
 ---
 
-## 🎯 Success Criteria
+## Success Criteria
 
 | Category | Tests | Pass Threshold |
 |----------|-------|----------------|
@@ -603,8 +603,8 @@ Overall Compliance Score: 10/10 (100%)
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 3, 2026  
-**Test Suite Version:** 2.0  
+**Document Version:** 1.0 
+**Last Updated:** January 3, 2026 
+**Test Suite Version:** 2.0 
 **Coverage:** 56 validation points across 7 categories
 

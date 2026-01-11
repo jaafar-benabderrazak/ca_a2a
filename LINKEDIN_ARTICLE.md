@@ -37,14 +37,14 @@ We built a system with **four specialized agents** that coordinate to process do
 
 ```
 Upload PDF → S3 → Event → Lambda → Orchestrator (Auth/AuthZ) → 
-   → Extractor → Validator → Archivist → PostgreSQL
+ → Extractor → Validator → Archivist → PostgreSQL
 ```
 
 Every single inter-agent call is:
-- ✅ **Authenticated** (proves identity)
-- ✅ **Authorized** (checks permissions)
-- ✅ **Rate Limited** (prevents abuse)
-- ✅ **Audited** (tracks everything)
+- **Authenticated** (proves identity)
+- **Authorized** (checks permissions)
+- **Rate Limited** (prevents abuse)
+- **Audited** (tracks everything)
 
 ---
 
@@ -70,11 +70,11 @@ Not all authenticated requests should succeed! We implemented **Role-Based Acces
 
 ```json
 {
-  "allow": {
-    "lambda-s3-processor": ["process_document"],
-    "admin": ["*"],
-    "monitoring": ["get_status"]
-  }
+ "allow": {
+ "lambda-s3-processor": ["process_document"],
+ "admin": ["*"],
+ "monitoring": ["get_status"]
+ }
 }
 ```
 
@@ -147,11 +147,11 @@ Every request logged with:
 
 ### Security Validation
 
-✅ **Authentication:** All requests authenticated  
-✅ **Authorization:** RBAC properly enforced  
-✅ **Rate Limiting:** Quotas correctly tracked  
-✅ **Audit Trail:** Complete logging with correlation IDs  
-✅ **No Security Bypasses:** Zero unauthorized access attempts succeeded
+ **Authentication:** All requests authenticated 
+ **Authorization:** RBAC properly enforced 
+ **Rate Limiting:** Quotas correctly tracked 
+ **Audit Trail:** Complete logging with correlation IDs 
+ **No Security Bypasses:** Zero unauthorized access attempts succeeded
 
 ### Business Value
 
@@ -249,10 +249,10 @@ Manual processes fail. We automated:
 ### 5. Test Security Features Explicitly
 
 Don't assume security works - test it:
-- ✅ Test authentication (try invalid keys)
-- ✅ Test authorization (try forbidden methods)
-- ✅ Test rate limiting (send many requests)
-- ✅ Test audit logging (verify principal tracking)
+- Test authentication (try invalid keys)
+- Test authorization (try forbidden methods)
+- Test rate limiting (send many requests)
+- Test audit logging (verify principal tracking)
 
 ---
 
@@ -336,11 +336,11 @@ The patterns we implemented - authentication, authorization, rate limiting, audi
 ## Want to Learn More?
 
 The complete system is documented with:
-- ✅ Full command history with explanations
-- ✅ Architecture diagrams (Mermaid)
-- ✅ Security implementation details
-- ✅ Test results and evidence
-- ✅ References to academic research
+- Full command history with explanations
+- Architecture diagrams (Mermaid)
+- Security implementation details
+- Test results and evidence
+- References to academic research
 
 **Key Resources:**
 - Research Paper: "Securing Agent-to-Agent (A2A) Communications Across Domains"

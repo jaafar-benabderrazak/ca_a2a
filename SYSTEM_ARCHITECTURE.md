@@ -1,12 +1,12 @@
 # CA-A2A System Architecture & Network Documentation
 
-**Document Version:** 1.0  
-**Last Updated:** December 18, 2025  
+**Document Version:** 1.0 
+**Last Updated:** December 18, 2025 
 **Region:** eu-west-3 (Paris)
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [System Overview](#system-overview)
 2. [Network Architecture](#network-architecture)
@@ -25,57 +25,57 @@ The CA-A2A (Credit Agricole Agent-to-Agent) system is an intelligent document pr
 
 ```mermaid
 graph TB
-    subgraph Internet
-        Client[Client/User]
-    end
-    
-    subgraph AWS["AWS Cloud - eu-west-3"]
-        subgraph VPC["VPC: vpc-086392a3eed899f72<br/>CIDR: 10.0.0.0/16"]
-            subgraph Public["Public Subnets"]
-                ALB["Application Load Balancer<br/>ca-a2a-alb<br/>DNS: ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com"]
-                IGW["Internet Gateway<br/>igw-052f22bed7f171258"]
-            end
-            
-            subgraph Private["Private Subnets"]
-                subgraph ECS["ECS Cluster: ca-a2a-cluster"]
-                    Orch["Orchestrator<br/>Port: 8001<br/>Tasks: 2"]
-                    Ext["Extractor<br/>Port: 8002<br/>Tasks: 2"]
-                    Val["Validator<br/>Port: 8003<br/>Tasks: 2"]
-                    Arch["Archivist<br/>Port: 8004<br/>Tasks: 2"]
-                end
-                
-                RDS["RDS PostgreSQL<br/>ca-a2a-postgres<br/>Endpoint: ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com<br/>Port: 5432"]
-            end
-            
-            VPCEndpoints["VPC Endpoints<br/>- Secrets Manager<br/>- ECR (API & DKR)<br/>- CloudWatch Logs<br/>- S3"]
-        end
-        
-        S3["S3 Bucket<br/>ca-a2a-documents-555043101106"]
-        Secrets["Secrets Manager<br/>ca-a2a/db-password"]
-        ECR["ECR Repositories<br/>- ca-a2a/orchestrator<br/>- ca-a2a/extractor<br/>- ca-a2a/validator<br/>- ca-a2a/archivist"]
-        CW["CloudWatch Logs<br/>/ecs/ca-a2a-*"]
-    end
-    
-    Client -->|HTTPS/HTTP| ALB
-    IGW -.->|Route| ALB
-    ALB -->|Target Group| Orch
-    Orch <-->|A2A Protocol| Ext
-    Orch <-->|A2A Protocol| Val
-    Orch <-->|A2A Protocol| Arch
-    
-    Orch <-->|MCP: PostgreSQL| RDS
-    Ext <-->|MCP: PostgreSQL| RDS
-    Val <-->|MCP: PostgreSQL| RDS
-    Arch <-->|MCP: PostgreSQL| RDS
-    
-    Ext <-->|MCP: S3| S3
-    Arch <-->|MCP: S3| S3
-    
-    ECS -.->|Private Link| VPCEndpoints
-    VPCEndpoints -.-> S3
-    VPCEndpoints -.-> Secrets
-    VPCEndpoints -.-> ECR
-    VPCEndpoints -.-> CW
+ subgraph Internet
+ Client[Client/User]
+ end
+ 
+ subgraph AWS["AWS Cloud - eu-west-3"]
+ subgraph VPC["VPC: vpc-086392a3eed899f72<br/>CIDR: 10.0.0.0/16"]
+ subgraph Public["Public Subnets"]
+ ALB["Application Load Balancer<br/>ca-a2a-alb<br/>DNS: ca-a2a-alb-1432397105.eu-west-3.elb.amazonaws.com"]
+ IGW["Internet Gateway<br/>igw-052f22bed7f171258"]
+ end
+ 
+ subgraph Private["Private Subnets"]
+ subgraph ECS["ECS Cluster: ca-a2a-cluster"]
+ Orch["Orchestrator<br/>Port: 8001<br/>Tasks: 2"]
+ Ext["Extractor<br/>Port: 8002<br/>Tasks: 2"]
+ Val["Validator<br/>Port: 8003<br/>Tasks: 2"]
+ Arch["Archivist<br/>Port: 8004<br/>Tasks: 2"]
+ end
+ 
+ RDS["RDS PostgreSQL<br/>ca-a2a-postgres<br/>Endpoint: ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com<br/>Port: 5432"]
+ end
+ 
+ VPCEndpoints["VPC Endpoints<br/>- Secrets Manager<br/>- ECR (API & DKR)<br/>- CloudWatch Logs<br/>- S3"]
+ end
+ 
+ S3["S3 Bucket<br/>ca-a2a-documents-555043101106"]
+ Secrets["Secrets Manager<br/>ca-a2a/db-password"]
+ ECR["ECR Repositories<br/>- ca-a2a/orchestrator<br/>- ca-a2a/extractor<br/>- ca-a2a/validator<br/>- ca-a2a/archivist"]
+ CW["CloudWatch Logs<br/>/ecs/ca-a2a-*"]
+ end
+ 
+ Client -->|HTTPS/HTTP| ALB
+ IGW -.->|Route| ALB
+ ALB -->|Target Group| Orch
+ Orch <-->|A2A Protocol| Ext
+ Orch <-->|A2A Protocol| Val
+ Orch <-->|A2A Protocol| Arch
+ 
+ Orch <-->|MCP: PostgreSQL| RDS
+ Ext <-->|MCP: PostgreSQL| RDS
+ Val <-->|MCP: PostgreSQL| RDS
+ Arch <-->|MCP: PostgreSQL| RDS
+ 
+ Ext <-->|MCP: S3| S3
+ Arch <-->|MCP: S3| S3
+ 
+ ECS -.->|Private Link| VPCEndpoints
+ VPCEndpoints -.-> S3
+ VPCEndpoints -.-> Secrets
+ VPCEndpoints -.-> ECR
+ VPCEndpoints -.-> CW
 ```
 
 ---
@@ -94,22 +94,22 @@ graph TB
 
 ```mermaid
 graph LR
-    subgraph VPC["VPC: 10.0.0.0/16"]
-        subgraph AZ1["eu-west-3a"]
-            PubSub1["Public Subnet 1<br/>subnet-020c68e784c2c9354<br/>For ALB"]
-            PrivSub1["Private Subnet 1<br/>subnet-07484aca0e473e3d0<br/>For ECS Tasks"]
-        end
-        
-        subgraph AZ2["eu-west-3b"]
-            PubSub2["Public Subnet 2<br/>subnet-0deca2d494c9ba33f<br/>For ALB"]
-            PrivSub2["Private Subnet 2<br/>subnet-0aef6b4fcce7748a9<br/>For ECS Tasks"]
-        end
-    end
-    
-    IGW["Internet Gateway<br/>igw-052f22bed7f171258"]
-    
-    IGW -->|0.0.0.0/0| PubSub1
-    IGW -->|0.0.0.0/0| PubSub2
+ subgraph VPC["VPC: 10.0.0.0/16"]
+ subgraph AZ1["eu-west-3a"]
+ PubSub1["Public Subnet 1<br/>subnet-020c68e784c2c9354<br/>For ALB"]
+ PrivSub1["Private Subnet 1<br/>subnet-07484aca0e473e3d0<br/>For ECS Tasks"]
+ end
+ 
+ subgraph AZ2["eu-west-3b"]
+ PubSub2["Public Subnet 2<br/>subnet-0deca2d494c9ba33f<br/>For ALB"]
+ PrivSub2["Private Subnet 2<br/>subnet-0aef6b4fcce7748a9<br/>For ECS Tasks"]
+ end
+ end
+ 
+ IGW["Internet Gateway<br/>igw-052f22bed7f171258"]
+ 
+ IGW -->|0.0.0.0/0| PubSub1
+ IGW -->|0.0.0.0/0| PubSub2
 ```
 
 ### 2.3 Route Tables
@@ -125,26 +125,26 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph SG_ALB["ALB Security Group<br/>sg-05db73131090f365a"]
-        direction TB
-        ALB_IN_80["Inbound<br/>Port 80 (HTTP)<br/>0.0.0.0/0"]
-        ALB_IN_443["Inbound<br/>Port 443 (HTTPS)<br/>0.0.0.0/0"]
-    end
-    
-    subgraph SG_ECS["ECS Security Group<br/>sg-047a8f39f9cdcaf4c"]
-        direction TB
-        ECS_IN_8001["Inbound<br/>Port 8001<br/>From ALB SG"]
-        ECS_IN_8002["Inbound<br/>Port 8002-8004<br/>Internal"]
-        ECS_OUT_ALL["Outbound<br/>All traffic<br/>0.0.0.0/0"]
-    end
-    
-    subgraph SG_RDS["RDS Security Group<br/>sg-0dfffbf7f98f77a4c"]
-        direction TB
-        RDS_IN_5432["Inbound<br/>Port 5432<br/>From ECS SG"]
-    end
-    
-    SG_ALB -->|Port 8001| SG_ECS
-    SG_ECS -->|Port 5432| SG_RDS
+ subgraph SG_ALB["ALB Security Group<br/>sg-05db73131090f365a"]
+ direction TB
+ ALB_IN_80["Inbound<br/>Port 80 (HTTP)<br/>0.0.0.0/0"]
+ ALB_IN_443["Inbound<br/>Port 443 (HTTPS)<br/>0.0.0.0/0"]
+ end
+ 
+ subgraph SG_ECS["ECS Security Group<br/>sg-047a8f39f9cdcaf4c"]
+ direction TB
+ ECS_IN_8001["Inbound<br/>Port 8001<br/>From ALB SG"]
+ ECS_IN_8002["Inbound<br/>Port 8002-8004<br/>Internal"]
+ ECS_OUT_ALL["Outbound<br/>All traffic<br/>0.0.0.0/0"]
+ end
+ 
+ subgraph SG_RDS["RDS Security Group<br/>sg-0dfffbf7f98f77a4c"]
+ direction TB
+ RDS_IN_5432["Inbound<br/>Port 5432<br/>From ECS SG"]
+ end
+ 
+ SG_ALB -->|Port 8001| SG_ECS
+ SG_ECS -->|Port 5432| SG_RDS
 ```
 
 **Security Group Rules:**
@@ -196,32 +196,32 @@ graph TB
 
 ```mermaid
 graph TB
-    subgraph Cluster["ECS Cluster: ca-a2a-cluster"]
-        subgraph Orchestrator["Orchestrator Service"]
-            O1["Task 1<br/>IP: 10.0.20.158<br/>Port: 8001"]
-            O2["Task 2<br/>IP: 10.0.10.75<br/>Port: 8001"]
-        end
-        
-        subgraph Extractor["Extractor Service"]
-            E1["Task 1<br/>Port: 8002"]
-            E2["Task 2<br/>Port: 8002"]
-        end
-        
-        subgraph Validator["Validator Service"]
-            V1["Task 1<br/>Port: 8003"]
-            V2["Task 2<br/>Port: 8003"]
-        end
-        
-        subgraph Archivist["Archivist Service"]
-            A1["Task 1<br/>Port: 8004"]
-            A2["Task 2<br/>Port: 8004"]
-        end
-    end
-    
-    ALB["ALB"] -->|Health checks| O1
-    ALB -->|Health checks| O2
-    ALB -.->|Route traffic| O1
-    ALB -.->|Route traffic| O2
+ subgraph Cluster["ECS Cluster: ca-a2a-cluster"]
+ subgraph Orchestrator["Orchestrator Service"]
+ O1["Task 1<br/>IP: 10.0.20.158<br/>Port: 8001"]
+ O2["Task 2<br/>IP: 10.0.10.75<br/>Port: 8001"]
+ end
+ 
+ subgraph Extractor["Extractor Service"]
+ E1["Task 1<br/>Port: 8002"]
+ E2["Task 2<br/>Port: 8002"]
+ end
+ 
+ subgraph Validator["Validator Service"]
+ V1["Task 1<br/>Port: 8003"]
+ V2["Task 2<br/>Port: 8003"]
+ end
+ 
+ subgraph Archivist["Archivist Service"]
+ A1["Task 1<br/>Port: 8004"]
+ A2["Task 2<br/>Port: 8004"]
+ end
+ end
+ 
+ ALB["ALB"] -->|Health checks| O1
+ ALB -->|Health checks| O2
+ ALB -.->|Route traffic| O1
+ ALB -.->|Route traffic| O2
 ```
 
 **Service Details:**
@@ -259,31 +259,31 @@ graph TB
 
 ```mermaid
 erDiagram
-    DOCUMENTS ||--o{ PROCESSING_LOGS : has
-    
-    DOCUMENTS {
-        uuid id PK
-        varchar filename
-        varchar file_type
-        varchar s3_key
-        varchar status
-        jsonb extracted_data
-        jsonb validation_result
-        varchar archived_s3_key
-        timestamp created_at
-        timestamp updated_at
-        integer file_size
-    }
-    
-    PROCESSING_LOGS {
-        uuid id PK
-        uuid document_id FK
-        varchar agent_name
-        varchar operation
-        varchar status
-        text message
-        timestamp timestamp
-    }
+ DOCUMENTS ||--o{ PROCESSING_LOGS : has
+ 
+ DOCUMENTS {
+ uuid id PK
+ varchar filename
+ varchar file_type
+ varchar s3_key
+ varchar status
+ jsonb extracted_data
+ jsonb validation_result
+ varchar archived_s3_key
+ timestamp created_at
+ timestamp updated_at
+ integer file_size
+ }
+ 
+ PROCESSING_LOGS {
+ uuid id PK
+ uuid document_id FK
+ varchar agent_name
+ varchar operation
+ varchar status
+ text message
+ timestamp timestamp
+ }
 ```
 
 ### 3.4 S3 Storage
@@ -293,10 +293,10 @@ erDiagram
 **Folder Structure:**
 ```
 ca-a2a-documents-555043101106/
-├── incoming/          # Uploaded documents awaiting processing
-├── processed/         # Successfully processed documents
-├── archived/          # Long-term archived documents
-└── failed/           # Failed processing attempts
+├── incoming/ # Uploaded documents awaiting processing
+├── processed/ # Successfully processed documents
+├── archived/ # Long-term archived documents
+└── failed/ # Failed processing attempts
 ```
 
 **Bucket Policy:** Private (accessed via IAM roles)
@@ -309,31 +309,31 @@ ca-a2a-documents-555043101106/
 
 ```mermaid
 graph TB
-    subgraph Client_Layer["Client Layer"]
-        HTTP["HTTP/HTTPS<br/>REST API"]
-    end
-    
-    subgraph Orchestrator_Layer["Orchestrator Layer"]
-        A2A_Server["A2A Protocol Server<br/>JSON-RPC 2.0"]
-        REST_Endpoints["REST Endpoints<br/>/health, /card, /status"]
-    end
-    
-    subgraph Agent_Layer["Agent Layer"]
-        A2A_Client["A2A Protocol Client<br/>JSON-RPC 2.0"]
-        MCP["Model Context Protocol<br/>(MCP)"]
-    end
-    
-    subgraph Resource_Layer["Resource Layer"]
-        S3_API["S3 API<br/>boto3"]
-        PG_API["PostgreSQL<br/>asyncpg"]
-    end
-    
-    HTTP --> A2A_Server
-    HTTP --> REST_Endpoints
-    A2A_Server --> A2A_Client
-    A2A_Client --> MCP
-    MCP --> S3_API
-    MCP --> PG_API
+ subgraph Client_Layer["Client Layer"]
+ HTTP["HTTP/HTTPS<br/>REST API"]
+ end
+ 
+ subgraph Orchestrator_Layer["Orchestrator Layer"]
+ A2A_Server["A2A Protocol Server<br/>JSON-RPC 2.0"]
+ REST_Endpoints["REST Endpoints<br/>/health, /card, /status"]
+ end
+ 
+ subgraph Agent_Layer["Agent Layer"]
+ A2A_Client["A2A Protocol Client<br/>JSON-RPC 2.0"]
+ MCP["Model Context Protocol<br/>(MCP)"]
+ end
+ 
+ subgraph Resource_Layer["Resource Layer"]
+ S3_API["S3 API<br/>boto3"]
+ PG_API["PostgreSQL<br/>asyncpg"]
+ end
+ 
+ HTTP --> A2A_Server
+ HTTP --> REST_Endpoints
+ A2A_Server --> A2A_Client
+ A2A_Client --> MCP
+ MCP --> S3_API
+ MCP --> PG_API
 ```
 
 ### 4.2 A2A Protocol (Agent-to-Agent)
@@ -346,12 +346,12 @@ graph TB
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "method": "method_name",
-  "params": {
-    "param1": "value1"
-  },
-  "id": 1
+ "jsonrpc": "2.0",
+ "method": "method_name",
+ "params": {
+ "param1": "value1"
+ },
+ "id": 1
 }
 ```
 
@@ -359,14 +359,14 @@ graph TB
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "result": {
-    "key": "value"
-  },
-  "id": 1,
-  "_meta": {
-    "correlation_id": "uuid"
-  }
+ "jsonrpc": "2.0",
+ "result": {
+ "key": "value"
+ },
+ "id": 1,
+ "_meta": {
+ "correlation_id": "uuid"
+ }
 }
 ```
 
@@ -374,13 +374,13 @@ graph TB
 
 ```json
 {
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32600,
-    "message": "Error description",
-    "data": {}
-  },
-  "id": 1
+ "jsonrpc": "2.0",
+ "error": {
+ "code": -32600,
+ "message": "Error description",
+ "data": {}
+ },
+ "id": 1
 }
 ```
 
@@ -422,111 +422,111 @@ graph TB
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant ALB
-    participant Orchestrator
-    participant Extractor
-    participant Validator
-    participant Archivist
-    participant S3
-    participant RDS
-    
-    Client->>S3: 1. Upload document to incoming/
-    Client->>ALB: 2. POST /message<br/>{method: "process_document"}
-    ALB->>Orchestrator: 3. Forward request<br/>Target: 10.0.20.158:8001
-    
-    Orchestrator->>RDS: 4. Create task record
-    Orchestrator->>Client: 5. Return task_id
-    
-    par Async Processing
-        Orchestrator->>Extractor: 6. A2A: extract_document
-        Extractor->>S3: 7. Get document
-        S3-->>Extractor: 8. Document content
-        Extractor->>Extractor: 9. Extract data
-        Extractor->>RDS: 10. Save extracted data
-        Extractor-->>Orchestrator: 11. Extraction result
-        
-        Orchestrator->>Validator: 12. A2A: validate_document
-        Validator->>Validator: 13. Validate data
-        Validator->>RDS: 14. Save validation result
-        Validator-->>Orchestrator: 15. Validation result
-        
-        Orchestrator->>Archivist: 16. A2A: archive_document
-        Archivist->>S3: 17. Move to archived/
-        Archivist->>RDS: 18. Update document status
-        Archivist-->>Orchestrator: 19. Archiving result
-    end
-    
-    Orchestrator->>RDS: 20. Update task status = completed
-    
-    Client->>ALB: 21. POST /message<br/>{method: "get_task_status"}
-    ALB->>Orchestrator: 22. Forward request
-    Orchestrator->>RDS: 23. Query task
-    RDS-->>Orchestrator: 24. Task details
-    Orchestrator-->>ALB: 25. Task status
-    ALB-->>Client: 26. Complete status
+ participant Client
+ participant ALB
+ participant Orchestrator
+ participant Extractor
+ participant Validator
+ participant Archivist
+ participant S3
+ participant RDS
+ 
+ Client->>S3: 1. Upload document to incoming/
+ Client->>ALB: 2. POST /message<br/>{method: "process_document"}
+ ALB->>Orchestrator: 3. Forward request<br/>Target: 10.0.20.158:8001
+ 
+ Orchestrator->>RDS: 4. Create task record
+ Orchestrator->>Client: 5. Return task_id
+ 
+ par Async Processing
+ Orchestrator->>Extractor: 6. A2A: extract_document
+ Extractor->>S3: 7. Get document
+ S3-->>Extractor: 8. Document content
+ Extractor->>Extractor: 9. Extract data
+ Extractor->>RDS: 10. Save extracted data
+ Extractor-->>Orchestrator: 11. Extraction result
+ 
+ Orchestrator->>Validator: 12. A2A: validate_document
+ Validator->>Validator: 13. Validate data
+ Validator->>RDS: 14. Save validation result
+ Validator-->>Orchestrator: 15. Validation result
+ 
+ Orchestrator->>Archivist: 16. A2A: archive_document
+ Archivist->>S3: 17. Move to archived/
+ Archivist->>RDS: 18. Update document status
+ Archivist-->>Orchestrator: 19. Archiving result
+ end
+ 
+ Orchestrator->>RDS: 20. Update task status = completed
+ 
+ Client->>ALB: 21. POST /message<br/>{method: "get_task_status"}
+ ALB->>Orchestrator: 22. Forward request
+ Orchestrator->>RDS: 23. Query task
+ RDS-->>Orchestrator: 24. Task details
+ Orchestrator-->>ALB: 25. Task status
+ ALB-->>Client: 26. Complete status
 ```
 
 ### 5.2 Agent Discovery Flow
 
 ```mermaid
 sequenceDiagram
-    participant Client
-    participant Orchestrator
-    participant Extractor
-    participant Validator
-    participant Archivist
-    
-    Client->>Orchestrator: POST /message<br/>{method: "discover_agents"}
-    
-    par Discovery
-        Orchestrator->>Extractor: GET /card
-        Extractor-->>Orchestrator: Agent card + skills
-        
-        Orchestrator->>Validator: GET /card
-        Validator-->>Orchestrator: Agent card + skills
-        
-        Orchestrator->>Archivist: GET /card
-        Archivist-->>Orchestrator: Agent card + skills
-    end
-    
-    Orchestrator->>Orchestrator: Build registry
-    Orchestrator-->>Client: Discovery result<br/>{discovered_agents: 3, total_skills: 17}
+ participant Client
+ participant Orchestrator
+ participant Extractor
+ participant Validator
+ participant Archivist
+ 
+ Client->>Orchestrator: POST /message<br/>{method: "discover_agents"}
+ 
+ par Discovery
+ Orchestrator->>Extractor: GET /card
+ Extractor-->>Orchestrator: Agent card + skills
+ 
+ Orchestrator->>Validator: GET /card
+ Validator-->>Orchestrator: Agent card + skills
+ 
+ Orchestrator->>Archivist: GET /card
+ Archivist-->>Orchestrator: Agent card + skills
+ end
+ 
+ Orchestrator->>Orchestrator: Build registry
+ Orchestrator-->>Client: Discovery result<br/>{discovered_agents: 3, total_skills: 17}
 ```
 
 ### 5.3 Network Traffic Flow
 
 ```mermaid
 graph LR
-    subgraph Internet
-        Client["Client<br/>Any IP"]
-    end
-    
-    subgraph AWS_Public["AWS Public Zone"]
-        IGW["Internet Gateway<br/>igw-052f22bed7f171258"]
-        ALB["ALB<br/>13.37.61.78<br/>13.38.253.92"]
-    end
-    
-    subgraph AWS_Private["AWS Private Zone"]
-        Orch["Orchestrator<br/>10.0.20.158<br/>10.0.10.75"]
-        Agents["Other Agents<br/>Private IPs"]
-        RDS["RDS<br/>10.0.x.x"]
-    end
-    
-    subgraph AWS_Services["AWS Services"]
-        S3["S3<br/>VPC Endpoint"]
-        Secrets["Secrets Manager<br/>VPC Endpoint"]
-        CW["CloudWatch<br/>VPC Endpoint"]
-    end
-    
-    Client -->|"1. HTTP/80"| IGW
-    IGW -->|"2. Route"| ALB
-    ALB -->|"3. HTTP/8001"| Orch
-    Orch <-->|"4. HTTP/8002-8004"| Agents
-    Orch <-->|"5. PostgreSQL/5432 + SSL"| RDS
-    Orch <-->|"6. HTTPS via VPC Endpoint"| S3
-    Orch <-->|"7. HTTPS via VPC Endpoint"| Secrets
-    Agents <-->|"8. HTTPS via VPC Endpoint"| CW
+ subgraph Internet
+ Client["Client<br/>Any IP"]
+ end
+ 
+ subgraph AWS_Public["AWS Public Zone"]
+ IGW["Internet Gateway<br/>igw-052f22bed7f171258"]
+ ALB["ALB<br/>13.37.61.78<br/>13.38.253.92"]
+ end
+ 
+ subgraph AWS_Private["AWS Private Zone"]
+ Orch["Orchestrator<br/>10.0.20.158<br/>10.0.10.75"]
+ Agents["Other Agents<br/>Private IPs"]
+ RDS["RDS<br/>10.0.x.x"]
+ end
+ 
+ subgraph AWS_Services["AWS Services"]
+ S3["S3<br/>VPC Endpoint"]
+ Secrets["Secrets Manager<br/>VPC Endpoint"]
+ CW["CloudWatch<br/>VPC Endpoint"]
+ end
+ 
+ Client -->|"1. HTTP/80"| IGW
+ IGW -->|"2. Route"| ALB
+ ALB -->|"3. HTTP/8001"| Orch
+ Orch <-->|"4. HTTP/8002-8004"| Agents
+ Orch <-->|"5. PostgreSQL/5432 + SSL"| RDS
+ Orch <-->|"6. HTTPS via VPC Endpoint"| S3
+ Orch <-->|"7. HTTPS via VPC Endpoint"| Secrets
+ Agents <-->|"8. HTTPS via VPC Endpoint"| CW
 ```
 
 ---
@@ -537,33 +537,33 @@ graph LR
 
 ```mermaid
 graph TB
-    subgraph L1["Layer 1: Network Security"]
-        VPC["VPC Isolation<br/>10.0.0.0/16"]
-        SG["Security Groups<br/>Port-level filtering"]
-        NACL["NACLs<br/>Subnet-level filtering"]
-    end
-    
-    subgraph L2["Layer 2: Identity & Access"]
-        IAM["IAM Roles<br/>Least privilege"]
-        SSO["AWS SSO<br/>Federated access"]
-        SecretsM["Secrets Manager<br/>Credential rotation"]
-    end
-    
-    subgraph L3["Layer 3: Data Security"]
-        TLS["TLS/SSL<br/>Data in transit"]
-        Encrypt["Encryption at rest<br/>RDS, S3, EBS"]
-        KMS["AWS KMS<br/>Key management"]
-    end
-    
-    subgraph L4["Layer 4: Application Security"]
-        Auth["Authentication<br/>Token validation"]
-        Valid["Input validation<br/>JSON Schema"]
-        RBAC["RBAC<br/>Agent permissions"]
-    end
-    
-    L1 --> L2
-    L2 --> L3
-    L3 --> L4
+ subgraph L1["Layer 1: Network Security"]
+ VPC["VPC Isolation<br/>10.0.0.0/16"]
+ SG["Security Groups<br/>Port-level filtering"]
+ NACL["NACLs<br/>Subnet-level filtering"]
+ end
+ 
+ subgraph L2["Layer 2: Identity & Access"]
+ IAM["IAM Roles<br/>Least privilege"]
+ SSO["AWS SSO<br/>Federated access"]
+ SecretsM["Secrets Manager<br/>Credential rotation"]
+ end
+ 
+ subgraph L3["Layer 3: Data Security"]
+ TLS["TLS/SSL<br/>Data in transit"]
+ Encrypt["Encryption at rest<br/>RDS, S3, EBS"]
+ KMS["AWS KMS<br/>Key management"]
+ end
+ 
+ subgraph L4["Layer 4: Application Security"]
+ Auth["Authentication<br/>Token validation"]
+ Valid["Input validation<br/>JSON Schema"]
+ RBAC["RBAC<br/>Agent permissions"]
+ end
+ 
+ L1 --> L2
+ L2 --> L3
+ L3 --> L4
 ```
 
 ### 6.5 Application security (A2A hardening)
@@ -571,8 +571,8 @@ graph TB
 Public entrypoint: **ALB → Orchestrator** (`POST /message`).
 
 - **Authentication**
-  - External client: `X-API-Key`
-  - Agent-to-agent: **JWT Bearer** (short-lived, request-bound)
+ - External client: `X-API-Key`
+ - Agent-to-agent: **JWT Bearer** (short-lived, request-bound)
 - **Authorization (RBAC)**: allow-list by principal (`A2A_RBAC_POLICY_JSON`)
 - **Replay protection**: JWT `jti` nonce cache with TTL
 - **Rate limiting**: per-principal sliding window (abuse resistance)

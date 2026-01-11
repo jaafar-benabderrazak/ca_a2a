@@ -1,10 +1,10 @@
-# 🎬 A2A Protocol Security: Live Demo Guide
+# A2A Protocol Security: Live Demo Guide
 
 **Complete Video Demo Script with Screen Capture Commands**
 
 ---
 
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Demo Overview](#demo-overview)
 2. [Setup Instructions](#setup-instructions)
@@ -20,22 +20,22 @@
 
 ---
 
-## 🎯 Demo Overview
+## Demo Overview
 
 ### **What This Demo Shows**
 
-- ✅ JSON-RPC 2.0 A2A protocol in action
-- ✅ 8 layers of security working together
-- ✅ Attack attempts and how they're blocked
-- ✅ Real-time logs and monitoring
-- ✅ Performance impact measurements
+- JSON-RPC 2.0 A2A protocol in action
+- 8 layers of security working together
+- Attack attempts and how they're blocked
+- Real-time logs and monitoring
+- Performance impact measurements
 
 ### **Duration:** ~15-20 minutes
 ### **Prerequisites:** AWS CloudShell access, deployed system
 
 ---
 
-## 🛠️ Setup Instructions
+## ️ Setup Instructions
 
 ### **Step 1: Open AWS CloudShell**
 
@@ -49,7 +49,7 @@ echo "Current region: $(aws configure get region)"
 # Should show: eu-west-3
 ```
 
-**📝 Command Explanation:**
+** Command Explanation:**
 ```bash
 aws configure get region
 ```
@@ -68,9 +68,9 @@ eu-west-3
 ```
 
 **Interpreting the Result:**
-- ✅ Shows `eu-west-3` → You're in the correct region, proceed
-- ❌ Shows different region → Set region: `export AWS_DEFAULT_REGION=eu-west-3`
-- ❌ Shows nothing → CloudShell not configured, wait for initialization
+- Shows `eu-west-3` → You're in the correct region, proceed
+- Shows different region → Set region: `export AWS_DEFAULT_REGION=eu-west-3`
+- Shows nothing → CloudShell not configured, wait for initialization
 
 **Common Issues:**
 | Issue | Cause | Solution |
@@ -93,14 +93,14 @@ export CLUSTER="ca-a2a-cluster"
 
 # Verify agents are running
 aws ecs describe-services \
-    --cluster ${CLUSTER} \
-    --services orchestrator extractor validator archivist \
-    --region ${REGION} \
-    --query 'services[*].[serviceName,runningCount,desiredCount]' \
-    --output table
+ --cluster ${CLUSTER} \
+ --services orchestrator extractor validator archivist \
+ --region ${REGION} \
+ --query 'services[*].[serviceName,runningCount,desiredCount]' \
+ --output table
 ```
 
-**📝 Command Breakdown:**
+** Command Breakdown:**
 
 **Command 1: Clone Repository**
 ```bash
@@ -153,11 +153,11 @@ echo "Region: $REGION, Cluster: $CLUSTER"
 **Command 3: Verify Services Running**
 ```bash
 aws ecs describe-services \
-    --cluster ${CLUSTER} \
-    --services orchestrator extractor validator archivist \
-    --region ${REGION} \
-    --query 'services[*].[serviceName,runningCount,desiredCount]' \
-    --output table
+ --cluster ${CLUSTER} \
+ --services orchestrator extractor validator archivist \
+ --region ${REGION} \
+ --query 'services[*].[serviceName,runningCount,desiredCount]' \
+ --output table
 ```
 
 **What it does:**
@@ -179,17 +179,17 @@ aws ecs describe-services \
 - Identifies issues (crashed tasks, scaling problems)
 - Validates infrastructure readiness
 
-**📹 Video Capture: Record terminal showing services running**
+** Video Capture: Record terminal showing services running**
 
 **Expected Output:**
 ```
 ------------------------------------
-|      DescribeServices            |
+| DescribeServices |
 +--------------+--------+---------+
-|  orchestrator|   1    |   1     |
-|  extractor   |   1    |   1     |
-|  validator   |   1    |   1     |
-|  archivist   |   1    |   1     |
+| orchestrator| 1 | 1 |
+| extractor | 1 | 1 |
+| validator | 1 | 1 |
+| archivist | 1 | 1 |
 +--------------+--------+---------+
 ```
 
@@ -203,17 +203,17 @@ aws ecs describe-services \
 **Health Status Guide:**
 | runningCount | desiredCount | Status | Action |
 |--------------|--------------|--------|--------|
-| 1 | 1 | ✅ Healthy | Proceed with demo |
-| 0 | 1 | ❌ Service down | Investigate logs: `aws logs tail /ecs/ca-a2a-orchestrator` |
-| 2 | 1 | ⚠️ Scaling up | Wait 30s for convergence |
-| 1 | 2 | ⚠️ Deployment in progress | Wait for completion |
+| 1 | 1 | Healthy | Proceed with demo |
+| 0 | 1 | Service down | Investigate logs: `aws logs tail /ecs/ca-a2a-orchestrator` |
+| 2 | 1 | ️ Scaling up | Wait 30s for convergence |
+| 1 | 2 | ️ Deployment in progress | Wait for completion |
 
 **Common Issues:**
 ```bash
 # Issue 1: Service shows 0/1 (not running)
 # Solution: Check service events
 aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator \
-    --query 'services[0].events[0:5]' --output table
+ --query 'services[0].events[0:5]' --output table
 
 # Issue 2: Service not found
 # Solution: Verify cluster name
@@ -227,33 +227,33 @@ aws sts get-caller-identity
 **What Success Looks Like:**
 - All 4 services show `1 | 1` (running = desired)
 - This means:
-  - ✅ Orchestrator is ready to receive requests on port 8001
-  - ✅ Extractor is ready to parse documents on port 8002
-  - ✅ Validator is ready to validate data on port 8003
-  - ✅ Archivist is ready to store documents on port 8004
+ - Orchestrator is ready to receive requests on port 8001
+ - Extractor is ready to parse documents on port 8002
+ - Validator is ready to validate data on port 8003
+ - Archivist is ready to store documents on port 8004
 
 ### **Step 3: Get Agent IP Addresses**
 
 ```bash
 # Function to get agent IP
 get_agent_ip() {
-    local SERVICE=$1
-    TASK_ARN=$(aws ecs list-tasks \
-        --cluster ${CLUSTER} \
-        --service-name ${SERVICE} \
-        --region ${REGION} \
-        --query 'taskArns[0]' \
-        --output text)
-    
-    if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
-        IP=$(aws ecs describe-tasks \
-            --cluster ${CLUSTER} \
-            --tasks ${TASK_ARN} \
-            --region ${REGION} \
-            --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
-            --output text)
-        echo "$IP"
-    fi
+ local SERVICE=$1
+ TASK_ARN=$(aws ecs list-tasks \
+ --cluster ${CLUSTER} \
+ --service-name ${SERVICE} \
+ --region ${REGION} \
+ --query 'taskArns[0]' \
+ --output text)
+ 
+ if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
+ IP=$(aws ecs describe-tasks \
+ --cluster ${CLUSTER} \
+ --tasks ${TASK_ARN} \
+ --region ${REGION} \
+ --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+ --output text)
+ echo "$IP"
+ fi
 }
 
 # Get all agent IPs
@@ -265,20 +265,20 @@ export ARCH_IP=$(get_agent_ip archivist)
 # Display IPs
 echo "=== AGENT IP ADDRESSES ==="
 echo "Orchestrator: $ORCH_IP:8001"
-echo "Extractor:    $EXTR_IP:8002"
-echo "Validator:    $VAL_IP:8003"
-echo "Archivist:    $ARCH_IP:8004"
+echo "Extractor: $EXTR_IP:8002"
+echo "Validator: $VAL_IP:8003"
+echo "Archivist: $ARCH_IP:8004"
 ```
 
-**📝 Command Explanation:**
+** Command Explanation:**
 
 **Step-by-Step Breakdown:**
 
 **1. Define IP Discovery Function**
 ```bash
 get_agent_ip() {
-    local SERVICE=$1  # Take service name as parameter
-    ...
+ local SERVICE=$1 # Take service name as parameter
+ ...
 }
 ```
 **What it does:**
@@ -291,11 +291,11 @@ get_agent_ip() {
 **2. Find Running Task ARN**
 ```bash
 TASK_ARN=$(aws ecs list-tasks \
-    --cluster ${CLUSTER} \
-    --service-name ${SERVICE} \
-    --region ${REGION} \
-    --query 'taskArns[0]' \
-    --output text)
+ --cluster ${CLUSTER} \
+ --service-name ${SERVICE} \
+ --region ${REGION} \
+ --query 'taskArns[0]' \
+ --output text)
 ```
 
 **What it does:**
@@ -318,13 +318,13 @@ arn:aws:ecs:eu-west-3:555043101106:task/ca-a2a-cluster/1a2b3c4d5e6f7890
 **3. Extract IP Address from Task**
 ```bash
 if [ ! -z "$TASK_ARN" ] && [ "$TASK_ARN" != "None" ]; then
-    IP=$(aws ecs describe-tasks \
-        --cluster ${CLUSTER} \
-        --tasks ${TASK_ARN} \
-        --region ${REGION} \
-        --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
-        --output text)
-    echo "$IP"
+ IP=$(aws ecs describe-tasks \
+ --cluster ${CLUSTER} \
+ --tasks ${TASK_ARN} \
+ --region ${REGION} \
+ --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+ --output text)
+ echo "$IP"
 fi
 ```
 
@@ -332,12 +332,12 @@ fi
 - Checks if task ARN exists (service is running)
 - Queries detailed task information
 - Navigates JSON structure to find the private IP address:
-  ```
-  tasks[0]                    # First task in response
-    → containers[0]           # First container in task
-      → networkInterfaces[0]  # First network interface
-        → privateIpv4Address  # The actual IP (e.g., 10.0.10.25)
-  ```
+ ```
+ tasks[0] # First task in response
+ → containers[0] # First container in task
+ → networkInterfaces[0] # First network interface
+ → privateIpv4Address # The actual IP (e.g., 10.0.10.25)
+ ```
 
 **Why this query path:**
 - ECS tasks can have multiple containers (we have 1)
@@ -375,20 +375,20 @@ export ARCH_IP=$(get_agent_ip archivist)
 ```bash
 echo "=== AGENT IP ADDRESSES ==="
 echo "Orchestrator: $ORCH_IP:8001"
-echo "Extractor:    $EXTR_IP:8002"
-echo "Validator:    $VAL_IP:8003"
-echo "Archivist:    $ARCH_IP:8004"
+echo "Extractor: $EXTR_IP:8002"
+echo "Validator: $VAL_IP:8003"
+echo "Archivist: $ARCH_IP:8004"
 ```
 
-**📹 Video Capture: Show agent IPs being discovered**
+** Video Capture: Show agent IPs being discovered**
 
 **Expected Output:**
 ```
 === AGENT IP ADDRESSES ===
 Orchestrator: 10.0.10.25:8001
-Extractor:    10.0.20.158:8002
-Validator:    10.0.30.47:8003
-Archivist:    10.0.40.92:8004
+Extractor: 10.0.20.158:8002
+Validator: 10.0.30.47:8003
+Archivist: 10.0.40.92:8004
 ```
 
 **Interpreting the Result:**
@@ -396,10 +396,10 @@ Archivist:    10.0.40.92:8004
 **IP Address Structure:**
 ```
 10.0.10.25
-│  │ │  │
-│  │ │  └─ Host (last octet, assigned by ECS)
-│  │ └──── Subnet (10.x = private subnet 1, 20.x = subnet 2, etc.)
-│  └─────── VPC network (always 0 for our VPC)
+│ │ │ │
+│ │ │ └─ Host (last octet, assigned by ECS)
+│ │ └──── Subnet (10.x = private subnet 1, 20.x = subnet 2, etc.)
+│ └─────── VPC network (always 0 for our VPC)
 └────────── Private IP space (10.x.x.x = RFC 1918 private)
 ```
 
@@ -412,9 +412,9 @@ Archivist:    10.0.40.92:8004
 | Archivist | 10.0.40.x | Private subnet 1 (AZ eu-west-3a) |
 
 **Benefits of Different Subnets:**
-- ✅ High availability across 3 availability zones
-- ✅ Fault isolation (subnet failure doesn't kill all agents)
-- ✅ Network segmentation for security
+- High availability across 3 availability zones
+- Fault isolation (subnet failure doesn't kill all agents)
+- Network segmentation for security
 
 **Port Assignment:**
 | Port | Agent | Protocol | Purpose |
@@ -433,10 +433,10 @@ Archivist:    10.0.40.92:8004
 
 # Solution: Check service status
 aws ecs describe-services --cluster ca-a2a-cluster --services orchestrator \
-    --query 'services[0].events[0:3]' --output table
+ --query 'services[0].events[0:3]' --output table
 
 # Look for: "service orchestrator has reached a steady state" (good)
-#      or: "service orchestrator was unable to place a task" (bad)
+# or: "service orchestrator was unable to place a task" (bad)
 ```
 
 **Issue 2: IP Changes Between Runs**
@@ -456,48 +456,48 @@ curl -s --max-time 5 http://${ORCH_IP}:8001/health
 
 # If timeout, check security group:
 aws ec2 describe-security-groups \
-    --filters "Name=group-name,Values=ca-a2a-agents-sg" \
-    --query 'SecurityGroups[0].IpPermissions'
+ --filters "Name=group-name,Values=ca-a2a-agents-sg" \
+ --query 'SecurityGroups[0].IpPermissions'
 ```
 
 **What Success Looks Like:**
-- ✅ All 4 IPs displayed (none empty)
-- ✅ IPs in 10.0.x.x range (private VPC)
-- ✅ Different subnets (10.x, 20.x, 30.x, 40.x)
-- ✅ Each IP:port combination unique
+- All 4 IPs displayed (none empty)
+- IPs in 10.0.x.x range (private VPC)
+- Different subnets (10.x, 20.x, 30.x, 40.x)
+- Each IP:port combination unique
 
 ### **Step 4: Get API Key for Authentication**
 
 ```bash
 # Extract API key from orchestrator task definition
 export API_KEY=$(aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --region ${REGION} \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
-    --output text | jq -r '.["lambda-s3-processor"]')
+ --task-definition ca-a2a-orchestrator \
+ --region ${REGION} \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+ --output text | jq -r '.["lambda-s3-processor"]')
 
 echo "API Key (first 20 chars): ${API_KEY:0:20}..."
 echo "API Key Length: ${#API_KEY} characters"
 ```
 
-**📝 Command Explanation:**
+** Command Explanation:**
 
 **Step-by-Step Breakdown:**
 
 **1. Query ECS Task Definition**
 ```bash
 aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --region ${REGION}
+ --task-definition ca-a2a-orchestrator \
+ --region ${REGION}
 ```
 
 **What it does:**
 - Retrieves the complete task definition for the orchestrator service
 - Task definition contains:
-  - Container image (`555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/orchestrator:latest`)
-  - Environment variables (including `A2A_API_KEYS_JSON`)
-  - Resource limits (CPU, memory)
-  - Port mappings (8001)
+ - Container image (`555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/orchestrator:latest`)
+ - Environment variables (including `A2A_API_KEYS_JSON`)
+ - Resource limits (CPU, memory)
+ - Port mappings (8001)
 
 **Why we query task definition:**
 - API keys are stored as environment variables in the task definition
@@ -513,20 +513,20 @@ aws ecs describe-task-definition \
 
 **What this JMESPath query does:**
 ```
-taskDefinition                     # Root object
-  → containerDefinitions[0]        # First container (we have only 1)
-    → environment                  # Array of {name, value} objects
-      → [?name==`A2A_API_KEYS_JSON`]  # Filter: find entry named "A2A_API_KEYS_JSON"
-        → .value                   # Extract the value field
+taskDefinition # Root object
+ → containerDefinitions[0] # First container (we have only 1)
+ → environment # Array of {name, value} objects
+ → [?name==`A2A_API_KEYS_JSON`] # Filter: find entry named "A2A_API_KEYS_JSON"
+ → .value # Extract the value field
 ```
 
 **Example environment array:**
 ```json
 [
-  {"name": "AWS_REGION", "value": "eu-west-3"},
-  {"name": "A2A_REQUIRE_AUTH", "value": "true"},
-  {"name": "A2A_API_KEYS_JSON", "value": "{\"lambda-s3-processor\":\"Kx9mN2pL5vQ8...\"}"},
-  {"name": "LOG_LEVEL", "value": "INFO"}
+ {"name": "AWS_REGION", "value": "eu-west-3"},
+ {"name": "A2A_REQUIRE_AUTH", "value": "true"},
+ {"name": "A2A_API_KEYS_JSON", "value": "{\"lambda-s3-processor\":\"Kx9mN2pL5vQ8...\"}"},
+ {"name": "LOG_LEVEL", "value": "INFO"}
 ]
 ```
 
@@ -556,9 +556,9 @@ taskDefinition                     # Root object
 **Example:** Multiple API keys in production:
 ```json
 {
-  "lambda-s3-processor": "Kx9mN2pL5vQ8...",
-  "admin-cli": "Zq2wE5rT8yU1...",
-  "monitoring-service": "Pq8wR3tY6uI9..."
+ "lambda-s3-processor": "Kx9mN2pL5vQ8...",
+ "admin-cli": "Zq2wE5rT8yU1...",
+ "monitoring-service": "Pq8wR3tY6uI9..."
 }
 ```
 
@@ -576,11 +576,11 @@ export API_KEY=$(...)
 
 **Security Consideration:**
 ```bash
-# ✅ Good: Store in variable (not visible in process list)
+# Good: Store in variable (not visible in process list)
 export API_KEY="..."
 
-# ❌ Bad: Pass directly in command (visible in ps aux)
-curl -H "X-API-Key: Kx9mN2pL5vQ8..."  # Anyone can see this!
+# Bad: Pass directly in command (visible in ps aux)
+curl -H "X-API-Key: Kx9mN2pL5vQ8..." # Anyone can see this!
 ```
 
 ---
@@ -602,7 +602,7 @@ echo "API Key Length: ${#API_KEY} characters"
 - `${#variable}` returns character count
 - Useful for validating key length (should be 64)
 
-**📹 Video Capture: Show API key retrieval (partial display for security)**
+** Video Capture: Show API key retrieval (partial display for security)**
 
 **Expected Output:**
 ```
@@ -615,16 +615,16 @@ API Key Length: 64 characters
 **Key Length Validation:**
 | Length | Status | Interpretation |
 |--------|--------|----------------|
-| 64 | ✅ Correct | Standard base64-encoded 48-byte key |
-| 32 | ⚠️ Short | Old format, still works but less secure |
-| 0 | ❌ Missing | Key not configured, authentication will fail |
-| > 64 | ⚠️ Long | Possible extra whitespace or newline |
+| 64 | Correct | Standard base64-encoded 48-byte key |
+| 32 | ️ Short | Old format, still works but less secure |
+| 0 | Missing | Key not configured, authentication will fail |
+| > 64 | ️ Long | Possible extra whitespace or newline |
 
 **Key Format:**
 ```
 Kx9mN2pL5vQ8wR4tY7uI1oP3aS6dF0gH2jK4lM7nP9qR1sT3uV5wX7yZ0aB2cD4e
 │├─────────────────────────────────────────────────────────────────┤│
-└─ Base64 alphabet: [A-Za-z0-9+/] (no special characters)        └─ Padding
+└─ Base64 alphabet: [A-Za-z0-9+/] (no special characters) └─ Padding
 
 Properties:
 - Alphanumeric only (Base64)
@@ -642,9 +642,9 @@ Properties:
 
 # Debug: Check raw output
 aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.containerDefinitions[0].environment' \
-    --output json | grep "A2A_API_KEYS_JSON"
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.containerDefinitions[0].environment' \
+ --output json | grep "A2A_API_KEYS_JSON"
 
 # Solution: Verify environment variable exists in task definition
 ```
@@ -659,9 +659,9 @@ sudo yum install -y jq
 
 # Or parse differently:
 export API_KEY=$(aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
-    --output text | python3 -c "import sys, json; print(json.loads(sys.stdin.read())['lambda-s3-processor'])")
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+ --output text | python3 -c "import sys, json; print(json.loads(sys.stdin.read())['lambda-s3-processor'])")
 ```
 
 **Issue 3: JSON parsing error**
@@ -671,9 +671,9 @@ export API_KEY=$(aws ecs describe-task-definition \
 
 # Debug: View raw JSON
 aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
-    --output text
+ --task-definition ca-a2a-orchestrator \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+ --output text
 
 # Check for:
 # - Missing quotes
@@ -683,45 +683,45 @@ aws ecs describe-task-definition \
 
 **Security Best Practices:**
 
-**✅ What We Do Right:**
+** What We Do Right:**
 1. Store keys in environment variables (not in code)
 2. Display only partial key in output
 3. Use Base64 encoding (prevents special character issues)
 4. Retrieve from task definition (centralized management)
 
-**🔒 Additional Production Hardening:**
+** Additional Production Hardening:**
 ```bash
 # Option 1: Use AWS Secrets Manager (even more secure)
 export API_KEY=$(aws secretsmanager get-secret-value \
-    --secret-id ca-a2a/api-keys \
-    --query 'SecretString' \
-    --output text | jq -r '.["lambda-s3-processor"]')
+ --secret-id ca-a2a/api-keys \
+ --query 'SecretString' \
+ --output text | jq -r '.["lambda-s3-processor"]')
 
 # Option 2: Use AWS Systems Manager Parameter Store
 export API_KEY=$(aws ssm get-parameter \
-    --name /ca-a2a/api-keys/lambda-s3-processor \
-    --with-decryption \
-    --query 'Parameter.Value' \
-    --output text)
+ --name /ca-a2a/api-keys/lambda-s3-processor \
+ --with-decryption \
+ --query 'Parameter.Value' \
+ --output text)
 ```
 
 **What Success Looks Like:**
-- ✅ API key displays first 20 chars (e.g., `Kx9mN2pL5vQ8wR4tY7uI`)
-- ✅ Length is exactly 64 characters
-- ✅ No error messages from AWS CLI or jq
-- ✅ Key is now stored in `$API_KEY` environment variable
-- ✅ Ready to use in authentication headers for all demos
+- API key displays first 20 chars (e.g., `Kx9mN2pL5vQ8wR4tY7uI`)
+- Length is exactly 64 characters
+- No error messages from AWS CLI or jq
+- Key is now stored in `$API_KEY` environment variable
+- Ready to use in authentication headers for all demos
 
 ---
 
-## 🎬 Demo 1: Basic A2A Communication
+## Demo 1: Basic A2A Communication
 
 ### **Scenario:** Make a simple agent-to-agent call to demonstrate the protocol
 
 ```bash
 echo "=== DEMO 1: BASIC A2A COMMUNICATION ==="
 echo ""
-echo "📡 Testing basic JSON-RPC 2.0 call to orchestrator"
+echo " Testing basic JSON-RPC 2.0 call to orchestrator"
 echo ""
 
 # Test 1: Health check (no auth required)
@@ -733,17 +733,17 @@ echo ""
 # Test 2: List skills (requires auth)
 echo "Test 2: List Agent Skills"
 SKILLS_REQUEST='{
-  "jsonrpc": "2.0",
-  "method": "list_skills",
-  "params": {},
-  "id": "demo-1-skills"
+ "jsonrpc": "2.0",
+ "method": "list_skills",
+ "params": {},
+ "id": "demo-1-skills"
 }'
 
 SKILLS_RESPONSE=$(curl -s -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -H "X-Correlation-ID: demo-1-$(date +%s)" \
-    -d "$SKILLS_REQUEST")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -H "X-Correlation-ID: demo-1-$(date +%s)" \
+ -d "$SKILLS_REQUEST")
 
 echo "Request:"
 echo "$SKILLS_REQUEST" | jq '.'
@@ -752,7 +752,7 @@ echo "Response:"
 echo "$SKILLS_RESPONSE" | jq '.'
 ```
 
-**📹 Video Capture:** 
+** Video Capture:** 
 1. Show request structure (JSON-RPC 2.0 format)
 2. Show response with skills list
 3. Highlight correlation ID in response
@@ -760,41 +760,41 @@ echo "$SKILLS_RESPONSE" | jq '.'
 **Expected Output:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "result": {
-    "skills": [
-      "process_document",
-      "coordinate_pipeline",
-      "list_skills"
-    ],
-    "agent_id": "orchestrator",
-    "version": "1.0.0"
-  },
-  "id": "demo-1-skills",
-  "_meta": {
-    "correlation_id": "demo-1-1735867245",
-    "processing_time_ms": 2.34,
-    "agent_id": "orchestrator",
-    "timestamp": 1735867245
-  }
+ "jsonrpc": "2.0",
+ "result": {
+ "skills": [
+ "process_document",
+ "coordinate_pipeline",
+ "list_skills"
+ ],
+ "agent_id": "orchestrator",
+ "version": "1.0.0"
+ },
+ "id": "demo-1-skills",
+ "_meta": {
+ "correlation_id": "demo-1-1735867245",
+ "processing_time_ms": 2.34,
+ "agent_id": "orchestrator",
+ "timestamp": 1735867245
+ }
 }
 ```
 
-### **🎓 Technical Analysis for Expert Audience:**
+### ** Technical Analysis for Expert Audience:**
 
 **1. JSON-RPC 2.0 Compliance:**
-- ✅ **`jsonrpc: "2.0"`**: Strict protocol versioning enables forward/backward compatibility
-- ✅ **Request-Response ID Matching**: `"id": "demo-1-skills"` preserved in response, enabling async request multiplexing
-- ✅ **Result vs Error Exclusivity**: Response contains `result` (not `error`), following RFC 4627 mutual exclusivity rule
+- **`jsonrpc: "2.0"`**: Strict protocol versioning enables forward/backward compatibility
+- **Request-Response ID Matching**: `"id": "demo-1-skills"` preserved in response, enabling async request multiplexing
+- **Result vs Error Exclusivity**: Response contains `result` (not `error`), following RFC 4627 mutual exclusivity rule
 
 **2. Metadata Enrichment (`_meta` object):**
 ```python
 # Custom extension to JSON-RPC 2.0 (allowed by spec)
 "_meta": {
-    "correlation_id": "demo-1-1735867245",    # Distributed tracing across 4 agents
-    "processing_time_ms": 2.34,               # P50 latency: ~2-5ms (excellent!)
-    "agent_id": "orchestrator",               # Service mesh identification
-    "timestamp": 1735867245                   # Unix epoch for log correlation
+ "correlation_id": "demo-1-1735867245", # Distributed tracing across 4 agents
+ "processing_time_ms": 2.34, # P50 latency: ~2-5ms (excellent!)
+ "agent_id": "orchestrator", # Service mesh identification
+ "timestamp": 1735867245 # Unix epoch for log correlation
 }
 ```
 
@@ -808,9 +808,9 @@ echo "$SKILLS_RESPONSE" | jq '.'
 ```python
 # Implements Service Discovery anti-corruption layer
 skills = [
-    "process_document",      # Public API: Entry point for document pipeline
-    "coordinate_pipeline",   # Internal API: Not exposed to external callers
-    "list_skills"           # Meta API: Enables dynamic client code generation
+ "process_document", # Public API: Entry point for document pipeline
+ "coordinate_pipeline", # Internal API: Not exposed to external callers
+ "list_skills" # Meta API: Enables dynamic client code generation
 ]
 ```
 
@@ -826,12 +826,12 @@ skills = [
 
 **5. Security Layers Activated:**
 ```
-✅ Layer 1: VPC Security Group (allowed source IP)
-✅ Layer 2: TLS (if enabled in production)
-✅ Layer 3: API Key Authentication (X-API-Key header verified)
-✅ Layer 4: RBAC (principal 'lambda-s3-processor' allowed to call 'list_skills')
-✅ Layer 5: Rate Limiting (within 100 req/min bucket)
-✅ Layer 6: No input validation needed (params = {})
+ Layer 1: VPC Security Group (allowed source IP)
+ Layer 2: TLS (if enabled in production)
+ Layer 3: API Key Authentication (X-API-Key header verified)
+ Layer 4: RBAC (principal 'lambda-s3-processor' allowed to call 'list_skills')
+ Layer 5: Rate Limiting (within 100 req/min bucket)
+ Layer 6: No input validation needed (params = {})
 ```
 
 **Performance Breakdown:**
@@ -880,7 +880,7 @@ Verdict: 0.7ms savings not worth complexity for our 515ms pipeline (0.13% gain)
 
 ---
 
-## 🔑 Demo 2: Authentication (API Key)
+## Demo 2: Authentication (API Key)
 
 ### **Scenario:** Demonstrate authentication success and failure
 
@@ -889,18 +889,18 @@ echo "=== DEMO 2: AUTHENTICATION ==="
 echo ""
 
 # Test 1: Valid API Key (SUCCESS)
-echo "Test 1: Valid API Key ✅"
+echo "Test 1: Valid API Key "
 VALID_REQUEST='{
-  "jsonrpc": "2.0",
-  "method": "list_skills",
-  "params": {},
-  "id": "demo-2-valid"
+ "jsonrpc": "2.0",
+ "method": "list_skills",
+ "params": {},
+ "id": "demo-2-valid"
 }'
 
 VALID_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$VALID_REQUEST")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$VALID_REQUEST")
 
 echo "$VALID_RESPONSE" | head -n -1 | jq '.'
 HTTP_CODE=$(echo "$VALID_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
@@ -908,11 +908,11 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Test 2: Invalid API Key (FAIL)
-echo "Test 2: Invalid API Key ❌"
+echo "Test 2: Invalid API Key "
 INVALID_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: INVALID_KEY_12345" \
-    -d "$VALID_REQUEST")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: INVALID_KEY_12345" \
+ -d "$VALID_REQUEST")
 
 echo "$INVALID_RESPONSE" | head -n -1 | jq '.'
 HTTP_CODE=$(echo "$INVALID_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
@@ -920,17 +920,17 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Test 3: Missing API Key (FAIL)
-echo "Test 3: Missing API Key ❌"
+echo "Test 3: Missing API Key "
 NO_AUTH_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -d "$VALID_REQUEST")
+ -H "Content-Type: application/json" \
+ -d "$VALID_REQUEST")
 
 echo "$NO_AUTH_RESPONSE" | head -n -1 | jq '.'
 HTTP_CODE=$(echo "$NO_AUTH_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
 echo "HTTP Status: $HTTP_CODE"
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show valid API key → 200 OK
 2. Show invalid API key → 401 Unauthorized
 3. Show missing API key → 401 Unauthorized
@@ -941,18 +941,18 @@ echo "HTTP Status: $HTTP_CODE"
 **Test 1 - Valid API Key:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "result": {
-    "skills": ["process_document", "coordinate_pipeline", "list_skills"],
-    "agent_id": "orchestrator",
-    "version": "1.0.0"
-  },
-  "id": "demo-2-valid",
-  "_meta": {
-    "correlation_id": "demo-2-1735867300",
-    "processing_time_ms": 2.15,
-    "agent_id": "orchestrator"
-  }
+ "jsonrpc": "2.0",
+ "result": {
+ "skills": ["process_document", "coordinate_pipeline", "list_skills"],
+ "agent_id": "orchestrator",
+ "version": "1.0.0"
+ },
+ "id": "demo-2-valid",
+ "_meta": {
+ "correlation_id": "demo-2-1735867300",
+ "processing_time_ms": 2.15,
+ "agent_id": "orchestrator"
+ }
 }
 HTTP Status: 200
 ```
@@ -960,15 +960,15 @@ HTTP Status: 200
 **Test 2 - Invalid API Key:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32010,
-    "message": "Unauthorized: Invalid API key"
-  },
-  "id": "demo-2-valid",
-  "_meta": {
-    "correlation_id": "demo-2-1735867301"
-  }
+ "jsonrpc": "2.0",
+ "error": {
+ "code": -32010,
+ "message": "Unauthorized: Invalid API key"
+ },
+ "id": "demo-2-valid",
+ "_meta": {
+ "correlation_id": "demo-2-1735867301"
+ }
 }
 HTTP Status: 401
 ```
@@ -976,58 +976,58 @@ HTTP Status: 401
 **Test 3 - Missing API Key:**
 ```json
 {
-  "jsonrpc": "2.0",
-  "error": {
-    "code": -32010,
-    "message": "Unauthorized: Missing X-API-Key header"
-  },
-  "id": "demo-2-valid",
-  "_meta": {
-    "correlation_id": "demo-2-1735867302"
-  }
+ "jsonrpc": "2.0",
+ "error": {
+ "code": -32010,
+ "message": "Unauthorized: Missing X-API-Key header"
+ },
+ "id": "demo-2-valid",
+ "_meta": {
+ "correlation_id": "demo-2-1735867302"
+ }
 }
 HTTP Status: 401
 ```
 
-### **🎓 Technical Analysis for Expert Audience:**
+### ** Technical Analysis for Expert Audience:**
 
 **1. Authentication Implementation (`a2a_security.py:287-310`):**
 
 ```python
 async def _verify_api_key(self, headers: Dict[str, str]) -> Tuple[str, Dict[str, Any]]:
-    # Extract API key (case-insensitive header lookup)
-    api_key = None
-    for key, value in headers.items():
-        if key.lower() == self.api_key_header.lower():  # RFC 7230: header names case-insensitive
-            api_key = value
-            break
-    
-    if not api_key:
-        raise AuthError(f"Missing {self.api_key_header} header")
-    
-    # Reverse lookup: find principal for this key
-    principal = None
-    for principal_id, key_value in self.api_keys.items():
-        # CRITICAL: Constant-time comparison prevents timing attacks
-        if secrets.compare_digest(api_key, key_value):
-            principal = principal_id
-            break
-    
-    if not principal:
-        # Log key length only, NEVER the actual key value
-        self.logger.warning(f"Invalid API key presented (length: {len(api_key)})")
-        raise AuthError("Invalid API key")
-    
-    return principal, {"auth_mode": "api_key", "authenticated_at": time.time()}
+ # Extract API key (case-insensitive header lookup)
+ api_key = None
+ for key, value in headers.items():
+ if key.lower() == self.api_key_header.lower(): # RFC 7230: header names case-insensitive
+ api_key = value
+ break
+ 
+ if not api_key:
+ raise AuthError(f"Missing {self.api_key_header} header")
+ 
+ # Reverse lookup: find principal for this key
+ principal = None
+ for principal_id, key_value in self.api_keys.items():
+ # CRITICAL: Constant-time comparison prevents timing attacks
+ if secrets.compare_digest(api_key, key_value):
+ principal = principal_id
+ break
+ 
+ if not principal:
+ # Log key length only, NEVER the actual key value
+ self.logger.warning(f"Invalid API key presented (length: {len(api_key)})")
+ raise AuthError("Invalid API key")
+ 
+ return principal, {"auth_mode": "api_key", "authenticated_at": time.time()}
 ```
 
 **2. Why Constant-Time Comparison Matters:**
 
 **Vulnerable Code (Timing Attack Possible):**
 ```python
-# ❌ VULNERABLE: Early exit leaks information
+# VULNERABLE: Early exit leaks information
 if api_key == stored_key:
-    return True
+ return True
 
 # Attack: Brute force one character at a time
 # 'A...' -> 10.001ms (wrong on 1st char, exits immediately)
@@ -1037,12 +1037,12 @@ if api_key == stored_key:
 
 **Secure Code (Constant-Time):**
 ```python
-# ✅ SECURE: Always compares all bytes
+# SECURE: Always compares all bytes
 secrets.compare_digest(api_key, stored_key)
 
 # Timing: Always ~0.1ms regardless of how many characters match
 # 'AAAA' -> 0.1ms
-# 'abcd' -> 0.1ms  
+# 'abcd' -> 0.1ms 
 # 'abcX' -> 0.1ms (3/4 correct, but same time!)
 ```
 
@@ -1085,8 +1085,8 @@ X-Frame-Options: DENY
 ```python
 # Environment variable (ECS Task Definition)
 A2A_API_KEYS_JSON='{
-  "lambda-s3-processor": "Kx9mN2pL5vQ8wR4tY7uI1oP3aS6dF0gH...",  # 64 chars
-  "orchestrator": "Zq2wE5rT8yU1iO4pA7sD0fG3hJ6kL9xC..."
+ "lambda-s3-processor": "Kx9mN2pL5vQ8wR4tY7uI1oP3aS6dF0gH...", # 64 chars
+ "orchestrator": "Zq2wE5rT8yU1iO4pA7sD0fG3hJ6kL9xC..."
 }'
 
 # Stored in AWS Systems Manager Parameter Store (encrypted with KMS)
@@ -1096,14 +1096,14 @@ A2A_API_KEYS_JSON='{
 **Key Rotation Process:**
 ```bash
 # 1. Generate new key
-NEW_KEY=$(openssl rand -base64 48)  # 64 chars
+NEW_KEY=$(openssl rand -base64 48) # 64 chars
 
 # 2. Add to task definition (both old and new valid)
 A2A_API_KEYS_JSON='{"lambda": ["old_key", "new_key"]}'
 
 # 3. Update Lambda to use new key
 aws lambda update-function-configuration --function-name ca-a2a-s3-processor \
-    --environment Variables={A2A_API_KEY="$NEW_KEY"}
+ --environment Variables={A2A_API_KEY="$NEW_KEY"}
 
 # 4. Wait 24 hours (ensure all in-flight requests complete)
 
@@ -1116,23 +1116,23 @@ A2A_API_KEYS_JSON='{"lambda": ["new_key"]}'
 **What Gets Logged:**
 ```json
 {
-  "timestamp": "2026-01-03T15:30:45.123Z",
-  "level": "WARNING",
-  "event": "authentication_failure",
-  "principal": "unknown",
-  "api_key_length": 15,  // ✅ Safe to log
-  "source_ip": "10.0.50.123",
-  "correlation_id": "demo-2-1735867301",
-  "error": "Invalid API key"
+ "timestamp": "2026-01-03T15:30:45.123Z",
+ "level": "WARNING",
+ "event": "authentication_failure",
+ "principal": "unknown",
+ "api_key_length": 15, // Safe to log
+ "source_ip": "10.0.50.123",
+ "correlation_id": "demo-2-1735867301",
+ "error": "Invalid API key"
 }
 ```
 
 **What NEVER Gets Logged:**
 ```python
-# ❌ NEVER do this:
-logger.error(f"Invalid key: {api_key}")  # Leaks secret!
-logger.error(f"Expected: {stored_key}")  # Leaks secret!
-logger.error(f"Keys: {self.api_keys}")   # Leaks all secrets!
+# NEVER do this:
+logger.error(f"Invalid key: {api_key}") # Leaks secret!
+logger.error(f"Expected: {stored_key}") # Leaks secret!
+logger.error(f"Keys: {self.api_keys}") # Leaks all secrets!
 ```
 
 **7. Attack Detection & Response:**
@@ -1176,7 +1176,7 @@ Impact on 515ms pipeline: 0.03% (negligible)
 | **Stateless** | No (need to store keys) | Yes (self-contained) |
 | **Rotation** | Manual, needs coordination | Automatic (exp claim) |
 | **Best For** | Service-to-service | User authentication |
-| **Our Choice** | ✅ API Keys | Future: mTLS |
+| **Our Choice** | API Keys | Future: mTLS |
 
 **10. Production Incident Response:**
 
@@ -1199,7 +1199,7 @@ Impact on 515ms pipeline: 0.03% (negligible)
 
 ---
 
-## 🚪 Demo 3: RBAC Authorization
+## Demo 3: RBAC Authorization
 
 ### **Scenario:** Show RBAC policy enforcement
 
@@ -1210,29 +1210,29 @@ echo ""
 # Show current RBAC policy
 echo "Current RBAC Policy:"
 aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --region ${REGION} \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_RBAC_POLICY_JSON`].value' \
-    --output text | jq '.'
+ --task-definition ca-a2a-orchestrator \
+ --region ${REGION} \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_RBAC_POLICY_JSON`].value' \
+ --output text | jq '.'
 
 echo ""
 
 # Test 1: Authorized method (lambda-s3-processor can call anything)
-echo "Test 1: Authorized Method (lambda-s3-processor → process_document) ✅"
+echo "Test 1: Authorized Method (lambda-s3-processor → process_document) "
 AUTH_REQUEST='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "test.pdf",
-    "priority": "normal"
-  },
-  "id": "demo-3-auth"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "test.pdf",
+ "priority": "normal"
+ },
+ "id": "demo-3-auth"
 }'
 
 AUTH_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$AUTH_REQUEST")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$AUTH_REQUEST")
 
 echo "$AUTH_RESPONSE" | head -n -1 | jq '.result // .error' | head -20
 HTTP_CODE=$(echo "$AUTH_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
@@ -1240,11 +1240,11 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Note: To test denied methods, we'd need to configure a principal with limited permissions
-echo "💡 Note: lambda-s3-processor has wildcard (*) permission, so all methods are allowed"
-echo "   In production, restrict principals to only necessary methods"
+echo " Note: lambda-s3-processor has wildcard (*) permission, so all methods are allowed"
+echo " In production, restrict principals to only necessary methods"
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show RBAC policy structure
 2. Show authorized request succeeding
 3. Explain wildcard permissions
@@ -1252,7 +1252,7 @@ echo "   In production, restrict principals to only necessary methods"
 
 ---
 
-## ✍️ Demo 4: HMAC Message Integrity
+## ️ Demo 4: HMAC Message Integrity
 
 ### **Scenario:** Demonstrate HMAC signing and tampering detection
 
@@ -1262,23 +1262,23 @@ echo ""
 
 # Get HMAC secret
 HMAC_SECRET=$(aws ecs describe-task-definition \
-    --task-definition ca-a2a-orchestrator \
-    --region ${REGION} \
-    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_HMAC_SECRET_KEY`].value' \
-    --output text)
+ --task-definition ca-a2a-orchestrator \
+ --region ${REGION} \
+ --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_HMAC_SECRET_KEY`].value' \
+ --output text)
 
 if [ -z "$HMAC_SECRET" ] || [ "$HMAC_SECRET" == "None" ]; then
-    echo "⚠️  HMAC not enabled in this deployment"
-    echo "   To enable: Set A2A_ENABLE_HMAC_SIGNING=true and A2A_HMAC_SECRET_KEY"
+ echo "️ HMAC not enabled in this deployment"
+ echo " To enable: Set A2A_ENABLE_HMAC_SIGNING=true and A2A_HMAC_SECRET_KEY"
 else
-    echo "Test 1: Generate HMAC Signature"
-    
-    # Create test request
-    TEST_BODY='{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"hmac-test"}'
-    TIMESTAMP=$(date +%s)
-    
-    # Generate signature using Python
-    SIGNATURE=$(python3 << EOF
+ echo "Test 1: Generate HMAC Signature"
+ 
+ # Create test request
+ TEST_BODY='{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"hmac-test"}'
+ TIMESTAMP=$(date +%s)
+ 
+ # Generate signature using Python
+ SIGNATURE=$(python3 << EOF
 import hmac
 import hashlib
 import time
@@ -1299,65 +1299,65 @@ signature = hmac.new(secret, signing_string.encode('utf-8'), hashlib.sha256).hex
 print(f"{timestamp}:{signature}")
 EOF
 )
-    
-    echo "Timestamp: $TIMESTAMP"
-    echo "Signature: ${SIGNATURE:0:40}..."
-    echo "Full Header: X-Signature: $SIGNATURE"
-    echo ""
-    
-    # Test 2: Valid signature
-    echo "Test 2: Request with Valid HMAC Signature ✅"
-    HMAC_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-        -H "Content-Type: application/json" \
-        -H "X-API-Key: $API_KEY" \
-        -H "X-Signature: $SIGNATURE" \
-        -d "$TEST_BODY")
-    
-    echo "$HMAC_RESPONSE" | head -n -1 | jq '.'
-    HTTP_CODE=$(echo "$HMAC_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
-    echo "HTTP Status: $HTTP_CODE"
-    echo ""
-    
-    # Test 3: Tampered body (signature won't match)
-    echo "Test 3: Tampered Request Body (HMAC mismatch) ❌"
-    TAMPERED_BODY='{"jsonrpc":"2.0","method":"evil_method","params":{},"id":"hmac-test"}'
-    
-    TAMPER_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-        -H "Content-Type: application/json" \
-        -H "X-API-Key: $API_KEY" \
-        -H "X-Signature: $SIGNATURE" \
-        -d "$TAMPERED_BODY")
-    
-    echo "Original body: $TEST_BODY"
-    echo "Tampered body: $TAMPERED_BODY"
-    echo ""
-    echo "$TAMPER_RESPONSE" | head -n -1 | jq '.'
-    HTTP_CODE=$(echo "$TAMPER_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
-    echo "HTTP Status: $HTTP_CODE"
-    echo ""
-    
-    # Test 4: Old signature (replay protection)
-    echo "Test 4: Old Signature - Replay Protection ❌"
-    OLD_TIMESTAMP=$((TIMESTAMP - 400))  # 400 seconds ago (> 5 min threshold)
-    OLD_SIGNATURE="${OLD_TIMESTAMP}:abc123def456789"
-    
-    REPLAY_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-        -H "Content-Type: application/json" \
-        -H "X-API-Key: $API_KEY" \
-        -H "X-Signature: $OLD_SIGNATURE" \
-        -d "$TEST_BODY")
-    
-    echo "Current time: $TIMESTAMP"
-    echo "Signature timestamp: $OLD_TIMESTAMP (400 seconds old)"
-    echo "Max age: 300 seconds (5 minutes)"
-    echo ""
-    echo "$REPLAY_RESPONSE" | head -n -1 | jq '.'
-    HTTP_CODE=$(echo "$REPLAY_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
-    echo "HTTP Status: $HTTP_CODE"
+ 
+ echo "Timestamp: $TIMESTAMP"
+ echo "Signature: ${SIGNATURE:0:40}..."
+ echo "Full Header: X-Signature: $SIGNATURE"
+ echo ""
+ 
+ # Test 2: Valid signature
+ echo "Test 2: Request with Valid HMAC Signature "
+ HMAC_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -H "X-Signature: $SIGNATURE" \
+ -d "$TEST_BODY")
+ 
+ echo "$HMAC_RESPONSE" | head -n -1 | jq '.'
+ HTTP_CODE=$(echo "$HMAC_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
+ echo "HTTP Status: $HTTP_CODE"
+ echo ""
+ 
+ # Test 3: Tampered body (signature won't match)
+ echo "Test 3: Tampered Request Body (HMAC mismatch) "
+ TAMPERED_BODY='{"jsonrpc":"2.0","method":"evil_method","params":{},"id":"hmac-test"}'
+ 
+ TAMPER_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -H "X-Signature: $SIGNATURE" \
+ -d "$TAMPERED_BODY")
+ 
+ echo "Original body: $TEST_BODY"
+ echo "Tampered body: $TAMPERED_BODY"
+ echo ""
+ echo "$TAMPER_RESPONSE" | head -n -1 | jq '.'
+ HTTP_CODE=$(echo "$TAMPER_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
+ echo "HTTP Status: $HTTP_CODE"
+ echo ""
+ 
+ # Test 4: Old signature (replay protection)
+ echo "Test 4: Old Signature - Replay Protection "
+ OLD_TIMESTAMP=$((TIMESTAMP - 400)) # 400 seconds ago (> 5 min threshold)
+ OLD_SIGNATURE="${OLD_TIMESTAMP}:abc123def456789"
+ 
+ REPLAY_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -H "X-Signature: $OLD_SIGNATURE" \
+ -d "$TEST_BODY")
+ 
+ echo "Current time: $TIMESTAMP"
+ echo "Signature timestamp: $OLD_TIMESTAMP (400 seconds old)"
+ echo "Max age: 300 seconds (5 minutes)"
+ echo ""
+ echo "$REPLAY_RESPONSE" | head -n -1 | jq '.'
+ HTTP_CODE=$(echo "$REPLAY_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
+ echo "HTTP Status: $HTTP_CODE"
 fi
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show HMAC signature generation process
 2. Show valid signature → success
 3. Show tampered body → 401 signature mismatch
@@ -1366,7 +1366,7 @@ fi
 
 ---
 
-## ✅ Demo 5: JSON Schema Validation
+## Demo 5: JSON Schema Validation
 
 ### **Scenario:** Demonstrate input validation against various attacks
 
@@ -1375,21 +1375,21 @@ echo "=== DEMO 5: JSON SCHEMA VALIDATION ==="
 echo ""
 
 # Test 1: Valid input
-echo "Test 1: Valid Input ✅"
+echo "Test 1: Valid Input "
 VALID_PARAMS='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "invoices/2026/01/test.pdf",
-    "priority": "normal"
-  },
-  "id": "schema-1"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "invoices/2026/01/test.pdf",
+ "priority": "normal"
+ },
+ "id": "schema-1"
 }'
 
 VALID_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$VALID_PARAMS")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$VALID_PARAMS")
 
 echo "Request: invoices/2026/01/test.pdf"
 echo "$VALID_RESPONSE" | head -n -1 | jq '.error // {status: "success"}'
@@ -1398,21 +1398,21 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Test 2: Path Traversal Attack
-echo "Test 2: Path Traversal Attack ❌"
+echo "Test 2: Path Traversal Attack "
 TRAVERSAL_PARAMS='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "../../../etc/passwd",
-    "priority": "normal"
-  },
-  "id": "schema-2"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "../../../etc/passwd",
+ "priority": "normal"
+ },
+ "id": "schema-2"
 }'
 
 TRAVERSAL_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$TRAVERSAL_PARAMS")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$TRAVERSAL_PARAMS")
 
 echo "Attack: ../../../etc/passwd"
 echo "$TRAVERSAL_RESPONSE" | head -n -1 | jq '.error'
@@ -1421,20 +1421,20 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Test 3: Missing Required Field
-echo "Test 3: Missing Required Field ❌"
+echo "Test 3: Missing Required Field "
 MISSING_PARAMS='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "priority": "high"
-  },
-  "id": "schema-3"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "priority": "high"
+ },
+ "id": "schema-3"
 }'
 
 MISSING_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$MISSING_PARAMS")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$MISSING_PARAMS")
 
 echo "Missing: s3_key (required field)"
 echo "$MISSING_RESPONSE" | head -n -1 | jq '.error'
@@ -1443,21 +1443,21 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Test 4: Invalid Enum Value
-echo "Test 4: Invalid Enum Value ❌"
+echo "Test 4: Invalid Enum Value "
 INVALID_ENUM='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "test.pdf",
-    "priority": "urgent"
-  },
-  "id": "schema-4"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "test.pdf",
+ "priority": "urgent"
+ },
+ "id": "schema-4"
 }'
 
 ENUM_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$INVALID_ENUM")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$INVALID_ENUM")
 
 echo "Invalid value: 'urgent' (must be: low, normal, high)"
 echo "$ENUM_RESPONSE" | head -n -1 | jq '.error'
@@ -1466,21 +1466,21 @@ echo "HTTP Status: $HTTP_CODE"
 echo ""
 
 # Test 5: SQL Injection Attempt
-echo "Test 5: SQL Injection Attempt ❌"
+echo "Test 5: SQL Injection Attempt "
 SQL_INJECTION='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "test.pdf'\'''; DROP TABLE documents;--",
-    "priority": "normal"
-  },
-  "id": "schema-5"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "test.pdf'\'''; DROP TABLE documents;--",
+ "priority": "normal"
+ },
+ "id": "schema-5"
 }'
 
 SQL_RESPONSE=$(curl -s -w "\nHTTP_CODE:%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$SQL_INJECTION")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$SQL_INJECTION")
 
 echo "Attack: test.pdf'; DROP TABLE documents;--"
 echo "$SQL_RESPONSE" | head -n -1 | jq '.error'
@@ -1488,7 +1488,7 @@ HTTP_CODE=$(echo "$SQL_RESPONSE" | grep HTTP_CODE | cut -d: -f2)
 echo "HTTP Status: $HTTP_CODE"
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show valid input → success
 2. Show path traversal → blocked
 3. Show missing field → error
@@ -1499,49 +1499,49 @@ echo "HTTP Status: $HTTP_CODE"
 **Attack Summary Table:**
 ```
 ╔════════════════════════╦═══════════╦═══════════════════════╗
-║ Attack Type            ║ Status    ║ HTTP Code             ║
+║ Attack Type ║ Status ║ HTTP Code ║
 ╠════════════════════════╬═══════════╬═══════════════════════╣
-║ Valid input            ║ ✅ Pass   ║ 200 OK                ║
-║ Path traversal         ║ ❌ Block  ║ 400 Bad Request       ║
-║ Missing required field ║ ❌ Block  ║ 400 Bad Request       ║
-║ Invalid enum value     ║ ❌ Block  ║ 400 Bad Request       ║
-║ SQL injection          ║ ❌ Block  ║ 400 Bad Request       ║
+║ Valid input ║ Pass ║ 200 OK ║
+║ Path traversal ║ Block ║ 400 Bad Request ║
+║ Missing required field ║ Block ║ 400 Bad Request ║
+║ Invalid enum value ║ Block ║ 400 Bad Request ║
+║ SQL injection ║ Block ║ 400 Bad Request ║
 ╚════════════════════════╩═══════════╩═══════════════════════╝
 ```
 
-### **🎓 Technical Analysis for Expert Audience:**
+### ** Technical Analysis for Expert Audience:**
 
 **1. JSON Schema Definition (`a2a_security_enhanced.py:load_schemas()`):**
 
 ```json
 {
-  "process_document": {
-    "type": "object",
-    "properties": {
-      "s3_key": {
-        "type": "string",
-        "pattern": "^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$",
-        "minLength": 1,
-        "maxLength": 1024,
-        "description": "S3 object key without path traversal"
-      },
-      "priority": {
-        "type": "string",
-        "enum": ["low", "normal", "high"],
-        "default": "normal",
-        "description": "Processing priority level"
-      },
-      "correlation_id": {
-        "type": "string",
-        "pattern": "^[a-zA-Z0-9-]+$",
-        "minLength": 1,
-        "maxLength": 128,
-        "description": "Optional request tracing ID"
-      }
-    },
-    "required": ["s3_key"],
-    "additionalProperties": false
-  }
+ "process_document": {
+ "type": "object",
+ "properties": {
+ "s3_key": {
+ "type": "string",
+ "pattern": "^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$",
+ "minLength": 1,
+ "maxLength": 1024,
+ "description": "S3 object key without path traversal"
+ },
+ "priority": {
+ "type": "string",
+ "enum": ["low", "normal", "high"],
+ "default": "normal",
+ "description": "Processing priority level"
+ },
+ "correlation_id": {
+ "type": "string",
+ "pattern": "^[a-zA-Z0-9-]+$",
+ "minLength": 1,
+ "maxLength": 128,
+ "description": "Optional request tracing ID"
+ }
+ },
+ "required": ["s3_key"],
+ "additionalProperties": false
+ }
 }
 ```
 
@@ -1551,37 +1551,37 @@ echo "HTTP Status: $HTTP_CODE"
 ^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$
 
 Breaking it down:
-├─ ^               : Start of string anchor
-├─ (?!.*\\.\\.)    : Negative lookahead - REJECTS any string containing ".."
-│  └─ Critical for path traversal prevention
+├─ ^ : Start of string anchor
+├─ (?!.*\\.\\.) : Negative lookahead - REJECTS any string containing ".."
+│ └─ Critical for path traversal prevention
 ├─ [a-zA-Z0-9/._-] : Character whitelist (alphanumeric + safe punctuation)
-│  ├─ / : Directory separator (allowed)
-│  ├─ . : File extension separator (allowed)
-│  ├─ _ : Underscore (safe)
-│  ├─ - : Hyphen (safe)
-│  └─ NO: <, >, &, ;, |, $, `, ', ", \, *, ? (all blocked)
-├─ +               : One or more characters (enforces minLength)
-└─ $               : End of string anchor
+│ ├─ / : Directory separator (allowed)
+│ ├─ . : File extension separator (allowed)
+│ ├─ _ : Underscore (safe)
+│ ├─ - : Hyphen (safe)
+│ └─ NO: <, >, &, ;, |, $, `, ', ", \, *, ? (all blocked)
+├─ + : One or more characters (enforces minLength)
+└─ $ : End of string anchor
 
 Attack Surface Coverage:
-✅ Path traversal: ../../../etc/passwd (blocked by negative lookahead)
-✅ Null byte: test.pdf\x00.txt (blocked - \x00 not in charset)
-✅ Unicode bypass: test%2F..%2F.. (blocked - % not in charset)
-✅ Windows path: C:\Windows\System32 (blocked - \ and : not in charset)
-✅ Command injection: test.pdf;rm -rf / (blocked - ; not in charset)
+ Path traversal: ../../../etc/passwd (blocked by negative lookahead)
+ Null byte: test.pdf\x00.txt (blocked - \x00 not in charset)
+ Unicode bypass: test%2F..%2F.. (blocked - % not in charset)
+ Windows path: C:\Windows\System32 (blocked - \ and : not in charset)
+ Command injection: test.pdf;rm -rf / (blocked - ; not in charset)
 ```
 
 **Why Negative Lookahead vs Simple String Check?**
 ```python
-# ❌ Simple approach (can be bypassed):
+# Simple approach (can be bypassed):
 if ".." in s3_key:
-    raise ValidationError("Path traversal detected")
+ raise ValidationError("Path traversal detected")
 
 # Bypass: URL encoding
-s3_key = "invoices%2F..%2F..%2Fetc%2Fpasswd"  # Passes check!
-# Later decoded by framework → "invoices/../../etc/passwd"  # Attack succeeds!
+s3_key = "invoices%2F..%2F..%2Fetc%2Fpasswd" # Passes check!
+# Later decoded by framework → "invoices/../../etc/passwd" # Attack succeeds!
 
-# ✅ Regex with negative lookahead (bulletproof):
+# Regex with negative lookahead (bulletproof):
 pattern = r"^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
 # Any form of ".." fails pattern match, even before decoding
 ```
@@ -1593,9 +1593,9 @@ pattern = r"^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
 # Input: "../../../etc/passwd"
 # 
 # Validation Flow:
-# 1. Type check: ✅ string
-# 2. Length check: ✅ 20 chars (between 1-1024)
-# 3. Pattern check: ❌ FAILS - Contains ".."
+# 1. Type check: string
+# 2. Length check: 20 chars (between 1-1024)
+# 3. Pattern check: FAILS - Contains ".."
 #
 # Result: 400 Bad Request
 # Error: "s3_key does not match pattern ^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
@@ -1610,9 +1610,9 @@ pattern = r"^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
 # Input: "test.pdf'; DROP TABLE documents;--"
 #
 # Validation Flow:
-# 1. Type check: ✅ string
-# 2. Length check: ✅ 37 chars
-# 3. Pattern check: ❌ FAILS - Contains ', ;, and space
+# 1. Type check: string
+# 2. Length check: 37 chars
+# 3. Pattern check: FAILS - Contains ', ;, and space
 #
 # Result: 400 Bad Request
 #
@@ -1627,9 +1627,9 @@ pattern = r"^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
 # Input: "<script>alert('XSS')</script>"
 #
 # Validation Flow:
-# 1. Type check: ✅ string
-# 2. Length check: ✅ 30 chars
-# 3. Pattern check: ❌ FAILS - Contains <, >, (, ), '
+# 1. Type check: string
+# 2. Length check: 30 chars
+# 3. Pattern check: FAILS - Contains <, >, (, ), '
 #
 # Result: 400 Bad Request
 #
@@ -1644,9 +1644,9 @@ pattern = r"^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
 # Input: "test.pdf | rm -rf /"
 #
 # Validation Flow:
-# 1. Type check: ✅ string
-# 2. Length check: ✅ 19 chars
-# 3. Pattern check: ❌ FAILS - Contains |, space
+# 1. Type check: string
+# 2. Length check: 19 chars
+# 3. Pattern check: FAILS - Contains |, space
 #
 # Result: 400 Bad Request
 #
@@ -1657,11 +1657,11 @@ pattern = r"^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$"
 
 **Attack 5: Buffer Overflow**
 ```python
-# Input: "A" * 10000  # 10KB string
+# Input: "A" * 10000 # 10KB string
 #
 # Validation Flow:
-# 1. Type check: ✅ string
-# 2. Length check: ❌ FAILS - 10000 > maxLength(1024)
+# 1. Type check: string
+# 2. Length check: FAILS - 10000 > maxLength(1024)
 # 3. Pattern check: (not reached)
 #
 # Result: 400 Bad Request
@@ -1687,10 +1687,10 @@ valid_params = {"s3_key": "invoices/2026/01/test.pdf", "priority": "normal"}
 
 start = time.perf_counter()
 for _ in range(1000):
-    jsonschema.validate(instance=valid_params, schema=schema)
+ jsonschema.validate(instance=valid_params, schema=schema)
 end = time.perf_counter()
 
-avg_time = (end - start) / 1000 * 1000  # Convert to ms
+avg_time = (end - start) / 1000 * 1000 # Convert to ms
 print(f"Avg validation time: {avg_time:.2f}ms")
 
 # Results:
@@ -1706,16 +1706,16 @@ print(f"Avg validation time: {avg_time:.2f}ms")
 ```python
 # Current: Inline schemas in code
 schemas = {
-    "process_document": {...},
-    "extract_document": {...},
-    # ...
+ "process_document": {...},
+ "extract_document": {...},
+ # ...
 }
 
 # Future: JSON Schema files with versions
 schemas/
-├── process_document.v1.json  # Original
-├── process_document.v2.json  # Added 'tags' field
-└── process_document.v3.json  # Made 'priority' required
+├── process_document.v1.json # Original
+├── process_document.v2.json # Added 'tags' field
+└── process_document.v3.json # Made 'priority' required
 
 # Backward compatibility:
 # - Old clients send no version → validated against v1
@@ -1725,44 +1725,44 @@ schemas/
 
 **6. Error Message Design:**
 
-**❌ Bad Error Message (information leakage):**
+** Bad Error Message (information leakage):**
 ```json
 {
-  "error": {
-    "message": "Validation failed: Field s3_key matched attack pattern for path traversal"
-  }
+ "error": {
+ "message": "Validation failed: Field s3_key matched attack pattern for path traversal"
+ }
 }
 ```
 Problem: Attacker learns that path traversal detection exists, tries other bypasses
 
-**✅ Good Error Message (minimal information):**
+** Good Error Message (minimal information):**
 ```json
 {
-  "error": {
-    "code": -32602,
-    "message": "Invalid params: s3_key does not match required pattern",
-    "data": {
-      "field": "s3_key",
-      "constraint": "pattern"
-    }
-  }
+ "error": {
+ "code": -32602,
+ "message": "Invalid params: s3_key does not match required pattern",
+ "data": {
+ "field": "s3_key",
+ "constraint": "pattern"
+ }
+ }
 }
 ```
 Benefit: Generic message, doesn't reveal detection mechanism
 
-**🎯 Even Better (developer-friendly):**
+** Even Better (developer-friendly):**
 ```json
 {
-  "error": {
-    "code": -32602,
-    "message": "Invalid params: s3_key does not match required pattern",
-    "data": {
-      "field": "s3_key",
-      "constraint": "pattern",
-      "pattern": "^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$",
-      "hint": "Use only alphanumeric characters, /, ., _, and -"
-    }
-  }
+ "error": {
+ "code": -32602,
+ "message": "Invalid params: s3_key does not match required pattern",
+ "data": {
+ "field": "s3_key",
+ "constraint": "pattern",
+ "pattern": "^(?!.*\\.\\./)[a-zA-Z0-9/._-]+$",
+ "hint": "Use only alphanumeric characters, /, ., _, and -"
+ }
+ }
 }
 ```
 Benefit: Helps legitimate developers, doesn't aid attackers (pattern is public anyway)
@@ -1774,14 +1774,14 @@ Benefit: Helps legitimate developers, doesn't aid attackers (pattern is public a
 # Attacker uses Unicode to bypass regex
 # Example: 'ꓸ' (U+A4F8) looks like '.' but isn't ASCII
 
-attack = "invoicesꓸꓸ/ꓸꓸ/etc/passwd"  # Uses U+A4F8 instead of '.'
+attack = "invoicesꓸꓸ/ꓸꓸ/etc/passwd" # Uses U+A4F8 instead of '.'
 
 # Defense:
 # 1. Our regex only allows [a-zA-Z0-9/._-] (ASCII range)
 # 2. U+A4F8 is outside ASCII → pattern mismatch
 # 3. Even if it passes, Python normalizes Unicode in file operations
 
-# Result: ❌ Blocked at validation layer
+# Result: Blocked at validation layer
 ```
 
 **Scenario B: Double Encoding**
@@ -1796,7 +1796,7 @@ attack = "invoices%252E%252E%252Fetc%252Fpasswd"
 # 2. '%' is not in our character whitelist
 # 3. Pattern match fails immediately
 
-# Result: ❌ Blocked at validation layer
+# Result: Blocked at validation layer
 ```
 
 **Scenario C: CRLF Injection**
@@ -1811,7 +1811,7 @@ attack = "test.pdf\r\nX-Evil-Header: malicious\r\n"
 # 2. Pattern match fails
 # 3. Even if it passes, JSON parser would escape it
 
-# Result: ❌ Blocked at validation layer
+# Result: Blocked at validation layer
 ```
 
 **8. Testing Strategy:**
@@ -1820,26 +1820,26 @@ attack = "test.pdf\r\nX-Evil-Header: malicious\r\n"
 # test_security_enhanced.py
 
 def test_path_traversal_variants():
-    """Test all known path traversal patterns"""
-    attacks = [
-        "../etc/passwd",                    # Classic
-        "..\\..\\..\\windows\\system32",   # Windows
-        "....//....//etc/passwd",          # Double dot
-        "..;/..;/etc/passwd",              # Semicolon separator
-        "..%2F..%2Fetc%2Fpasswd",         # URL encoded
-        "%2e%2e%2f%2e%2e%2fetc%2fpasswd", # Fully URL encoded
-        "..%252F..%252Fetc%252Fpasswd",   # Double encoded
-        "..%c0%af..%c0%afetc%c0%afpasswd",# UTF-8 overlong
-    ]
-    
-    validator = JSONSchemaValidator()
-    for attack in attacks:
-        params = {"s3_key": attack, "priority": "normal"}
-        is_valid, error = validator.validate("process_document", params)
-        assert is_valid is False, f"Attack bypassed: {attack}"
-        assert "pattern" in error.lower()
+ """Test all known path traversal patterns"""
+ attacks = [
+ "../etc/passwd", # Classic
+ "..\\..\\..\\windows\\system32", # Windows
+ "....//....//etc/passwd", # Double dot
+ "..;/..;/etc/passwd", # Semicolon separator
+ "..%2F..%2Fetc%2Fpasswd", # URL encoded
+ "%2e%2e%2f%2e%2e%2fetc%2fpasswd", # Fully URL encoded
+ "..%252F..%252Fetc%252Fpasswd", # Double encoded
+ "..%c0%af..%c0%afetc%c0%afpasswd",# UTF-8 overlong
+ ]
+ 
+ validator = JSONSchemaValidator()
+ for attack in attacks:
+ params = {"s3_key": attack, "priority": "normal"}
+ is_valid, error = validator.validate("process_document", params)
+ assert is_valid is False, f"Attack bypassed: {attack}"
+ assert "pattern" in error.lower()
 
-# All 8 attacks blocked ✅
+# All 8 attacks blocked 
 ```
 
 **9. Compliance Mapping:**
@@ -1861,11 +1861,11 @@ def test_path_traversal_variants():
 # Attack: push graphic-context push graphic-context ; ls
 
 # If we processed images without validation:
-curl -X POST /message -d '{"s3_key":"| ls /"}'  # Executes 'ls /'
+curl -X POST /message -d '{"s3_key":"| ls /"}' # Executes 'ls /'
 
 # Our defense:
-# ✅ '|' blocked by pattern validation
-# ✅ Attack never reaches ImageMagick
+# '|' blocked by pattern validation
+# Attack never reaches ImageMagick
 ```
 
 **Example 2: Zip Slip (CVE-2018-1000
@@ -1878,14 +1878,14 @@ curl -X POST /message -d '{"s3_key":"| ls /"}'  # Executes 'ls /'
 curl -X POST /message -d '{"s3_key":"attack.zip"}'
 
 # Our defense:
-# ✅ "../" blocked in s3_key validation
-# ✅ Even if ZIP is uploaded, extraction code validates each entry
-# ✅ Defense in depth: validation + safe extraction library
+# "../" blocked in s3_key validation
+# Even if ZIP is uploaded, extraction code validates each entry
+# Defense in depth: validation + safe extraction library
 ```
 
 ---
 
-## 🎭 Demo 6: Attack Demonstrations
+## Demo 6: Attack Demonstrations
 
 ### **Scenario:** Simulate real-world attack scenarios
 
@@ -1894,30 +1894,30 @@ echo "=== DEMO 6: ATTACK DEMONSTRATIONS ==="
 echo ""
 
 # Attack 1: Brute Force API Key
-echo "Attack 1: Brute Force API Key (Rate Limiting) 🔨"
+echo "Attack 1: Brute Force API Key (Rate Limiting) "
 echo "Sending 15 rapid requests with wrong API key..."
 
 BLOCKED_COUNT=0
 for i in {1..15}; do
-    RESPONSE=$(curl -s -w "%{http_code}" -o /dev/null -X POST http://${ORCH_IP}:8001/message \
-        -H "Content-Type: application/json" \
-        -H "X-API-Key: wrong_key_$i" \
-        -d '{"jsonrpc":"2.0","method":"list_skills","id":"'$i'"}')
-    
-    if [ "$RESPONSE" == "429" ] || [ "$RESPONSE" == "403" ]; then
-        BLOCKED_COUNT=$((BLOCKED_COUNT + 1))
-    fi
-    
-    echo -n "Request $i: HTTP $RESPONSE "
-    if [ "$RESPONSE" == "401" ]; then
-        echo "❌ Unauthorized"
-    elif [ "$RESPONSE" == "429" ]; then
-        echo "🚫 Rate Limited!"
-    elif [ "$RESPONSE" == "403" ]; then
-        echo "🚫 Forbidden!"
-    fi
-    
-    sleep 0.1
+ RESPONSE=$(curl -s -w "%{http_code}" -o /dev/null -X POST http://${ORCH_IP}:8001/message \
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: wrong_key_$i" \
+ -d '{"jsonrpc":"2.0","method":"list_skills","id":"'$i'"}')
+ 
+ if [ "$RESPONSE" == "429" ] || [ "$RESPONSE" == "403" ]; then
+ BLOCKED_COUNT=$((BLOCKED_COUNT + 1))
+ fi
+ 
+ echo -n "Request $i: HTTP $RESPONSE "
+ if [ "$RESPONSE" == "401" ]; then
+ echo " Unauthorized"
+ elif [ "$RESPONSE" == "429" ]; then
+ echo " Rate Limited!"
+ elif [ "$RESPONSE" == "403" ]; then
+ echo " Forbidden!"
+ fi
+ 
+ sleep 0.1
 done
 
 echo ""
@@ -1925,21 +1925,21 @@ echo "Result: $BLOCKED_COUNT/15 requests were rate-limited or blocked"
 echo ""
 
 # Attack 2: XSS Attempt
-echo "Attack 2: XSS Injection Attempt 💉"
+echo "Attack 2: XSS Injection Attempt "
 XSS_ATTACK='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "<script>alert('"'"'XSS'"'"')</script>",
-    "priority": "normal"
-  },
-  "id": "xss-attack"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "<script>alert('"'"'XSS'"'"')</script>",
+ "priority": "normal"
+ },
+ "id": "xss-attack"
 }'
 
 XSS_RESPONSE=$(curl -s -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$XSS_ATTACK")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$XSS_ATTACK")
 
 echo "Attack payload: <script>alert('XSS')</script>"
 echo "Response:"
@@ -1947,29 +1947,29 @@ echo "$XSS_RESPONSE" | jq '.error.message'
 echo ""
 
 # Attack 3: Buffer Overflow Attempt
-echo "Attack 3: Buffer Overflow (Extremely Long String) 📊"
+echo "Attack 3: Buffer Overflow (Extremely Long String) "
 LONG_STRING=$(python3 -c "print('A' * 10000)")
 OVERFLOW_ATTACK='{
-  "jsonrpc": "2.0",
-  "method": "process_document",
-  "params": {
-    "s3_key": "'$LONG_STRING'",
-    "priority": "normal"
-  },
-  "id": "overflow-attack"
+ "jsonrpc": "2.0",
+ "method": "process_document",
+ "params": {
+ "s3_key": "'$LONG_STRING'",
+ "priority": "normal"
+ },
+ "id": "overflow-attack"
 }'
 
 OVERFLOW_RESPONSE=$(curl -s -X POST http://${ORCH_IP}:8001/message \
-    -H "Content-Type: application/json" \
-    -H "X-API-Key: $API_KEY" \
-    -d "$OVERFLOW_ATTACK")
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$OVERFLOW_ATTACK")
 
 echo "Attack: String length = ${#LONG_STRING} characters (max allowed: 1024)"
 echo "Response:"
 echo "$OVERFLOW_RESPONSE" | jq '.error.message'
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show brute force attack being rate-limited
 2. Show XSS attempt being blocked by pattern validation
 3. Show buffer overflow being blocked by length constraint
@@ -1977,7 +1977,7 @@ echo "$OVERFLOW_RESPONSE" | jq '.error.message'
 
 ---
 
-## 🔄 Demo 7: Complete Security Pipeline
+## Demo 7: Complete Security Pipeline
 
 ### **Scenario:** Upload a real PDF and watch it flow through all security layers
 
@@ -2031,20 +2031,20 @@ S3_KEY="invoices/2026/01/demo_secure_${TIMESTAMP}.pdf"
 echo "Step 1: Uploading PDF to S3"
 echo "S3 Key: $S3_KEY"
 aws s3 cp demo_secure_invoice.pdf \
-    s3://ca-a2a-documents-555043101106/${S3_KEY} \
-    --region ${REGION}
-echo "✅ Uploaded successfully"
+ s3://ca-a2a-documents-555043101106/${S3_KEY} \
+ --region ${REGION}
+echo " Uploaded successfully"
 echo ""
 
 echo "Step 2: Watching Security Pipeline Execute"
 echo "Following security checks:"
-echo "  1. ✓ Network Security (VPC + Security Groups)"
-echo "  2. ✓ Authentication (API Key verification)"
-echo "  3. ✓ Authorization (RBAC policy check)"
-echo "  4. ✓ Input Validation (JSON Schema)"
-echo "  5. ✓ Rate Limiting (Token bucket)"
-echo "  6. ✓ Message Integrity (HMAC if enabled)"
-echo "  7. ✓ Replay Protection (Timestamp check)"
+echo " 1. Network Security (VPC + Security Groups)"
+echo " 2. Authentication (API Key verification)"
+echo " 3. Authorization (RBAC policy check)"
+echo " 4. Input Validation (JSON Schema)"
+echo " 5. Rate Limiting (Token bucket)"
+echo " 6. Message Integrity (HMAC if enabled)"
+echo " 7. Replay Protection (Timestamp check)"
 echo ""
 
 echo "Waiting for pipeline to process..."
@@ -2053,38 +2053,38 @@ echo ""
 
 echo "Step 3: Checking Lambda Logs (Trigger)"
 aws logs tail /aws/lambda/ca-a2a-s3-processor --since 1m --region ${REGION} \
-    | grep -E "Processing|Success|ERROR" | tail -5
+ | grep -E "Processing|Success|ERROR" | tail -5
 echo ""
 
 echo "Step 4: Checking Orchestrator Logs (Coordinator)"
 aws logs tail /ecs/ca-a2a-orchestrator --since 1m --region ${REGION} \
-    | grep -v "GET /health" \
-    | grep -E "process_document|Authentication|RBAC|Pipeline|completed" \
-    | tail -10
+ | grep -v "GET /health" \
+ | grep -E "process_document|Authentication|RBAC|Pipeline|completed" \
+ | tail -10
 echo ""
 
 echo "Step 5: Checking Extractor Logs (Parser)"
 aws logs tail /ecs/ca-a2a-extractor --since 1m --region ${REGION} \
-    | grep -E "extract_document|Extracted|pages|completed" \
-    | tail -5
+ | grep -E "extract_document|Extracted|pages|completed" \
+ | tail -5
 echo ""
 
 echo "Step 6: Checking Validator Logs"
 aws logs tail /ecs/ca-a2a-validator --since 1m --region ${REGION} \
-    | grep -E "validate_document|valid|score" \
-    | tail -5
+ | grep -E "validate_document|valid|score" \
+ | tail -5
 echo ""
 
 echo "Step 7: Checking Archivist Logs (Storage)"
 aws logs tail /ecs/ca-a2a-archivist --since 1m --region ${REGION} \
-    | grep -E "archive_document|INSERT|document_id" \
-    | tail -5
+ | grep -E "archive_document|INSERT|document_id" \
+ | tail -5
 echo ""
 
 # Cleanup
 rm -f demo_secure_invoice.pdf
 
-echo "✅ Complete Pipeline Demo Finished"
+echo " Complete Pipeline Demo Finished"
 echo ""
 echo "Summary:"
 echo "- PDF uploaded and processed through 4 agents"
@@ -2093,7 +2093,7 @@ echo "- Document extracted, validated, and archived"
 echo "- Full audit trail in CloudWatch Logs"
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show PDF creation
 2. Show upload to S3
 3. Show logs from each agent in sequence
@@ -2102,7 +2102,7 @@ echo "- Full audit trail in CloudWatch Logs"
 
 ---
 
-## ⚡ Demo 8: Performance Metrics
+## Demo 8: Performance Metrics
 
 ### **Scenario:** Measure security overhead
 
@@ -2112,41 +2112,41 @@ echo ""
 
 # Function to measure request time
 measure_request() {
-    local DESCRIPTION=$1
-    local USE_SECURITY=$2
-    
-    echo "Test: $DESCRIPTION"
-    
-    REQUEST_DATA='{
-      "jsonrpc": "2.0",
-      "method": "list_skills",
-      "params": {},
-      "id": "perf-test"
-    }'
-    
-    TOTAL_TIME=0
-    ITERATIONS=10
-    
-    for i in $(seq 1 $ITERATIONS); do
-        START=$(date +%s%3N)
-        
-        if [ "$USE_SECURITY" == "true" ]; then
-            curl -s -o /dev/null -X POST http://${ORCH_IP}:8001/message \
-                -H "Content-Type: application/json" \
-                -H "X-API-Key: $API_KEY" \
-                -d "$REQUEST_DATA"
-        else
-            curl -s -o /dev/null http://${ORCH_IP}:8001/health
-        fi
-        
-        END=$(date +%s%3N)
-        TIME=$((END - START))
-        TOTAL_TIME=$((TOTAL_TIME + TIME))
-    done
-    
-    AVG_TIME=$((TOTAL_TIME / ITERATIONS))
-    echo "Average Time: ${AVG_TIME}ms (over $ITERATIONS requests)"
-    echo ""
+ local DESCRIPTION=$1
+ local USE_SECURITY=$2
+ 
+ echo "Test: $DESCRIPTION"
+ 
+ REQUEST_DATA='{
+ "jsonrpc": "2.0",
+ "method": "list_skills",
+ "params": {},
+ "id": "perf-test"
+ }'
+ 
+ TOTAL_TIME=0
+ ITERATIONS=10
+ 
+ for i in $(seq 1 $ITERATIONS); do
+ START=$(date +%s%3N)
+ 
+ if [ "$USE_SECURITY" == "true" ]; then
+ curl -s -o /dev/null -X POST http://${ORCH_IP}:8001/message \
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$REQUEST_DATA"
+ else
+ curl -s -o /dev/null http://${ORCH_IP}:8001/health
+ fi
+ 
+ END=$(date +%s%3N)
+ TIME=$((END - START))
+ TOTAL_TIME=$((TOTAL_TIME + TIME))
+ done
+ 
+ AVG_TIME=$((TOTAL_TIME / ITERATIONS))
+ echo "Average Time: ${AVG_TIME}ms (over $ITERATIONS requests)"
+ echo ""
 }
 
 # Baseline: Health check (no security)
@@ -2166,14 +2166,14 @@ echo ""
 # Show processing time breakdown from recent request
 echo "Recent Request Breakdown:"
 aws logs tail /ecs/ca-a2a-orchestrator --since 2m --region ${REGION} \
-    | grep "processing_time_ms" | tail -1 | jq '{
-        method,
-        processing_time_ms,
-        correlation_id
-    }'
+ | grep "processing_time_ms" | tail -1 | jq '{
+ method,
+ processing_time_ms,
+ correlation_id
+ }'
 ```
 
-**📹 Video Capture:**
+** Video Capture:**
 1. Show performance measurement script
 2. Display timing results
 3. Show overhead calculation
@@ -2182,25 +2182,25 @@ aws logs tail /ecs/ca-a2a-orchestrator --since 2m --region ${REGION} \
 **Performance Summary:**
 ```
 ╔═══════════════════════════╦════════════╦═════════════╗
-║ Component                 ║ Time (ms)  ║ % Overhead  ║
+║ Component ║ Time (ms) ║ % Overhead ║
 ╠═══════════════════════════╬════════════╬═════════════╣
-║ Base HTTP                 ║ 2-5        ║ 0%          ║
-║ + Authentication          ║ +0.1       ║ 2%          ║
-║ + Authorization           ║ +0.1       ║ 2%          ║
-║ + Schema Validation       ║ +1.5       ║ 30%         ║
-║ + HMAC (if enabled)       ║ +0.3       ║ 6%          ║
-║ + Rate Limiting           ║ +0.1       ║ 2%          ║
-║ + Replay Protection       ║ +0.1       ║ 2%          ║
+║ Base HTTP ║ 2-5 ║ 0% ║
+║ + Authentication ║ +0.1 ║ 2% ║
+║ + Authorization ║ +0.1 ║ 2% ║
+║ + Schema Validation ║ +1.5 ║ 30% ║
+║ + HMAC (if enabled) ║ +0.3 ║ 6% ║
+║ + Rate Limiting ║ +0.1 ║ 2% ║
+║ + Replay Protection ║ +0.1 ║ 2% ║
 ╠═══════════════════════════╬════════════╬═════════════╣
-║ Total Security            ║ 4-7        ║ ~1% of      ║
-║                           ║            ║ 515ms       ║
-║                           ║            ║ pipeline    ║
+║ Total Security ║ 4-7 ║ ~1% of ║
+║ ║ ║ 515ms ║
+║ ║ ║ pipeline ║
 ╚═══════════════════════════╩════════════╩═════════════╝
 ```
 
 ---
 
-## 📹 Video Recording Tips
+## Video Recording Tips
 
 ### **Screen Recording Setup**
 
@@ -2234,25 +2234,25 @@ aws logs tail /ecs/ca-a2a-orchestrator --since 2m --region ${REGION} \
 ### **Recording Checklist**
 
 **Pre-Recording:**
-- ✅ Clear terminal history (`clear`)
-- ✅ Set large font size (14-16pt)
-- ✅ Test all commands beforehand
-- ✅ Have agents running and healthy
-- ✅ Prepare any test files
+- Clear terminal history (`clear`)
+- Set large font size (14-16pt)
+- Test all commands beforehand
+- Have agents running and healthy
+- Prepare any test files
 
 **During Recording:**
-- ✅ Speak clearly and explain each step
-- ✅ Pause between commands (2-3 seconds)
-- ✅ Highlight important output with cursor
-- ✅ Use `echo "===" ` separators for clarity
-- ✅ Show errors being caught (security working)
+- Speak clearly and explain each step
+- Pause between commands (2-3 seconds)
+- Highlight important output with cursor
+- Use `echo "===" ` separators for clarity
+- Show errors being caught (security working)
 
 **Post-Recording:**
-- ✅ Add chapter markers
-- ✅ Add text overlays for key concepts
-- ✅ Speed up long waits (2x-4x)
-- ✅ Add diagrams as overlays
-- ✅ Add summary slides
+- Add chapter markers
+- Add text overlays for key concepts
+- Speed up long waits (2x-4x)
+- Add diagrams as overlays
+- Add summary slides
 
 ### **Video Structure Recommendation**
 
@@ -2272,27 +2272,27 @@ aws logs tail /ecs/ca-a2a-orchestrator --since 2m --region ${REGION} \
 ### **Editing Tips**
 
 1. **Add Mermaid Diagrams as Overlays:**
-   - Render diagrams from documentation
-   - Show during relevant demo sections
-   - Use picture-in-picture style
+ - Render diagrams from documentation
+ - Show during relevant demo sections
+ - Use picture-in-picture style
 
 2. **Highlight Security Layers:**
-   - Color-code each layer (green = passed, red = blocked)
-   - Animate the 8-layer diagram as checks pass
+ - Color-code each layer (green = passed, red = blocked)
+ - Animate the 8-layer diagram as checks pass
 
 3. **Create Summary Slides:**
-   - Show attack matrix at end
-   - Display performance metrics
-   - Compliance scorecard
+ - Show attack matrix at end
+ - Display performance metrics
+ - Compliance scorecard
 
 4. **Add Captions:**
-   - Explain technical terms
-   - Highlight key log entries
-   - Point out important fields
+ - Explain technical terms
+ - Highlight key log entries
+ - Point out important fields
 
 ---
 
-## 🎓 Summary Script
+## Summary Script
 
 **Final summary to speak over recap footage:**
 
@@ -2312,22 +2312,22 @@ aws logs tail /ecs/ca-a2a-orchestrator --since 2m --region ${REGION} \
 
 ---
 
-## 📊 Appendix: Quick Reference Commands
+## Appendix: Quick Reference Commands
 
 ```bash
 # Get all agent IPs at once
 for SERVICE in orchestrator extractor validator archivist; do
-    IP=$(get_agent_ip $SERVICE)
-    PORT=$((8001 + $(echo "orchestrator extractor validator archivist" | tr ' ' '\n' | grep -n "^$SERVICE$" | cut -d: -f1) - 1))
-    echo "$SERVICE: $IP:$PORT"
+ IP=$(get_agent_ip $SERVICE)
+ PORT=$((8001 + $(echo "orchestrator extractor validator archivist" | tr ' ' '\n' | grep -n "^$SERVICE$" | cut -d: -f1) - 1))
+ echo "$SERVICE: $IP:$PORT"
 done
 
 # Test all agents health
 for SERVICE in orchestrator extractor validator archivist; do
-    IP=$(get_agent_ip $SERVICE)
-    PORT=$((8001 + $(echo "orchestrator extractor validator archivist" | tr ' ' '\n' | grep -n "^$SERVICE$" | cut -d: -f1) - 1))
-    STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$IP:$PORT/health)
-    echo "$SERVICE:$PORT → HTTP $STATUS"
+ IP=$(get_agent_ip $SERVICE)
+ PORT=$((8001 + $(echo "orchestrator extractor validator archivist" | tr ' ' '\n' | grep -n "^$SERVICE$" | cut -d: -f1) - 1))
+ STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://$IP:$PORT/health)
+ echo "$SERVICE:$PORT → HTTP $STATUS"
 done
 
 # Watch logs in real-time (split screen)
@@ -2336,30 +2336,30 @@ aws logs tail /ecs/ca-a2a-orchestrator --follow --region eu-west-3 | grep -v "GE
 
 # Terminal 2: All agents
 aws logs tail /ecs/ca-a2a-extractor /ecs/ca-a2a-validator /ecs/ca-a2a-archivist \
-    --follow --region eu-west-3
+ --follow --region eu-west-3
 
 # Quick test with color output
 test_endpoint() {
-    RESPONSE=$(curl -s -w "\n%{http_code}" -X POST http://${ORCH_IP}:8001/message \
-        -H "Content-Type: application/json" \
-        -H "X-API-Key: $API_KEY" \
-        -d "$1")
-    CODE=$(echo "$RESPONSE" | tail -1)
-    BODY=$(echo "$RESPONSE" | head -n -1)
-    
-    if [ "$CODE" == "200" ]; then
-        echo "✅ SUCCESS: $2"
-    else
-        echo "❌ FAILED: $2 (HTTP $CODE)"
-    fi
-    echo "$BODY" | jq '.' | head -10
+ RESPONSE=$(curl -s -w "\n%{http_code}" -X POST http://${ORCH_IP}:8001/message \
+ -H "Content-Type: application/json" \
+ -H "X-API-Key: $API_KEY" \
+ -d "$1")
+ CODE=$(echo "$RESPONSE" | tail -1)
+ BODY=$(echo "$RESPONSE" | head -n -1)
+ 
+ if [ "$CODE" == "200" ]; then
+ echo " SUCCESS: $2"
+ else
+ echo " FAILED: $2 (HTTP $CODE)"
+ fi
+ echo "$BODY" | jq '.' | head -10
 }
 ```
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** January 3, 2026  
-**Video Demo Duration:** 20-25 minutes  
+**Document Version:** 1.0 
+**Last Updated:** January 3, 2026 
+**Video Demo Duration:** 20-25 minutes 
 **Recommended For:** Technical presentations, security audits, training sessions
 
