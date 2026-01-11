@@ -86,145 +86,307 @@ Our implementation addresses **all major threat models** identified in the resea
 
 ## System Architecture
 
-### High-Level Architecture
+### Actual Deployed AWS Architecture
+
+**AWS Account:** 555043101106  
+**Region:** eu-west-3 (Paris)  
+**Deployment Date:** January 2026  
+
+#### Infrastructure Overview
 
 ```mermaid
 graph TB
- subgraph Internet
- Client[External Client<br/>HTTPS Only]
- end
- 
- subgraph AWS["AWS Cloud (eu-west-3)"]
- subgraph VPC["VPC 10.0.0.0/16"]
- subgraph PublicSubnet["Public Subnets (Multi-AZ)"]
- ALB[Application Load Balancer<br/> TLS Termination<br/>Health Checks<br/>WAF Protection]
- end
- 
- subgraph PrivateSubnet1["Private Subnet AZ1"]
- Orch1[Orchestrator Task 1<br/>Port 8001<br/> Workflow Controller]
- Ext1[Extractor Task 1<br/>Port 8002<br/> Document Parser]
- end
- 
- subgraph PrivateSubnet2["Private Subnet AZ2"]
- Orch2[Orchestrator Task 2<br/>Port 8001<br/> Workflow Controller]
- Val1[Validator Task 1<br/>Port 8003<br/> Quality Checker]
- end
- 
- subgraph PrivateSubnet3["Private Subnet AZ3"]
- Arch1[Archivist Task 1<br/>Port 8004<br/> Storage Manager]
- MCP1[MCP Server<br/>Port 8000<br/> Resource Broker]
- end
- 
- subgraph Storage["Data Layer"]
- S3[(S3 Bucket<br/>ca-a2a-documents<br/>Encrypted at Rest)]
- RDS[(RDS PostgreSQL 15<br/>documents_db<br/>Multi-AZ, Encrypted)]
- end
- 
- subgraph Observability["Monitoring & Logging"]
- CW[CloudWatch Logs<br/>Metrics & Alarms]
- SM[Secrets Manager<br/>Credentials]
- end
- end
- end
- 
- Client -->|HTTPS:443| ALB
- ALB -->|HTTP:8001| Orch1
- ALB -->|HTTP:8001| Orch2
- 
- Orch1 -->|A2A Protocol| Ext1
- Orch1 -->|A2A Protocol| Val1
- Orch1 -->|A2A Protocol| Arch1
- Orch2 -->|A2A Protocol| Ext1
- Orch2 -->|A2A Protocol| Val1
- Orch2 -->|A2A Protocol| Arch1
- 
- Ext1 -->|MCP HTTP| MCP1
- Val1 -->|MCP HTTP| MCP1
- Arch1 -->|MCP HTTP| MCP1
- Orch1 -->|MCP HTTP| MCP1
- 
- MCP1 -->|S3 API| S3
- MCP1 -->|PostgreSQL SSL| RDS
- 
- Orch1 -.->|Logs| CW
- Ext1 -.->|Logs| CW
- Val1 -.->|Logs| CW
- Arch1 -.->|Logs| CW
- MCP1 -.->|Logs| CW
- 
- Orch1 -.->|Get Secrets| SM
- MCP1 -.->|Get DB Password| SM
- 
- style Client fill:#e1f5ff
- style ALB fill:#ffecb3
- style Orch1 fill:#c8e6c9
- style Orch2 fill:#c8e6c9
- style Ext1 fill:#c8e6c9
- style Val1 fill:#c8e6c9
- style Arch1 fill:#c8e6c9
- style MCP1 fill:#ce93d8
- style S3 fill:#ffd54f
- style RDS fill:#ffd54f
- style CW fill:#90caf9
- style SM fill:#ef9a9a
+    subgraph Internet
+        Client[External Client<br/>S3 Upload/API Calls]
+    end
+    
+    subgraph AWS["AWS Cloud - eu-west-3 (Paris)"]
+        subgraph VPC["VPC: 10.0.0.0/16<br/>ca-a2a-vpc"]
+            subgraph PublicSubnets["Public Subnets (2 AZs)"]
+                PubSub1[Public Subnet 1<br/>10.0.1.0/24<br/>eu-west-3a]
+                PubSub2[Public Subnet 2<br/>10.0.2.0/24<br/>eu-west-3b]
+                NAT[NAT Gateway<br/>Elastic IP]
+            end
+            
+            IGW[Internet Gateway]
+            
+            subgraph PrivateSubnets["Private Subnets (2 AZs)"]
+                PrivSub1[Private Subnet 1<br/>10.0.10.0/24<br/>eu-west-3a]
+                PrivSub2[Private Subnet 2<br/>10.0.20.0/24<br/>eu-west-3b]
+            end
+            
+            subgraph ECS["ECS Fargate Cluster<br/>ca-a2a-cluster"]
+                Orch[Orchestrator Service<br/>Port 8001<br/>CPU: 512, Memory: 1024 MB]
+                Extr[Extractor Service<br/>Port 8002<br/>CPU: 512, Memory: 1024 MB]
+                Val[Validator Service<br/>Port 8003<br/>CPU: 512, Memory: 1024 MB]
+                Arch[Archivist Service<br/>Port 8004<br/>CPU: 512, Memory: 1024 MB]
+            end
+            
+            subgraph Storage["Data Layer"]
+                S3[(S3 Bucket<br/>ca-a2a-documents-555043101106<br/>Versioning + Encryption)]
+                RDS[(RDS Aurora PostgreSQL<br/>documents-db<br/>db.t3.medium<br/>Endpoint: ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com)]
+            end
+            
+            subgraph SecurityGroups["Security Groups"]
+                OrchSG[ca-a2a-orchestrator-sg]
+                ExtrSG[ca-a2a-extractor-sg]
+                ValSG[ca-a2a-validator-sg]
+                ArchSG[ca-a2a-archivist-sg]
+                RDSSG[ca-a2a-rds-sg]
+            end
+        end
+        
+        subgraph AWSServices["AWS Managed Services"]
+            Lambda[Lambda Function<br/>ca-a2a-s3-processor<br/>S3 Event Handler]
+            CW[CloudWatch Logs<br/>/ecs/ca-a2a-*]
+            SM[Secrets Manager<br/>ca-a2a/db-password]
+            ECR[ECR Repositories<br/>ca-a2a/orchestrator<br/>ca-a2a/extractor<br/>ca-a2a/validator<br/>ca-a2a/archivist]
+            CM[Cloud Map<br/>Service Discovery<br/>*.ca-a2a.local]
+        end
+    end
+    
+    Client -->|Upload PDF| S3
+    S3 -->|S3:ObjectCreated Event| Lambda
+    Lambda -->|HTTP + API Key| Orch
+    
+    Orch -->|A2A Protocol| Extr
+    Orch -->|A2A Protocol| Val
+    Orch -->|A2A Protocol| Arch
+    
+    Extr -->|S3 GetObject| S3
+    Arch -->|PostgreSQL 5432| RDS
+    
+    PubSub1 & PubSub2 --> NAT
+    NAT --> IGW
+    IGW <--> Internet
+    
+    PrivSub1 & PrivSub2 --> NAT
+    
+    Orch & Extr & Val & Arch -.->|Logs| CW
+    Orch & Extr & Val & Arch -.->|Get Secrets| SM
+    
+    Orch -.->|Service Discovery| CM
+    Extr -.->|Service Discovery| CM
+    Val -.->|Service Discovery| CM
+    Arch -.->|Service Discovery| CM
+    
+    OrchSG -.->|Protects| Orch
+    ExtrSG -.->|Protects| Extr
+    ValSG -.->|Protects| Val
+    ArchSG -.->|Protects| Arch
+    RDSSG -.->|Protects| RDS
+    
+    style Client fill:#e1f5ff
+    style VPC fill:#fff3e0
+    style ECS fill:#c8e6c9
+    style Orch fill:#90EE90
+    style Extr fill:#87CEEB
+    style Val fill:#FFD700
+    style Arch fill:#FFA07A
+    style S3 fill:#FF9800
+    style RDS fill:#4169E1
+    style Lambda fill:#9C27B0
+    style CW fill:#2196F3
+    style SM fill:#F44336
+    style ECR fill:#607D8B
+    style CM fill:#00BCD4
 ```
+
+#### Network Architecture Details
+
+| **Component** | **Type** | **CIDR / Details** | **Purpose** |
+|---------------|----------|-------------------|-------------|
+| **VPC** | Virtual Private Cloud | `10.0.0.0/16` | Isolated network environment |
+| **Public Subnet 1** | Subnet (AZ: eu-west-3a) | `10.0.1.0/24` | NAT Gateway, future ALB |
+| **Public Subnet 2** | Subnet (AZ: eu-west-3b) | `10.0.2.0/24` | High availability, future ALB |
+| **Private Subnet 1** | Subnet (AZ: eu-west-3a) | `10.0.10.0/24` | ECS tasks, RDS instances |
+| **Private Subnet 2** | Subnet (AZ: eu-west-3b) | `10.0.20.0/24` | ECS tasks, RDS instances |
+| **Internet Gateway** | IGW | Attached to VPC | Public internet access |
+| **NAT Gateway** | NAT | Public Subnet 1 + Elastic IP | Outbound internet for private subnets |
+
+#### ECS Fargate Configuration
+
+| **Service** | **Task Definition** | **CPU** | **Memory** | **Port** | **Image** |
+|-------------|---------------------|---------|------------|----------|-----------|
+| Orchestrator | ca-a2a-orchestrator | 512 (0.5 vCPU) | 1024 MB | 8001 | 555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/orchestrator:latest |
+| Extractor | ca-a2a-extractor | 512 (0.5 vCPU) | 1024 MB | 8002 | 555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/extractor:latest |
+| Validator | ca-a2a-validator | 512 (0.5 vCPU) | 1024 MB | 8003 | 555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/validator:latest |
+| Archivist | ca-a2a-archivist | 512 (0.5 vCPU) | 1024 MB | 8004 | 555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/archivist:latest |
+
+**Platform:** Fargate 1.4.0  
+**Network Mode:** awsvpc (each task gets its own ENI)  
+**Launch Type:** FARGATE (serverless)  
+**Desired Count:** 1 per service (can scale horizontally)  
+
+#### Database Configuration
+
+| **Parameter** | **Value** |
+|---------------|-----------|
+| **Engine** | Aurora PostgreSQL 15 Compatible |
+| **Instance Class** | db.t3.medium (2 vCPU, 4 GB RAM) |
+| **Cluster Identifier** | documents-db |
+| **Database Name** | documents_db |
+| **Endpoint** | ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com:5432 |
+| **Username** | postgres (from task definition) |
+| **Password** | Stored in AWS Secrets Manager: `arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password` |
+| **Multi-AZ** | Yes (deployed across 2 AZs) |
+| **Encryption** | At-rest encryption enabled |
+| **Backup Retention** | 7 days |
+| **Storage** | Auto-scaling (starts at 10 GB) |
+
+#### S3 Bucket Configuration
+
+| **Parameter** | **Value** |
+|---------------|-----------|
+| **Bucket Name** | ca-a2a-documents-555043101106 |
+| **Region** | eu-west-3 |
+| **Versioning** | Enabled |
+| **Encryption** | SSE-S3 (server-side encryption) |
+| **Event Notifications** | S3:ObjectCreated → Lambda (ca-a2a-s3-processor) |
+| **Public Access** | Blocked (all public access blocked) |
+| **Lifecycle Policy** | None (retain all objects) |
+
+#### Security Groups Configuration
+
+**Orchestrator Security Group (ca-a2a-orchestrator-sg)**
+- **Inbound:**
+  - Port 8001 from Lambda (process_document requests)
+  - Port 8001 from within VPC (internal health checks)
+- **Outbound:**
+  - Port 8002 to Extractor SG (A2A calls)
+  - Port 8003 to Validator SG (A2A calls)
+  - Port 8004 to Archivist SG (A2A calls)
+  - Port 443 to VPC CIDR (AWS API calls, S3)
+  - Port 53 to VPC CIDR (DNS resolution)
+
+**Extractor Security Group (ca-a2a-extractor-sg)**
+- **Inbound:**
+  - Port 8002 from Orchestrator SG
+- **Outbound:**
+  - Port 443 to VPC CIDR (S3 GetObject)
+  - Port 53 to VPC CIDR (DNS)
+
+**Validator Security Group (ca-a2a-validator-sg)**
+- **Inbound:**
+  - Port 8003 from Orchestrator SG
+- **Outbound:**
+  - Port 443 to VPC CIDR (S3/CloudWatch)
+  - Port 53 to VPC CIDR (DNS)
+
+**Archivist Security Group (ca-a2a-archivist-sg)**
+- **Inbound:**
+  - Port 8004 from Orchestrator SG
+- **Outbound:**
+  - Port 5432 to RDS SG (PostgreSQL connections)
+  - Port 443 to VPC CIDR (S3/CloudWatch)
+  - Port 53 to VPC CIDR (DNS)
+
+**RDS Security Group (ca-a2a-rds-sg)**
+- **Inbound:**
+  - Port 5432 from Archivist SG only
+- **Outbound:**
+  - None (database doesn't initiate outbound connections)
+
+#### Service Discovery (AWS Cloud Map)
+
+| **Service** | **DNS Name** | **Resolves To** |
+|-------------|--------------|-----------------|
+| Orchestrator | orchestrator.ca-a2a.local | 10.0.10.x or 10.0.20.x (private IP) |
+| Extractor | extractor.ca-a2a.local | 10.0.10.x or 10.0.20.x (private IP) |
+| Validator | validator.ca-a2a.local | 10.0.10.x or 10.0.20.x (private IP) |
+| Archivist | archivist.ca-a2a.local | 10.0.10.x or 10.0.20.x (private IP) |
+
+**Namespace:** ca-a2a.local (private DNS namespace)  
+**TTL:** 60 seconds  
+**Health Checks:** ECS native health checks (HTTP GET /health)
+
+#### IAM Roles
+
+**ECS Execution Role (ca-a2a-ecs-execution-role)**
+- Permissions:
+  - ECR image pull (ecr:GetAuthorizationToken, ecr:BatchGetImage)
+  - CloudWatch Logs write (logs:CreateLogStream, logs:PutLogEvents)
+  - Secrets Manager read (secretsmanager:GetSecretValue)
+
+**ECS Task Role (ca-a2a-ecs-task-role)**
+- Permissions:
+  - S3 access (s3:GetObject, s3:PutObject on ca-a2a-documents-* bucket)
+  - CloudWatch Logs write (logs:PutLogEvents)
+  - Systems Manager Parameter Store read (for configuration)
+
+**Lambda Execution Role (ca-a2a-lambda-role)**
+- Permissions:
+  - CloudWatch Logs write
+  - S3 read (s3:GetObject)
+  - Secrets Manager read (for API keys)
+  - EC2 network interface management (for VPC execution if needed)
+
+#### CloudWatch Log Groups
+
+| **Log Group** | **Retention** | **Purpose** |
+|---------------|---------------|-------------|
+| /ecs/ca-a2a-orchestrator | 30 days | Orchestrator container logs |
+| /ecs/ca-a2a-extractor | 30 days | Extractor container logs |
+| /ecs/ca-a2a-validator | 30 days | Validator container logs |
+| /ecs/ca-a2a-archivist | 30 days | Archivist container logs |
+| /aws/lambda/ca-a2a-s3-processor | 30 days | Lambda function logs |
+
+---
 
 ### Multi-Agent Communication Flow
 
 ```mermaid
 sequenceDiagram
- autonumber
- participant C as Client
- participant ALB as Load Balancer
- participant O as Orchestrator
- participant E as Extractor
- participant V as Validator
- participant A as Archivist
- participant M as MCP Server
- participant S3 as S3 Bucket
- participant DB as PostgreSQL
- 
- C->>ALB: Upload Document (HTTPS)
- ALB->>O: Forward to Orchestrator
- Note over O: Authenticate Request<br/> Validate JWT/API Key
- 
- O->>M: List documents (MCP)
- M->>S3: List objects
- S3-->>M: Object list
- M-->>O: Documents metadata
- 
- O->>E: Extract document (A2A)
- Note over E: Verify A2A message<br/> Check HMAC signature
- E->>M: Get document from S3
- M->>S3: Download file
- S3-->>M: File content
- M-->>E: Document data
- Note over E: Parse content<br/>Extract fields
- E-->>O: Extracted data (A2A)
- 
- O->>V: Validate data (A2A)
- Note over V: Apply validation rules<br/>Calculate score
- V->>M: Query historical data
- M->>DB: SELECT validation rules
- DB-->>M: Rules data
- M-->>V: Validation context
- V-->>O: Validation result (A2A)
- 
- O->>A: Archive document (A2A)
- A->>M: Store in database
- M->>DB: INSERT document record
- DB-->>M: Success
- M-->>A: Confirmation
- A->>M: Update S3 metadata
- M->>S3: Tag object
- S3-->>M: Success
- M-->>A: Confirmation
- A-->>O: Archiving complete (A2A)
- 
- O-->>ALB: Final result
- ALB-->>C: Response (JSON)
- 
- Note over M,DB: All operations logged<br/>to CloudWatch
+    autonumber
+    participant User
+    participant S3 as S3 Bucket<br/>ca-a2a-documents-555043101106
+    participant Lambda as Lambda<br/>ca-a2a-s3-processor
+    participant Orch as Orchestrator<br/>10.0.10.x:8001
+    participant Extr as Extractor<br/>10.0.10.x:8002
+    participant Val as Validator<br/>10.0.10.x:8003
+    participant Arch as Archivist<br/>10.0.10.x:8004
+    participant RDS as PostgreSQL<br/>documents_db<br/>5432
+    participant CW as CloudWatch Logs
+    
+    User->>S3: Upload invoice.pdf
+    Note over S3: S3:ObjectCreated:Put event
+    
+    S3->>Lambda: Event notification<br/>{bucket, key, size}
+    Lambda->>Lambda: Retrieve API key<br/>from Secrets Manager
+    Lambda->>Orch: POST /message<br/>X-API-Key: ***<br/>process_document(s3_key)
+    Note over Orch: Authenticate request<br/>Validate API key<br/>Check RBAC permissions
+    
+    Orch->>Extr: A2A Call via Cloud Map<br/>extractor.ca-a2a.local:8002<br/>extract_document(s3_key)
+    Note over Extr: Verify HMAC signature<br/>Validate JSON schema
+    
+    Extr->>S3: GetObject(invoice.pdf)
+    S3-->>Extr: Binary PDF data
+    Extr->>Extr: PyPDF2 extraction<br/>Parse text, metadata
+    Extr-->>Orch: {text: "INVOICE...", pages: 2, size: 45KB}
+    
+    Orch->>Val: A2A Call via Cloud Map<br/>validator.ca-a2a.local:8003<br/>validate_document(data)
+    Note over Val: Schema validation<br/>Business rules<br/>Data quality checks
+    Val-->>Orch: {valid: true, confidence: 0.95}
+    
+    Orch->>Arch: A2A Call via Cloud Map<br/>archivist.ca-a2a.local:8004<br/>archive_document(data)
+    Note over Arch: Prepare INSERT statement<br/>Generate UUID
+    
+    Arch->>RDS: INSERT INTO documents_archive<br/>(id, s3_key, text, metadata, timestamp)
+    Note over RDS: Write to PostgreSQL<br/>Multi-AZ replication
+    RDS-->>Arch: document_id: uuid-123
+    Arch-->>Orch: {document_id: "uuid-123", status: "archived"}
+    
+    Orch-->>Lambda: 200 OK<br/>{status: "success", document_id: "uuid-123"}
+    Lambda-->>S3: Processing complete
+    
+    Orch->>CW: Log: Request completed in 2.3s
+    Extr->>CW: Log: Extracted 2 pages, 1250 words
+    Val->>CW: Log: Validation passed (confidence: 0.95)
+    Arch->>CW: Log: Archived document uuid-123
+    
+    rect rgb(200, 255, 200)
+        Note over User,CW: ✓ END-TO-END PROCESSING COMPLETE<br/>Total Time: ~2-3 seconds
+    end
 ```
 
 ### Security Layers (Defense-in-Depth)
