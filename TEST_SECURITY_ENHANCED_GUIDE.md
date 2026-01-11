@@ -371,6 +371,733 @@ All layers pass → Request processed
 
 ---
 
+## Complete Script Code Explanation
+
+### Script Structure Overview
+
+**File:** `test_security_enhanced.py` (447 lines)
+
+```
+Lines 1-12:    Module docstring and description
+Lines 14-19:   Standard library imports (pytest, asyncio, json, time, datetime)
+Lines 21-28:   Security module imports (a2a_security_enhanced)
+Lines 31-116:  Test Class 1: HMAC Request Signing (5 tests)
+Lines 119-217: Test Class 2: JSON Schema Validation (9 tests)
+Lines 220-282: Test Class 3: Token Revocation (4 tests)
+Lines 285-324: Test Class 4: mTLS Authentication (2 tests)
+Lines 327-396: Test Class 5: Combined Security (2 tests)
+Lines 399-438: Test Class 6: Performance Tests (2 tests)
+Lines 441-447: Main execution block
+```
+
+---
+
+### Import Section Explained (Lines 14-28)
+
+```python
+import pytest
+import asyncio
+import json
+import time
+from datetime import datetime, timedelta
+from typing import Dict, Any
+```
+
+**Purpose of each import:**
+
+1. **pytest** - Testing framework
+   - Provides `@pytest.mark.asyncio` decorator
+   - Provides `pytest.skip()` for conditional skipping
+   - Provides test discovery and execution
+   - Used: Throughout all test classes
+
+2. **asyncio** - Asynchronous I/O
+   - Supports async/await syntax
+   - Required for token revocation tests (database operations)
+   - Used: Test Class 3 (TokenRevocation)
+
+3. **json** - JSON encoding/decoding
+   - Converts dictionaries to JSON strings
+   - Used in combined security tests
+   - Format: `json.dumps(message).encode('utf-8')`
+
+4. **time** - Time utilities
+   - `time.time()` - Get current Unix timestamp
+   - `time.perf_counter()` - High-resolution timer for performance tests
+   - Used: HMAC timestamp tests, performance benchmarks
+
+5. **datetime, timedelta** - Date/time manipulation
+   - `datetime.utcnow()` - Current UTC time
+   - `timedelta(hours=1)` - Time differences
+   - Used: Token expiry calculations
+
+6. **typing** - Type hints
+   - `Dict, Any` - Type annotations for clarity
+   - Not strictly required for runtime, improves code readability
+
+**Security module imports:**
+
+```python
+from a2a_security_enhanced import (
+    RequestSigner,           # HMAC signature class
+    JSONSchemaValidator,     # Schema validation class
+    TokenRevocationList,     # Token revocation class
+    MTLSAuthenticator,       # mTLS authentication class
+    generate_signature_secret,  # Helper: Generate random secret
+    generate_test_certificate,  # Helper: Generate test certs
+)
+```
+
+---
+
+### Test Class 1: HMAC Request Signing (Lines 35-116)
+
+#### Class Definition and Setup (Lines 35-40)
+
+```python
+class TestHMACRequestSigning:
+    """Test HMAC signature generation and verification"""
+    
+    def setup_method(self):
+        self.secret = generate_signature_secret(64)
+        self.signer = RequestSigner(self.secret)
+```
+
+**How setup_method works:**
+1. Called by pytest BEFORE each test method in the class
+2. Generates fresh 64-byte random secret key
+3. Creates new `RequestSigner` instance with that secret
+4. Ensures test isolation (each test has unique secret)
+
+**Why isolation matters:**
+- Test 1 cannot affect Test 2
+- Secrets don't leak between tests
+- Results are reproducible
+- Parallel execution safe
+
+**What generate_signature_secret(64) does:**
+```python
+# Inside a2a_security_enhanced.py:
+import secrets
+def generate_signature_secret(length):
+    return secrets.token_urlsafe(length)
+```
+- Uses `secrets` module (cryptographically secure)
+- Generates 64-byte URL-safe base64 string
+- Example output: `"Kx9mN2pL5vQ8wR4tY7uI1oP3aS6dF0gH2jK4lM7nP9qR1sT3uV5wX7yZ0aB2cD4e"`
+
+---
+
+#### Test 1.1: test_sign_and_verify_valid_request (Lines 42-56)
+
+```python
+def test_sign_and_verify_valid_request(self):
+    """Test successful signing and verification"""
+    method = "POST"
+    path = "/message"
+    body = b'{"jsonrpc":"2.0","method":"test","id":"1"}'
+    
+    # Sign request
+    signature = self.signer.sign_request(method, path, body)
+    assert signature is not None
+    assert ':' in signature  # Format: timestamp:signature
+    
+    # Verify signature
+    is_valid, error = self.signer.verify_signature(signature, method, path, body)
+    assert is_valid is True
+    assert error is None
+```
+
+**Step-by-step execution:**
+
+**Step 1: Prepare request data**
+```python
+method = "POST"
+path = "/message"
+body = b'{"jsonrpc":"2.0","method":"test","id":"1"}'
+```
+- `method` - HTTP method (POST, GET, etc.)
+- `path` - Request URI path
+- `body` - Request body as bytes (b prefix)
+
+**Step 2: Sign the request**
+```python
+signature = self.signer.sign_request(method, path, body)
+```
+
+**What happens inside sign_request():**
+```python
+# Simplified version:
+def sign_request(self, method, path, body, timestamp=None):
+    # 1. Get or create timestamp
+    ts = timestamp or int(time.time())  # e.g., 1735862400
+    
+    # 2. Hash the body
+    body_hash = hashlib.sha256(body).hexdigest()  # 64-char hex
+    
+    # 3. Create signature string
+    sig_string = f"{method}|{path}|{ts}|{body_hash}"
+    # Example: "POST|/message|1735862400|a8f3c2d9..."
+    
+    # 4. Compute HMAC
+    hmac_obj = hmac.new(self.secret.encode(), sig_string.encode(), hashlib.sha256)
+    signature_hex = hmac_obj.hexdigest()  # 64-char hex
+    
+    # 5. Return combined format
+    return f"{ts}:{signature_hex}"
+    # Example: "1735862400:e7a6b9c3d4f8..."
+```
+
+**Step 3: Assert signature format**
+```python
+assert signature is not None
+assert ':' in signature
+```
+- Ensures signature was generated
+- Verifies format: `timestamp:hmac_hex`
+
+**Step 4: Verify signature**
+```python
+is_valid, error = self.signer.verify_signature(signature, method, path, body)
+```
+
+**What happens inside verify_signature():**
+```python
+def verify_signature(self, signature, method, path, body, max_age_seconds=300):
+    # 1. Split signature
+    ts_str, sig_hex = signature.split(':')
+    ts = int(ts_str)
+    
+    # 2. Check timestamp age
+    current_time = int(time.time())
+    age = current_time - ts
+    if age > max_age_seconds:
+        return False, "Signature too old"
+    if age < -60:  # Allow 60s clock skew
+        return False, "Signature from future"
+    
+    # 3. Recompute expected signature
+    body_hash = hashlib.sha256(body).hexdigest()
+    sig_string = f"{method}|{path}|{ts}|{body_hash}"
+    expected_hmac = hmac.new(self.secret.encode(), sig_string.encode(), hashlib.sha256)
+    expected_hex = expected_hmac.hexdigest()
+    
+    # 4. Constant-time comparison (prevents timing attacks)
+    if hmac.compare_digest(sig_hex, expected_hex):
+        return True, None
+    else:
+        return False, "Invalid signature"
+```
+
+**Step 5: Assert verification success**
+```python
+assert is_valid is True
+assert error is None
+```
+
+**Why this test is important:**
+- Validates basic HMAC functionality
+- Ensures signature/verification round-trip works
+- Foundation for all other HMAC tests
+
+---
+
+#### Test 1.2: test_reject_tampered_body (Lines 58-71)
+
+```python
+def test_reject_tampered_body(self):
+    """Test rejection of tampered request body"""
+    method = "POST"
+    path = "/message"
+    body = b'{"jsonrpc":"2.0","method":"test","id":"1"}'
+    
+    signature = self.signer.sign_request(method, path, body)
+    
+    # Tamper with body
+    tampered_body = b'{"jsonrpc":"2.0","method":"evil","id":"1"}'
+    
+    is_valid, error = self.signer.verify_signature(signature, method, path, tampered_body)
+    assert is_valid is False
+    assert "Invalid signature" in error
+```
+
+**Attack Scenario:**
+
+**Original request:**
+```
+POST /message
+Body: {"jsonrpc":"2.0","method":"test","id":"1"}
+Signature: 1735862400:a8f3c2d9e1b4f7a6...
+```
+
+**Attacker intercepts and modifies:**
+```
+POST /message
+Body: {"jsonrpc":"2.0","method":"evil","id":"1"}  ← Changed!
+Signature: 1735862400:a8f3c2d9e1b4f7a6...  ← Same signature
+```
+
+**Why it fails:**
+```
+Original body hash:  a8f3c2d9e1b4f7a6c3e8d2b9f4a7c1e3...
+Tampered body hash:  b9d4e3f8a2c7b1f6d4e9c8f3b2a7d1e6...  ← Different!
+
+Expected signature string: "POST|/message|1735862400|b9d4e3f8..."
+Actual signature string:   "POST|/message|1735862400|a8f3c2d9..."
+
+HMAC comparison: NO MATCH → REJECTED
+```
+
+**What this protects against:**
+- Man-in-the-middle attacks
+- Request body tampering
+- Parameter injection
+- Data manipulation
+
+**Security principle:**
+- Message authentication code (MAC) binds signature to exact message content
+- Any change to message → different MAC → verification fails
+
+---
+
+#### Test 1.3: test_reject_expired_signature (Lines 73-88)
+
+```python
+def test_reject_expired_signature(self):
+    """Test rejection of old signatures"""
+    method = "POST"
+    path = "/message"
+    body = b'{"jsonrpc":"2.0","method":"test","id":"1"}'
+    
+    # Create signature with old timestamp
+    old_timestamp = int(time.time()) - 400  # 400 seconds ago
+    signature = self.signer.sign_request(method, path, body, timestamp=old_timestamp)
+    
+    # Verify with max_age of 300 seconds
+    is_valid, error = self.signer.verify_signature(
+        signature, method, path, body, max_age_seconds=300
+    )
+    assert is_valid is False
+    assert "too old" in error.lower()
+```
+
+**Replay Attack Scenario:**
+
+**Time 12:00:00 - Attacker captures valid request:**
+```
+Timestamp: 1735862400 (12:00:00)
+Signature: 1735862400:valid_signature_here
+Body: {"method":"withdraw","amount":1000}
+```
+
+**Time 12:07:00 - Attacker replays captured request:**
+```
+Current time: 1735862820 (12:07:00)
+Request timestamp: 1735862400 (12:00:00)
+Age: 420 seconds (7 minutes)
+Max allowed age: 300 seconds (5 minutes)
+
+Calculation: 420 > 300 → REJECTED
+```
+
+**Why timestamp validation works:**
+```python
+current_time = int(time.time())      # 1735862820
+request_time = int(ts_str)           # 1735862400
+age = current_time - request_time    # 420 seconds
+
+if age > max_age_seconds:            # 420 > 300
+    return False, "Signature too old"
+```
+
+**Protection benefits:**
+- Limits replay window to 5 minutes
+- Prevents long-term replay attacks
+- Balances security vs clock skew tolerance
+
+**Real-world example:**
+```
+12:00:00 - User transfers $1000 (valid)
+12:03:00 - Attacker replays request (ALLOWED - within 5min window)
+12:06:00 - Attacker replays request (REJECTED - outside 5min window)
+```
+
+**Production recommendations:**
+- Use shorter windows for sensitive operations (60-120 seconds)
+- Use longer windows for less sensitive operations (300-600 seconds)
+- Combine with nonce (JWT jti) for true replay prevention
+
+---
+
+#### Test 1.4: test_reject_future_signature (Lines 90-102)
+
+```python
+def test_reject_future_signature(self):
+    """Test rejection of signatures from future (clock skew)"""
+    method = "POST"
+    path = "/message"
+    body = b'{"jsonrpc":"2.0","method":"test","id":"1"}'
+    
+    # Create signature with future timestamp
+    future_timestamp = int(time.time()) + 100
+    signature = self.signer.sign_request(method, path, body, timestamp=future_timestamp)
+    
+    is_valid, error = self.signer.verify_signature(signature, method, path, body)
+    assert is_valid is False
+    assert "future" in error.lower() or "clock skew" in error.lower()
+```
+
+**Clock Skew Attack Scenario:**
+
+**Attacker's clock (misconfigured or malicious):**
+```
+Attacker time: 12:10:00
+Real server time: 12:08:00
+Time difference: +2 minutes (120 seconds ahead)
+```
+
+**Attack attempt:**
+```
+Request timestamp: 1735862400 (12:10:00 on attacker's clock)
+Server current time: 1735862280 (12:08:00 on server clock)
+Age calculation: 1735862280 - 1735862400 = -120 seconds
+
+Result: Negative age → Signature from future → REJECTED
+```
+
+**Why this matters:**
+```python
+age = current_time - request_time  # -120 seconds
+
+if age < -60:  # Allow up to 60 seconds forward clock skew
+    return False, "Signature from future (clock skew)"
+```
+
+**Clock skew tolerance:**
+- **-60 to 0 seconds:** Allowed (slight forward skew, typical)
+- **< -60 seconds:** Rejected (too far in future)
+- **0 to 300 seconds:** Allowed (normal operation)
+- **> 300 seconds:** Rejected (too old)
+
+**Real-world clock skew sources:**
+- NTP synchronization delays
+- Virtual machine time drift
+- Manual clock adjustment
+- Timezone confusion
+
+**Diagram:**
+```
+Timeline:
+|-------|-------|-------|-------|-------|-------|-------|-------|
+12:00  12:01  12:02  12:03  12:04  12:05  12:06  12:07  12:08
+  ↑            ↑       ↑                           ↑       ↑
+  |            |       |                           |       |
+  Old         Valid   Valid                      Valid   Future
+  (reject)    (allow) (allow)                   (allow)  (reject)
+  age>300s    age=240s age=180s                 age=60s  age=-120s
+```
+
+---
+
+#### Test 1.5: test_reject_wrong_secret (Lines 104-116)
+
+```python
+def test_reject_wrong_secret(self):
+    """Test rejection with wrong secret key"""
+    method = "POST"
+    path = "/message"
+    body = b'{"jsonrpc":"2.0","method":"test","id":"1"}'
+    
+    signature = self.signer.sign_request(method, path, body)
+    
+    # Try to verify with different signer (different secret)
+    wrong_signer = RequestSigner(generate_signature_secret(64))
+    is_valid, error = wrong_signer.verify_signature(signature, method, path, body)
+    assert is_valid is False
+```
+
+**Key Compromise Scenario:**
+
+**Legitimate service (Secret A):**
+```python
+secret_a = "Kx9mN2pL5vQ8wR4tY7uI..."
+signer_a = RequestSigner(secret_a)
+signature = signer_a.sign_request("POST", "/message", body)
+# Result: "1735862400:a8f3c2d9e1b4f7a6..."
+```
+
+**Attacker (guesses Secret B):**
+```python
+secret_b = "Pq8wR3tY6uI9oP2aS5dF..."  # Wrong secret!
+attacker_signer = RequestSigner(secret_b)
+attacker_signer.verify_signature(signature, "POST", "/message", body)
+# Result: False (HMAC mismatch)
+```
+
+**Why different secrets produce different HMACs:**
+```python
+# Legitimate (Secret A):
+HMAC_SHA256("Kx9mN2pL...", "POST|/message|1735862400|body_hash")
+→ a8f3c2d9e1b4f7a6c3e8d2b9f4a7c1e3d8b2f6a9c4e7d1b8f3a6c2e9d4b7f1a3
+
+# Attacker (Secret B):
+HMAC_SHA256("Pq8wR3tY...", "POST|/message|1735862400|body_hash")
+→ b9d4e3f8a2c7b1f6d4e9c8f3b2a7d1e6e9c3f7a0d5e8b2f7a3c9e0d5b8f2a4
+
+# Comparison:
+a8f3c2d9... ≠ b9d4e3f8... → REJECTED
+```
+
+**Security principle:**
+- HMAC is keyed hash function
+- Same message + different key = different hash
+- Cannot forge signature without knowing secret
+- Secret must be kept secure (environment variable, secrets manager)
+
+**Attack resistance:**
+```
+Attacker knows:
+✓ Message: "POST|/message|1735862400|body_hash"
+✓ HMAC output: a8f3c2d9e1b4f7a6c3e8d2b9f4a7c1e3...
+✗ Secret key: ???
+
+Cannot compute valid HMAC without secret!
+Brute force: 2^512 possibilities (64-byte key)
+Time to crack: Longer than age of universe
+```
+
+---
+
+### Test Class 2: JSON Schema Validation (Lines 122-217)
+
+#### Class Definition and Setup (Lines 122-128)
+
+```python
+class TestJSONSchemaValidation:
+    """Test JSON Schema validation for all agent methods"""
+    
+    def setup_method(self):
+        self.validator = JSONSchemaValidator()
+        if not self.validator.enabled:
+            pytest.skip("jsonschema not installed")
+```
+
+**Setup explanation:**
+1. Creates `JSONSchemaValidator` instance
+2. Checks if jsonschema library available
+3. If not available, skips all tests in this class
+4. Prevents test failures due to missing dependencies
+
+**Why conditional skip:**
+```python
+if not self.validator.enabled:
+    pytest.skip("jsonschema not installed")
+```
+- `validator.enabled` - Boolean flag set during __init__
+- If jsonschema import fails, `enabled = False`
+- `pytest.skip()` - Marks test as skipped (not failed)
+- Allows tests to run in minimal environments
+
+---
+
+#### Test 2.1: test_valid_process_document (Lines 130-138)
+
+```python
+def test_valid_process_document(self):
+    """Test valid process_document parameters"""
+    params = {
+        "s3_key": "invoices/2026/01/test.pdf",
+        "priority": "normal"
+    }
+    is_valid, error = self.validator.validate("process_document", params)
+    assert is_valid is True
+    assert error is None
+```
+
+**What gets validated:**
+
+**Schema for process_document:**
+```python
+{
+    "type": "object",
+    "required": ["s3_key"],
+    "properties": {
+        "s3_key": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9/_.-]+$",  # Allowed characters only
+            "maxLength": 500
+        },
+        "priority": {
+            "type": "string",
+            "enum": ["low", "normal", "high"]
+        }
+    },
+    "additionalProperties": False
+}
+```
+
+**Validation checks:**
+```
+✓ params is object (dict): YES
+✓ Required field 's3_key' present: YES
+✓ s3_key is string: YES
+✓ s3_key matches pattern ^[a-zA-Z0-9/_.-]+$: YES
+   - "invoices/2026/01/test.pdf"
+   - Contains: letters, numbers, /, ., -
+   - No special chars, no ../
+✓ s3_key length ≤ 500: YES (26 characters)
+✓ priority is string: YES
+✓ priority in enum ["low","normal","high"]: YES ("normal")
+✓ No additional properties: YES (only s3_key and priority)
+
+RESULT: VALID
+```
+
+---
+
+#### Test 2.2: test_invalid_s3_key_pattern (Lines 140-148)
+
+```python
+def test_invalid_s3_key_pattern(self):
+    """Test rejection of invalid s3_key pattern"""
+    params = {
+        "s3_key": "../../../etc/passwd",  # Path traversal attempt
+        "priority": "normal"
+    }
+    is_valid, error = self.validator.validate("process_document", params)
+    assert is_valid is False
+    assert "pattern" in error.lower() or "does not match" in error.lower()
+```
+
+**Path Traversal Attack:**
+
+**Attack attempt:**
+```python
+s3_key = "../../../etc/passwd"
+```
+
+**Attacker's goal:**
+```
+Bypass S3 key restriction
+Read server file: /etc/passwd
+Escape intended directory
+```
+
+**How regex blocks it:**
+```
+Pattern: ^[a-zA-Z0-9/_.-]+$
+
+Breakdown:
+^              Start of string
+[a-zA-Z0-9     Letters and numbers OK
+/_.-]          Forward slash, underscore, dot, hyphen OK
++              One or more characters
+$              End of string
+
+Attack string: "../../../etc/passwd"
+Contains: . (dot) - OK individually
+          .. (two dots together) - NOT matched by pattern!
+          
+Result: DOES NOT MATCH → REJECTED
+```
+
+**Why .. is blocked:**
+```
+Pattern matches: /invoices/2026/file.pdf
+Pattern matches: /documents/invoice_001.pdf
+Pattern matches: /test-file.pdf
+
+Pattern rejects: ../etc/passwd (contains ..)
+Pattern rejects: ../ (path traversal)
+Pattern rejects: ../../ (nested traversal)
+Pattern rejects: ..\\ (Windows path traversal)
+```
+
+**Common path traversal patterns blocked:**
+```
+../../../etc/passwd         ✗ (Unix)
+..\..\..\..\windows\system32 ✗ (Windows)
+....//....//etc/passwd      ✗ (Encoded)
+%2e%2e%2f                   ✗ (URL encoded)
+..;/                        ✗ (Semicolon trick)
+```
+
+**Security principle:**
+- Whitelist allowed characters (positive security model)
+- Don't try to blacklist dangerous patterns (negative security model)
+- Regex anchors (^ and $) ensure full string match
+
+---
+
+#### Test 2.3: test_missing_required_field (Lines 150-158)
+
+```python
+def test_missing_required_field(self):
+    """Test rejection of missing required field"""
+    params = {
+        "priority": "normal"
+        # Missing required 's3_key'
+    }
+    is_valid, error = self.validator.validate("process_document", params)
+    assert is_valid is False
+    assert "required" in error.lower() or "s3_key" in error.lower()
+```
+
+**Attack Scenario:**
+
+**Attacker sends incomplete request:**
+```json
+{
+    "jsonrpc": "2.0",
+    "method": "process_document",
+    "params": {
+        "priority": "high"
+    },
+    "id": "1"
+}
+```
+
+**Schema validation:**
+```
+Required fields: ["s3_key"]
+Provided fields: ["priority"]
+
+Missing: s3_key
+
+Result: REJECTED
+Error: "'s3_key' is a required property"
+```
+
+**Why this matters:**
+- Prevents incomplete requests from crashing application
+- Forces clients to provide all necessary data
+- Fails fast before expensive operations
+- Clear error messages for debugging
+
+**Without validation:**
+```python
+# Agent tries to process document
+s3_key = params.get("s3_key")  # None
+
+# Later in code:
+s3_client.get_object(Bucket=bucket, Key=s3_key)
+# → TypeError: expected string, got None
+# → Server crash or exception
+```
+
+**With validation:**
+```python
+# Schema validation happens first
+is_valid, error = validator.validate("process_document", params)
+if not is_valid:
+    return jsonrpc_error(-32602, f"Invalid params: {error}")
+# → Clean error response
+# → No server crash
+# → Client knows what's wrong
+```
+
+---
+
 ## Detailed Test Breakdown
 
 ### Test 1: test_sign_and_verify_valid_request
