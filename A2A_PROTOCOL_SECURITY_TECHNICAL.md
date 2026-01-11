@@ -77,7 +77,6 @@ graph LR
 ## Protocol Stack Architecture
 
 ### **Full Stack Visualization**
-<img width="1377" height="367" alt="Capture d’écran 2026-01-11 222956" src="https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453" />
 
 ```mermaid
 graph TB
@@ -315,6 +314,7 @@ class A2AMessage:
 ## ️ Security Layers Deep Dive
 
 ### **Defense-in-Depth Architecture**
+<img width="1377" height="367" alt="Capture d’écran 2026-01-11 222956" src="https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453" />
 
 ```mermaid
 graph TB
