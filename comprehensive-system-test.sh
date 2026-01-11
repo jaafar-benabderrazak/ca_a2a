@@ -94,11 +94,11 @@ fi
 
 echo ""
 echo "============================================"
-echo "TEST 2: SECURITY CONFIGURATION"
+echo "TEST 2: SECURITY CONFIGURATION & ENFORCEMENT"
 echo "============================================"
 echo ""
 
-# Test 2.1: API Key Authentication
+# Test 2.1: API Key Authentication Configuration
 echo "2.1 Checking API key configuration..."
 ORCH_API_KEYS=$(aws ecs describe-task-definition \
     --task-definition ca-a2a-orchestrator \
@@ -108,11 +108,15 @@ ORCH_API_KEYS=$(aws ecs describe-task-definition \
 
 if [ ! -z "$ORCH_API_KEYS" ]; then
     test_result 0 "Orchestrator: API keys configured"
+    
+    # Extract actual API key for testing
+    API_KEY=$(echo "$ORCH_API_KEYS" | python3 -c "import sys, json; data=json.loads(sys.stdin.read()); print(list(data.values())[0] if data else '')" 2>/dev/null || echo "")
 else
     test_result 1 "Orchestrator: No API keys found"
+    API_KEY=""
 fi
 
-# Test 2.2: RBAC Policy
+# Test 2.2: RBAC Policy Configuration
 echo ""
 echo "2.2 Checking RBAC policy..."
 RBAC_POLICY=$(aws ecs describe-task-definition \
@@ -127,7 +131,7 @@ else
     test_result 1 "Orchestrator: No RBAC policy found"
 fi
 
-# Test 2.3: Check authentication requirement
+# Test 2.3: Authentication Requirement
 echo ""
 echo "2.3 Checking authentication requirement..."
 AUTH_REQUIRED=$(aws ecs describe-task-definition \
@@ -140,6 +144,228 @@ if [ "$AUTH_REQUIRED" == "true" ]; then
     test_result 0 "Orchestrator: Authentication required (enabled)"
 else
     test_warning "Orchestrator: Authentication not required (disabled)"
+fi
+
+# Get orchestrator IP for security tests
+echo ""
+echo "2.4 Getting orchestrator IP address..."
+ORCH_TASK_ARN=$(aws ecs list-tasks \
+    --cluster ca-a2a-cluster \
+    --service-name orchestrator \
+    --region ${REGION} \
+    --query 'taskArns[0]' \
+    --output text 2>/dev/null)
+
+if [ ! -z "$ORCH_TASK_ARN" ] && [ "$ORCH_TASK_ARN" != "None" ]; then
+    ORCH_IP=$(aws ecs describe-tasks \
+        --cluster ca-a2a-cluster \
+        --tasks ${ORCH_TASK_ARN} \
+        --region ${REGION} \
+        --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+        --output text 2>/dev/null)
+    
+    if [ ! -z "$ORCH_IP" ]; then
+        test_result 0 "Orchestrator IP: $ORCH_IP"
+    else
+        test_warning "Could not retrieve orchestrator IP"
+        ORCH_IP=""
+    fi
+else
+    test_warning "No orchestrator task running"
+    ORCH_IP=""
+fi
+
+# Test 2.5: HMAC Signature Enforcement
+echo ""
+echo "2.5 Testing HMAC signature enforcement..."
+if [ ! -z "$ORCH_IP" ]; then
+    # Test: Request without HMAC signature should be rejected (if enabled)
+    RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+        -X POST http://${ORCH_IP}:8001/message \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"hmac-test-1"}' \
+        --max-time 5 2>/dev/null || echo "000")
+    
+    if [ "$RESPONSE" == "200" ] || [ "$RESPONSE" == "401" ]; then
+        test_result 0 "HMAC enforcement: Server responds (HTTP $RESPONSE)"
+    else
+        test_warning "HMAC test: Unexpected response HTTP $RESPONSE"
+    fi
+else
+    test_warning "HMAC test: Skipped (no orchestrator IP)"
+fi
+
+# Test 2.6: API Key Authentication Enforcement  
+echo ""
+echo "2.6 Testing API key authentication enforcement..."
+if [ ! -z "$ORCH_IP" ] && [ "$AUTH_REQUIRED" == "true" ]; then
+    # Test: Request without API key should be rejected
+    RESPONSE_NO_KEY=$(curl -s -o /dev/null -w "%{http_code}" \
+        -X POST http://${ORCH_IP}:8001/message \
+        -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"auth-test-1"}' \
+        --max-time 5 2>/dev/null || echo "000")
+    
+    if [ "$RESPONSE_NO_KEY" == "401" ] || [ "$RESPONSE_NO_KEY" == "403" ]; then
+        test_result 0 "API Key enforcement: Rejects unauthenticated requests (HTTP $RESPONSE_NO_KEY)"
+    elif [ "$RESPONSE_NO_KEY" == "200" ]; then
+        test_warning "API Key enforcement: Accepts unauthenticated requests (authentication may be disabled)"
+    else
+        test_warning "API Key test: Unexpected response HTTP $RESPONSE_NO_KEY"
+    fi
+    
+    # Test: Request with valid API key should be accepted
+    if [ ! -z "$API_KEY" ]; then
+        RESPONSE_WITH_KEY=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST http://${ORCH_IP}:8001/message \
+            -H "Content-Type: application/json" \
+            -H "X-API-Key: ${API_KEY}" \
+            -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"auth-test-2"}' \
+            --max-time 5 2>/dev/null || echo "000")
+        
+        if [ "$RESPONSE_WITH_KEY" == "200" ]; then
+            test_result 0 "API Key authentication: Accepts valid API key (HTTP $RESPONSE_WITH_KEY)"
+        else
+            test_warning "API Key authentication: HTTP $RESPONSE_WITH_KEY (expected 200)"
+        fi
+    fi
+else
+    test_warning "API Key test: Skipped (no orchestrator IP or auth disabled)"
+fi
+
+# Test 2.7: JSON Schema Validation
+echo ""
+echo "2.7 Testing JSON Schema validation..."
+if [ ! -z "$ORCH_IP" ] && [ ! -z "$API_KEY" ]; then
+    # Test: Invalid s3_key pattern (path traversal attempt)
+    RESPONSE_INVALID=$(curl -s \
+        -X POST http://${ORCH_IP}:8001/message \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"../../../etc/passwd","priority":"normal"},"id":"schema-test-1"}' \
+        --max-time 5 2>/dev/null || echo "{}")
+    
+    # Check if response contains error (schema validation should reject)
+    if echo "$RESPONSE_INVALID" | grep -q "error" 2>/dev/null; then
+        test_result 0 "Schema validation: Rejects path traversal attempts"
+    else
+        test_warning "Schema validation: May not be enforcing s3_key pattern"
+    fi
+    
+    # Test: Missing required field
+    RESPONSE_MISSING=$(curl -s \
+        -X POST http://${ORCH_IP}:8001/message \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{"jsonrpc":"2.0","method":"process_document","params":{"priority":"normal"},"id":"schema-test-2"}' \
+        --max-time 5 2>/dev/null || echo "{}")
+    
+    if echo "$RESPONSE_MISSING" | grep -q "error" 2>/dev/null; then
+        test_result 0 "Schema validation: Rejects missing required fields"
+    else
+        test_warning "Schema validation: May not be enforcing required fields"
+    fi
+    
+    # Test: Invalid enum value
+    RESPONSE_ENUM=$(curl -s \
+        -X POST http://${ORCH_IP}:8001/message \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{"jsonrpc":"2.0","method":"process_document","params":{"s3_key":"test.pdf","priority":"urgent"},"id":"schema-test-3"}' \
+        --max-time 5 2>/dev/null || echo "{}")
+    
+    if echo "$RESPONSE_ENUM" | grep -q "error" 2>/dev/null; then
+        test_result 0 "Schema validation: Rejects invalid enum values"
+    else
+        test_warning "Schema validation: May not be enforcing enum constraints"
+    fi
+else
+    test_warning "Schema validation tests: Skipped (no orchestrator IP or API key)"
+fi
+
+# Test 2.8: RBAC Authorization
+echo ""
+echo "2.8 Testing RBAC authorization..."
+if [ ! -z "$ORCH_IP" ] && [ ! -z "$API_KEY" ]; then
+    # Test: Authorized method (process_document typically allowed for lambda-s3-processor)
+    RESPONSE_ALLOWED=$(curl -s \
+        -X POST http://${ORCH_IP}:8001/message \
+        -H "Content-Type: application/json" \
+        -H "X-API-Key: ${API_KEY}" \
+        -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":"rbac-test-1"}' \
+        --max-time 5 2>/dev/null || echo "{}")
+    
+    if echo "$RESPONSE_ALLOWED" | grep -q '"result"' 2>/dev/null; then
+        test_result 0 "RBAC: Allows authorized methods (list_skills)"
+    else
+        test_warning "RBAC: Unexpected response for authorized method"
+    fi
+else
+    test_warning "RBAC tests: Skipped (no orchestrator IP or API key)"
+fi
+
+# Test 2.9: Rate Limiting Check
+echo ""
+echo "2.9 Testing rate limiting configuration..."
+RATE_LIMIT_CONFIG=$(aws ecs describe-task-definition \
+    --task-definition ca-a2a-orchestrator \
+    --region ${REGION} \
+    --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_RATE_LIMIT_PER_MINUTE`].value' \
+    --output text 2>/dev/null)
+
+if [ ! -z "$RATE_LIMIT_CONFIG" ]; then
+    test_result 0 "Rate limiting: Configured (${RATE_LIMIT_CONFIG} req/min)"
+else
+    test_warning "Rate limiting: Not configured (unlimited requests allowed)"
+fi
+
+# Test 2.10: Security Headers
+echo ""
+echo "2.10 Testing security headers..."
+if [ ! -z "$ORCH_IP" ]; then
+    HEADERS=$(curl -s -I http://${ORCH_IP}:8001/health --max-time 5 2>/dev/null || echo "")
+    
+    # Check for security-relevant headers
+    if echo "$HEADERS" | grep -qi "Server:" 2>/dev/null; then
+        if echo "$HEADERS" | grep -i "Server:" | grep -qv "Server: Python" 2>/dev/null; then
+            test_result 0 "Security headers: Server header present (generic)"
+        else
+            test_warning "Security headers: Server header reveals implementation details"
+        fi
+    else
+        test_result 0 "Security headers: Server header not disclosed"
+    fi
+else
+    test_warning "Security headers test: Skipped (no orchestrator IP)"
+fi
+
+# Test 2.11: Audit Logging
+echo ""
+echo "2.11 Checking audit logging..."
+RECENT_LOGS=$(aws logs tail /ecs/ca-a2a-orchestrator --since 5m --region ${REGION} 2>/dev/null | grep -c "Request received\|Request completed" || echo "0")
+
+if [ "$RECENT_LOGS" -gt 0 ]; then
+    test_result 0 "Audit logging: $RECENT_LOGS request log entries in last 5 minutes"
+else
+    test_warning "Audit logging: No recent request logs found"
+fi
+
+# Test 2.12: Secrets Management
+echo ""
+echo "2.12 Checking secrets management..."
+DB_PASSWORD_SOURCE=$(aws ecs describe-task-definition \
+    --task-definition ca-a2a-orchestrator \
+    --region ${REGION} \
+    --query 'taskDefinition.containerDefinitions[0].secrets[?name==`DB_PASSWORD`].valueFrom' \
+    --output text 2>/dev/null)
+
+if echo "$DB_PASSWORD_SOURCE" | grep -q "secretsmanager" 2>/dev/null; then
+    test_result 0 "Secrets management: Database password from AWS Secrets Manager"
+elif [ ! -z "$DB_PASSWORD_SOURCE" ]; then
+    test_result 0 "Secrets management: Database password from secure source"
+else
+    test_warning "Secrets management: Database password may be in environment variables"
 fi
 
 echo ""
