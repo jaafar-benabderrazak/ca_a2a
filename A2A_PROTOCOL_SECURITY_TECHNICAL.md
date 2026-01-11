@@ -62,6 +62,7 @@ graph LR
 ```
 
 **Comparison with alternatives:**
+<img width="1340" height="587" alt="Capture d’écran 2026-01-11 222928" src="https://github.com/user-attachments/assets/f175345c-646c-40a7-ba88-e316b9cacc71" />
 
 | Protocol | Pros | Cons | Our Choice |
 |----------|------|------|------------|
@@ -76,6 +77,7 @@ graph LR
 ## Protocol Stack Architecture
 
 ### **Full Stack Visualization**
+<img width="1377" height="367" alt="Capture d’écran 2026-01-11 222956" src="https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453" />
 
 ```mermaid
 graph TB
@@ -119,10 +121,6 @@ graph TB
 ```
 
 ### **Production Infrastructure: AWS VPC Architecture**
-
-![AWS VPC Network Architecture](./doc_images/Capture%20d'écran%202026-01-11%20222928.png)
-
-**Figure 1: Production AWS VPC Configuration**
 
 This screenshot shows the actual deployed network architecture:
 
@@ -398,10 +396,6 @@ graph TB
 
 ###  **Production Deployment: ECS Fargate Cluster**
 
-![ECS Cluster Running All Services](./doc_images/Capture%20d'écran%202026-01-11%20222956.png)
-
-**Figure 2: ECS Cluster Status - All Agent Services Running**
-
 This production screenshot demonstrates:
 
 - **Cluster:** `ca-a2a-cluster` with 4 active services
@@ -425,10 +419,6 @@ Each running task enforces all 8 security layers shown in the defense-in-depth d
 
 ### **Task Definition Configuration**
 
-![ECS Task Definitions](./doc_images/Capture%20d'écran%202026-01-11%20223027.png)
-
-**Figure 3: Task Definition Specifications**
-
 Production task configuration details:
 
 - **CPU:** 512 units (0.5 vCPU) per service - Optimized for JSON processing workload
@@ -447,10 +437,6 @@ Production task configuration details:
 ---
 
 ### **Security Groups: Network-Level Enforcement**
-
-![Security Group Rules](./doc_images/Capture%20d'écran%202026-01-11%20223046.png)
-
-**Figure 4: Security Group Configuration (Layer 1 Defense)**
 
 This screenshot shows the actual security group rules implementing Layer 1 (Network Security):
 
@@ -478,10 +464,6 @@ This screenshot shows the actual security group rules implementing Layer 1 (Netw
 ## Authentication Mechanisms
 
 ### **Production Evidence: RDS Database for Token Revocation**
-
-![RDS Aurora PostgreSQL](./doc_images/Capture%20d'écran%202026-01-11%20223112.png)
-
-**Figure 5: RDS Aurora PostgreSQL - Persistent Storage for Security Data**
 
 The RDS cluster provides persistent storage for:
 - **Token Revocation List** - Database-backed list of revoked JWT tokens
@@ -520,6 +502,7 @@ CREATE INDEX idx_expires_at ON revoked_tokens(expires_at);
 ---
 
 ### **Authentication Flow**
+<img width="1374" height="598" alt="Capture d’écran 2026-01-11 223046" src="https://github.com/user-attachments/assets/f38999f7-895f-459f-8021-00d7d3483211" />
 
 ```mermaid
 sequenceDiagram
@@ -682,6 +665,8 @@ graph TB
 ```
 
 **Policy JSON Example:**
+<img width="659" height="561" alt="Capture d’écran 2026-01-11 223112" src="https://github.com/user-attachments/assets/528e12eb-9c36-4443-b868-c12aa546cf89" />
+
 ```json
 {
  "allow": {
@@ -708,6 +693,7 @@ graph TB
 ```
 
 ### **Authorization Decision Flow**
+<img width="690" height="549" alt="Capture d’écran 2026-01-11 223124" src="https://github.com/user-attachments/assets/c45e0abb-0783-47c8-bdf1-22dd3ae0744c" />
 
 ```mermaid
 flowchart TD
@@ -815,6 +801,7 @@ A2A_RBAC_POLICY_JSON='{
 ## ️ Message Integrity (HMAC)
 
 ### **HMAC Signing & Verification Flow**
+<img width="1386" height="578" alt="Capture d’écran 2026-01-11 223027" src="https://github.com/user-attachments/assets/dc82f3c4-0070-47e2-9a11-87b86571d6ba" />
 
 ```mermaid
 sequenceDiagram
@@ -992,6 +979,7 @@ attacker_signature = hmac(attacker_guess, body) # Wrong key
 ## Input Validation (JSON Schema)
 
 ### **Schema Validation Flow**
+<img width="682" height="536" alt="Capture d’écran 2026-01-11 223138" src="https://github.com/user-attachments/assets/0c5aeac2-7910-40d1-ba04-947c467db381" />
 
 ```mermaid
 flowchart TD
@@ -1070,6 +1058,7 @@ flowchart TD
 ```
 
 ### **Attack Prevention Examples**
+<img width="659" height="528" alt="Capture d’écran 2026-01-11 223158" src="https://github.com/user-attachments/assets/03e87274-ee16-4f56-b864-5dfd3e6b0b0e" />
 
 **1. Path Traversal Prevention:**
 ```python
@@ -1169,6 +1158,7 @@ class JSONSchemaValidator:
 ## Replay Protection
 
 ### **Replay Attack Scenario**
+<img width="690" height="549" alt="Capture d’écran 2026-01-11 223124" src="https://github.com/user-attachments/assets/c45e0abb-0783-47c8-bdf1-22dd3ae0744c" />
 
 ```mermaid
 sequenceDiagram
@@ -1252,6 +1242,7 @@ A2A_SIGNATURE_MAX_AGE_SECONDS=300 # 5 minutes
 ## ⏱️ Rate Limiting
 
 ### **Token Bucket Algorithm**
+<img width="648" height="388" alt="Capture d’écran 2026-01-11 223213" src="https://github.com/user-attachments/assets/a03e0ba2-4543-414f-9fac-0217a2ec01d3" />
 
 ```mermaid
 graph TB
@@ -1500,10 +1491,6 @@ if self.enable_token_revocation and "jwt_jti" in auth_ctx:
 
 ### **Production Evidence: S3 Event-Driven Pipeline**
 
-![S3 Bucket Configuration](./doc_images/Capture%20d'écran%202026-01-11%20223138.png)
-
-**Figure 6: S3 Bucket with Event Notifications**
-
 **Bucket Configuration:**
 - **Name:** `ca-a2a-documents-555043101106`
 - **Versioning:** Enabled (tracks all versions of uploaded documents)
@@ -1528,10 +1515,6 @@ if self.enable_token_revocation and "jwt_jti" in auth_ctx:
 ---
 
 ### **Lambda Function: S3 Event Processor**
-
-![Lambda Function](./doc_images/Capture%20d'écran%202026-01-11%20223158.png)
-
-**Figure 7: Lambda Function Integration**
 
 **Function Configuration:**
 - **Name:** `ca-a2a-s3-processor`
@@ -1590,10 +1573,6 @@ def lambda_handler(event, context):
 
 ### **CloudWatch Logs: Real-Time Security Monitoring**
 
-![CloudWatch Logs](./doc_images/Capture%20d'écran%202026-01-11%20223124.png)
-
-**Figure 8: CloudWatch Logs - Agent Communication**
-
 **Log Groups:**
 - `/ecs/ca-a2a-orchestrator` - Workflow coordination logs
 - `/ecs/ca-a2a-extractor` - PDF extraction logs
@@ -1633,10 +1612,6 @@ Each log entry captures:
 
 ### **API Key Authentication in Action**
 
-![API Key Auth Logs](./doc_images/Capture%20d'écran%202026-01-11%20223213.png)
-
-**Figure 9: API Key Authentication - Production Logs**
-
 This screenshot shows actual API key authentication in the production system:
 
 **Log Sequence:**
@@ -1655,10 +1630,6 @@ This screenshot shows actual API key authentication in the production system:
 ---
 
 ### **HMAC Signature Verification in Action**
-
-![HMAC Verification Logs](./doc_images/Capture%20d'écran%202026-01-11%20223225.png)
-
-**Figure 10: HMAC Signature Verification - Production Logs**
 
 **Verification Process (logged):**
 1. **Extract Signature:** Parse `X-Signature: 1736631585:a3f2...` header
@@ -1679,10 +1650,6 @@ This screenshot shows actual API key authentication in the production system:
 ---
 
 ### **JSON Schema Validation in Action**
-
-![Schema Validation Logs](./doc_images/Capture%20d'écran%202026-01-11%20223238.png)
-
-**Figure 11: JSON Schema Validation - Blocking Path Traversal**
 
 **Validation Process:**
 1. **Extract Parameters:** `params = {"s3_key": "../../etc/passwd", "priority": "normal"}`
@@ -1711,7 +1678,7 @@ This screenshot shows actual API key authentication in the production system:
 
 ### **End-to-End Request Timeline**
 
-![E2E Request Flow](./doc_images/Capture%20d'écran%202026-01-11%20223303.png)
+<img width="1313" height="415" alt="Capture d’écran 2026-01-11 223238" src="https://github.com/user-attachments/assets/199bb585-39e0-4c2e-ab1f-8434976afeb4" />
 
 **Figure 12: Complete Document Processing Flow with Timestamps**
 
@@ -1948,6 +1915,7 @@ if age > max_age_seconds (300): # 5 minutes
 ## Code Implementation Details
 
 ### **Base Agent HTTP Handler**
+<img width="1274" height="627" alt="Capture d’écran 2026-01-11 223303" src="https://github.com/user-attachments/assets/f4445bc9-9590-47ef-b2bc-f129e789af1b" />
 
 **Full Request Processing** (`base_agent.py:111-207`):
 ```python
