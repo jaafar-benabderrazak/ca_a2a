@@ -178,6 +178,9 @@ fi
 # Test 2.5: HMAC Signature Enforcement
 echo ""
 echo "2.5 Testing HMAC signature enforcement..."
+# Note: This test requires VPC access. CloudShell cannot reach private IPs directly.
+# If this test fails with HTTP 000, it means network connectivity issue, not security failure.
+# The E2E pipeline test (TEST 5) validates that security is working correctly.
 if [ ! -z "$ORCH_IP" ]; then
     # Test: Request without HMAC signature should be rejected (if enabled)
     RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -189,6 +192,8 @@ if [ ! -z "$ORCH_IP" ]; then
     
     if [ "$RESPONSE" == "200" ] || [ "$RESPONSE" == "401" ]; then
         test_result 0 "HMAC enforcement: Server responds (HTTP $RESPONSE)"
+    elif [ "$RESPONSE" == "000" ]; then
+        test_warning "HMAC test: Cannot reach orchestrator (VPC network isolation - this is expected from CloudShell)"
     else
         test_warning "HMAC test: Unexpected response HTTP $RESPONSE"
     fi
@@ -199,6 +204,7 @@ fi
 # Test 2.6: API Key Authentication Enforcement  
 echo ""
 echo "2.6 Testing API key authentication enforcement..."
+# Note: This test requires VPC access. See note in Test 2.5.
 if [ ! -z "$ORCH_IP" ] && [ "$AUTH_REQUIRED" == "true" ]; then
     # Test: Request without API key should be rejected
     RESPONSE_NO_KEY=$(curl -s -o /dev/null -w "%{http_code}" \
@@ -211,12 +217,14 @@ if [ ! -z "$ORCH_IP" ] && [ "$AUTH_REQUIRED" == "true" ]; then
         test_result 0 "API Key enforcement: Rejects unauthenticated requests (HTTP $RESPONSE_NO_KEY)"
     elif [ "$RESPONSE_NO_KEY" == "200" ]; then
         test_warning "API Key enforcement: Accepts unauthenticated requests (authentication may be disabled)"
+    elif [ "$RESPONSE_NO_KEY" == "000" ]; then
+        test_warning "API Key test: Cannot reach orchestrator (VPC network isolation - this is expected from CloudShell)"
     else
         test_warning "API Key test: Unexpected response HTTP $RESPONSE_NO_KEY"
     fi
     
     # Test: Request with valid API key should be accepted
-    if [ ! -z "$API_KEY" ]; then
+    if [ ! -z "$API_KEY" ] && [ "$RESPONSE_NO_KEY" != "000" ]; then
         RESPONSE_WITH_KEY=$(curl -s -o /dev/null -w "%{http_code}" \
             -X POST http://${ORCH_IP}:8001/message \
             -H "Content-Type: application/json" \
@@ -226,6 +234,8 @@ if [ ! -z "$ORCH_IP" ] && [ "$AUTH_REQUIRED" == "true" ]; then
         
         if [ "$RESPONSE_WITH_KEY" == "200" ]; then
             test_result 0 "API Key authentication: Accepts valid API key (HTTP $RESPONSE_WITH_KEY)"
+        elif [ "$RESPONSE_WITH_KEY" == "000" ]; then
+            test_warning "API Key authentication: Cannot reach orchestrator (VPC network isolation)"
         else
             test_warning "API Key authentication: HTTP $RESPONSE_WITH_KEY (expected 200)"
         fi
@@ -343,7 +353,12 @@ fi
 # Test 2.11: Audit Logging
 echo ""
 echo "2.11 Checking audit logging..."
-RECENT_LOGS=$(aws logs tail /ecs/ca-a2a-orchestrator --since 5m --region ${REGION} 2>/dev/null | grep -c "Request received\|Request completed" || echo "0")
+RECENT_LOGS=$(aws logs tail /ecs/ca-a2a-orchestrator --since 5m --region ${REGION} 2>/dev/null | grep -c "Request received\|Request completed" 2>/dev/null)
+
+# Handle empty or non-numeric result
+if [ -z "$RECENT_LOGS" ] || ! [[ "$RECENT_LOGS" =~ ^[0-9]+$ ]]; then
+    RECENT_LOGS=0
+fi
 
 if [ "$RECENT_LOGS" -gt 0 ]; then
     test_result 0 "Audit logging: $RECENT_LOGS request log entries in last 5 minutes"
