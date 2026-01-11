@@ -1058,7 +1058,7 @@ flowchart TD
 ```
 
 ### **Attack Prevention Examples**
-<img width="659" height="528" alt="Capture d’écran 2026-01-11 223158" src="https://github.com/user-attachments/assets/03e87274-ee16-4f56-b864-5dfd3e6b0b0e" />
+<img width="1227" height="519" alt="image" src="https://github.com/user-attachments/assets/838d21d1-741f-42bd-860d-4318dd03e609" />
 
 **1. Path Traversal Prevention:**
 ```python
