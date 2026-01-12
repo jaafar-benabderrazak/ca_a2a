@@ -26,6 +26,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Optional Keycloak integration
+try:
+    from keycloak_auth import KeycloakJWTValidator, KeycloakRBACMapper
+    KEYCLOAK_AVAILABLE = True
+except ImportError:
+    KEYCLOAK_AVAILABLE = False
+    logger.debug("Keycloak integration not available (keycloak_auth.py not found)")
+
 
 class AuthError(Exception):
     pass
@@ -151,6 +159,32 @@ class A2ASecurityManager:
         self.enable_rate_limit = os.getenv("A2A_ENABLE_RATE_LIMIT", "true").lower() == "true"
         self.enable_replay_protection = os.getenv("A2A_ENABLE_REPLAY_PROTECTION", "true").lower() == "true"
 
+        # Keycloak OAuth2/OIDC integration
+        self.use_keycloak = os.getenv("A2A_USE_KEYCLOAK", "false").lower() == "true"
+        self.keycloak_validator = None
+        self.keycloak_rbac_mapper = None
+        
+        if self.use_keycloak:
+            if not KEYCLOAK_AVAILABLE:
+                raise RuntimeError("Keycloak authentication enabled but keycloak_auth module not available")
+            
+            keycloak_url = os.getenv("KEYCLOAK_URL")
+            keycloak_realm = os.getenv("KEYCLOAK_REALM", "ca-a2a")
+            keycloak_client_id = os.getenv("KEYCLOAK_CLIENT_ID", "ca-a2a-agents")
+            
+            if not keycloak_url:
+                raise ValueError("KEYCLOAK_URL environment variable required when A2A_USE_KEYCLOAK=true")
+            
+            self.keycloak_validator = KeycloakJWTValidator(
+                keycloak_url=keycloak_url,
+                realm=keycloak_realm,
+                client_id=keycloak_client_id,
+                cache_ttl=int(os.getenv("KEYCLOAK_CACHE_TTL", "3600"))
+            )
+            
+            self.keycloak_rbac_mapper = KeycloakRBACMapper()
+            logger.info(f"Keycloak authentication enabled for realm: {keycloak_realm}")
+
         # RBAC policy: {"allow": {"caller": ["method1","method2","*"]}, "deny": {...}}
         self.rbac_policy = _parse_json_env("A2A_RBAC_POLICY_JSON", default={"allow": {}, "deny": {}})
 
@@ -210,8 +244,15 @@ class A2ASecurityManager:
             ctx["rate_limit"] = meta
 
         if method:
-            if not self._is_allowed(principal, method):
-                raise ForbiddenError(f"Caller '{principal}' not allowed to call '{method}'")
+            # Check if we have Keycloak dynamic RBAC override
+            if ctx.get("dynamic_rbac") and ctx.get("methods_override"):
+                allowed_methods = ctx["methods_override"]
+                if "*" not in allowed_methods and method not in allowed_methods:
+                    raise ForbiddenError(f"Keycloak role does not permit method '{method}' (allowed: {allowed_methods})")
+            else:
+                # Use traditional RBAC policy
+                if not self._is_allowed(principal, method):
+                    raise ForbiddenError(f"Caller '{principal}' not allowed to call '{method}'")
 
         return principal, ctx
 
@@ -294,6 +335,11 @@ class A2ASecurityManager:
         raise AuthError("Invalid API key")
 
     def _verify_jwt(self, *, token: str, method: str, message_dict: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        # If Keycloak is enabled, use Keycloak JWT validation
+        if self.use_keycloak and self.keycloak_validator:
+            return self._verify_keycloak_jwt(token=token, method=method, message_dict=message_dict)
+        
+        # Otherwise use traditional JWT validation
         if not self.jwt.public_key_pem:
             raise AuthError("JWT public key not configured (A2A_JWT_PUBLIC_KEY_PEM)")
 
@@ -403,4 +449,66 @@ class A2ASecurityManager:
         }
         token = jwt.encode(claims, key=self.jwt.private_key_pem, algorithm=self.jwt.algorithm)
         return token
+
+    def _verify_keycloak_jwt(self, *, token: str, method: str, message_dict: Dict[str, Any]) -> Tuple[str, Dict[str, Any]]:
+        """
+        Verify JWT token issued by Keycloak.
+        
+        Returns:
+            Tuple of (principal, auth_context)
+        
+        Raises:
+            AuthError: If token is invalid
+        """
+        if not self.keycloak_validator:
+            raise AuthError("Keycloak validator not initialized")
+        
+        try:
+            # Verify token with Keycloak
+            username, keycloak_roles, claims = self.keycloak_validator.verify_token(token)
+            
+            # Map Keycloak roles to A2A RBAC principal and permissions
+            if self.keycloak_rbac_mapper:
+                principal, allowed_methods = self.keycloak_rbac_mapper.map_roles_to_principal(keycloak_roles)
+            else:
+                principal = username
+                allowed_methods = []
+            
+            # Build auth context
+            ctx = {
+                "mode": "keycloak_jwt",
+                "username": username,
+                "keycloak_roles": keycloak_roles,
+                "rbac_principal": principal,
+                "allowed_methods": allowed_methods,
+                "token_exp": claims.get("exp"),
+                "token_iat": claims.get("iat"),
+                "token_sub": claims.get("sub"),
+            }
+            
+            # Note: Replay protection with Keycloak tokens
+            # Keycloak tokens have 'jti' claim which can be used for replay protection
+            if self.enable_replay_protection:
+                jti = claims.get("jti")
+                exp = claims.get("exp", _now() + 300)
+                if jti:
+                    if not self.replay.check_and_store(jti, exp):
+                        raise AuthError("Token replay detected (jti already seen)")
+                    ctx["replay_protected"] = True
+            
+            # Update RBAC policy dynamically based on Keycloak roles
+            # This allows Keycloak to be the source of truth for permissions
+            if principal and allowed_methods:
+                # Temporarily override RBAC for this request
+                ctx["dynamic_rbac"] = True
+                ctx["principal_override"] = principal
+                ctx["methods_override"] = allowed_methods
+            
+            logger.info(f"Keycloak JWT verified: principal={principal}, roles={keycloak_roles}")
+            
+            return principal, ctx
+            
+        except Exception as e:
+            logger.warning(f"Keycloak JWT verification failed: {e}")
+            raise AuthError(f"Invalid Keycloak JWT: {str(e)}")
 

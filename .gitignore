@@ -8,6 +8,12 @@ extractor-fixed.tar
 deploy-complete-log.txt
 docs_archive_*/
 
+# Generated documentation artifacts (large binary files)
+*.pdf
+*.jpeg
+*.png
+*.html
+
 # Python
 __pycache__/
 *.py[cod]

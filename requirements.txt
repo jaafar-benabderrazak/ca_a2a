@@ -18,10 +18,12 @@ pydantic>=2.5.0
 jsonschema>=4.20.0  # Keep for backward compatibility with Agent Cards
 
 # Security
-PyJWT>=2.10.1  # JWT token generation and verification
+PyJWT[crypto]>=2.10.1  # JWT token generation and verification (with crypto support for Keycloak JWKS)
 cryptography>=43.0.0  # Required by PyJWT for secure algorithms
 PyYAML>=6.0.2
 pyOpenSSL>=24.0.0  # For mTLS certificate handling
+python-jose>=3.3.0  # Alternative JWT library with better JWKS support (used by keycloak_auth.py)
+requests>=2.31.0  # For Keycloak HTTP API calls
 
 # Environment
 python-dotenv>=1.0.0

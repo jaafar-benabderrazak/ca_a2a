@@ -1,0 +1,65 @@
+{
+  "family": "ca-a2a-keycloak",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "keycloak",
+      "image": "quay.io/keycloak/keycloak:23.0",
+      "essential": true,
+      "portMappings": [
+        {
+          "containerPort": 8080,
+          "protocol": "tcp",
+          "name": "keycloak-http"
+        }
+      ],
+      "environment": [
+        {"name": "KC_HOSTNAME_STRICT", "value": "false"},
+        {"name": "KC_HOSTNAME_STRICT_HTTPS", "value": "false"},
+        {"name": "KC_HTTP_ENABLED", "value": "true"},
+        {"name": "KC_HEALTH_ENABLED", "value": "true"},
+        {"name": "KC_METRICS_ENABLED", "value": "true"},
+        {"name": "KC_DB", "value": "postgres"},
+        {"name": "KC_DB_URL", "value": "jdbc:postgresql://ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com:5432/keycloak"},
+        {"name": "KC_DB_USERNAME", "value": "postgres"},
+        {"name": "KC_PROXY", "value": "edge"},
+        {"name": "KEYCLOAK_ADMIN", "value": "admin"}
+      ],
+      "secrets": [
+        {
+          "name": "KC_DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password"
+        },
+        {
+          "name": "KEYCLOAK_ADMIN_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/keycloak-admin-password"
+        }
+      ],
+      "command": ["start", "--optimized"],
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:8080/health/ready || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 120
+      },
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ca-a2a-keycloak",
+          "awslogs-region": "eu-west-3",
+          "awslogs-stream-prefix": "keycloak"
+        }
+      }
+    }
+  ]
+}
+

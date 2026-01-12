@@ -86,13 +86,7 @@ Our implementation addresses **all major threat models** identified in the resea
 
 ## System Architecture
 
-### Actual Deployed AWS Architecture
-
-**AWS Account:** 555043101106  
-**Region:** eu-west-3 (Paris)  
-**Deployment Date:** January 2026  
-
-#### Infrastructure Overview
+### High-Level Architecture
 
 ```mermaid
 graph TB
