@@ -33,11 +33,11 @@
       "secrets": [
         {
           "name": "KC_DB_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password"
+          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/db-password-aqPsNn"
         },
         {
           "name": "KEYCLOAK_ADMIN_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/keycloak-admin-password"
+          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/keycloak-admin-password-NcEinK"
         }
       ],
       "command": ["start", "--optimized"],

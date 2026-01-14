@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Prevent Git Bash on Windows from converting paths like /ecs/ to C:/Program Files/Git/ecs/
+export MSYS_NO_PATHCONV=1
+
 REGION="eu-west-3"
 PROJECT_NAME="ca-a2a"
 KEYCLOAK_ADMIN_PASSWORD="${KEYCLOAK_ADMIN_PASSWORD:-$(openssl rand -base64 32 | tr -d '/+=')}"
@@ -173,8 +176,7 @@ aws ecs register-task-definition \
 # Step 7: Create service discovery for Keycloak
 log_info "Creating service discovery for Keycloak..."
 NAMESPACE_ID=$(aws servicediscovery list-namespaces \
-    --filters Name=Name,Values=${PROJECT_NAME}.local \
-    --query 'Namespaces[0].Id' \
+    --query "Namespaces[?Name=='${PROJECT_NAME}.local'].Id | [0]" \
     --output text \
     --region ${REGION})
 

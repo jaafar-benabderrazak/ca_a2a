@@ -2,6 +2,10 @@
 
 **Comprehensive Technical Documentation on Agent-to-Agent Communication Protocol and Security Implementation**
 
+**Version**: 2.1  
+**Last Updated**: January 14, 2026  
+**New Features**: OAuth2/OIDC with Keycloak Integration
+
 ---
 
 ## Table of Contents
@@ -623,6 +627,607 @@ async def _verify_api_key(self, headers: Dict[str, str]) -> Tuple[str, Dict[str,
  # Support multiple active keys per principal
  "lambda-s3-processor": ["key_v1", "key_v2"] # Both valid during rotation
  ```
+
+---
+
+## OAuth2/OIDC Authentication with Keycloak (NEW)
+
+### **Overview**
+
+The system now supports **enterprise-grade OAuth2/OIDC authentication** via Keycloak, complementing the existing API Key and JWT authentication methods.
+
+**Key Benefits:**
+- ✅ **Centralized Identity Management** - Single source of truth for users
+- ✅ **Industry Standards** - OAuth 2.0 (RFC 6749) + OpenID Connect 1.0
+- ✅ **Dynamic Token Issuance** - No manual key distribution
+- ✅ **Token Lifecycle Management** - Automatic expiration, refresh, revocation
+- ✅ **Asymmetric Cryptography** - RS256 (RSA + SHA-256) instead of HS256
+- ✅ **Dynamic RBAC** - Real-time role updates without agent redeployment
+- ✅ **Audit Trail** - Comprehensive authentication event logging
+- ✅ **MFA Support** - Ready for multi-factor authentication
+
+### **Keycloak Service Architecture**
+
+**Deployment:**
+```
+ECS Fargate Cluster (ca-a2a-cluster)
+├─ Keycloak Service
+│  ├─ Task Definition: ca-a2a-keycloak
+│  ├─ Image: 555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/keycloak:23.0
+│  ├─ Port: 8080 (HTTP, internal only)
+│  ├─ CPU: 1024 (1 vCPU)
+│  ├─ Memory: 2048 MB (2 GB)
+│  ├─ Service Discovery: keycloak.ca-a2a.local:8080
+│  ├─ Health Check: /health/ready (90s start period)
+│  └─ Database: PostgreSQL keycloak schema in RDS
+```
+
+**Network Security:**
+- Private subnet deployment (no public IP)
+- Security group: `ca-a2a-keycloak-sg`
+  - Inbound: Port 8080 from agent security groups only
+  - Outbound: Port 5432 (RDS), Port 443 (CloudWatch)
+- Service Discovery via AWS Cloud Map (private DNS)
+
+**Database:**
+```sql
+-- In RDS PostgreSQL cluster
+CREATE DATABASE keycloak;
+-- Keycloak creates 60+ tables for:
+-- - User accounts and credentials
+-- - Realms, clients, roles
+-- - Sessions and tokens
+-- - Audit events
+```
+
+### **OAuth2/OIDC Authentication Flow**
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant Keycloak
+    participant Agent as Agent<br/>(BaseAgent)
+    participant Security as A2ASecurityManager
+    participant JWKS as JWKS Endpoint<br/>(Keycloak)
+    participant Handler as Method Handler
+    
+    Note over Client: 1. Obtain Access Token
+    Client->>Keycloak: POST /realms/ca-a2a/protocol/openid-connect/token<br/>(username, password, client_id, client_secret)
+    Keycloak->>Keycloak: Validate credentials
+    Keycloak->>Client: Access Token (JWT) + Refresh Token
+    
+    Note over Client: 2. Call Agent API
+    Client->>Agent: POST /message<br/>Authorization: Bearer <access_token>
+    
+    Note over Agent: 3. Authenticate & Authorize
+    Agent->>Security: authenticate_and_authorize(headers)
+    Security->>Security: Extract Bearer token
+    Security->>Security: Check if Keycloak enabled (A2A_USE_KEYCLOAK=true)
+    
+    alt Keycloak JWT
+        Security->>JWKS: GET /realms/ca-a2a/protocol/openid-connect/certs<br/>(Fetch RSA public key, cached 1h)
+        JWKS-->>Security: Public key (RSA)
+        Security->>Security: Verify JWT signature (RS256)
+        Security->>Security: Check token expiration (exp claim)
+        Security->>Security: Extract username (preferred_username)
+        Security->>Security: Extract Keycloak roles (realm_access.roles)
+        Security->>Security: Map roles to A2A principal<br/>(admin → admin, orchestrator → orchestrator)
+        Security-->>Agent: principal="admin", allowed_methods=["*"]
+    else Legacy JWT/API Key
+        Security->>Security: Fall back to legacy authentication
+        Security-->>Agent: principal from legacy auth
+    end
+    
+    Note over Agent: 4. Execute Method
+    Agent->>Handler: Execute method
+    Handler-->>Agent: Result
+    Agent-->>Client: 200 OK + Result
+```
+
+### **Keycloak Realm Configuration**
+
+**Realm**: `ca-a2a`
+
+**Client Configuration**:
+```json
+{
+  "clientId": "ca-a2a-agents",
+  "clientAuthenticatorType": "client-secret",
+  "protocol": "openid-connect",
+  "publicClient": false,
+  "standardFlowEnabled": true,
+  "directAccessGrantsEnabled": true,
+  "serviceAccountsEnabled": true,
+  "attributes": {
+    "access.token.lifespan": "300",       // 5 minutes
+    "refresh.token.lifespan": "2592000",  // 30 days
+    "use.refresh.tokens": "true"
+  }
+}
+```
+
+**Token Settings**:
+| Setting | Value | Rationale |
+|---------|-------|-----------|
+| Access Token Lifespan | 5 minutes | Short-lived reduces exposure risk |
+| Refresh Token Lifespan | 30 days | Long-lived balances security & UX |
+| Session Idle Timeout | 30 minutes | Auto-logout inactive users |
+| Session Max Lifespan | 10 hours | Force periodic re-authentication |
+| Token Signature Algorithm | RS256 | Asymmetric (public/private key pair) |
+
+**Users**:
+```
+1. admin-user
+   - Type: Human user
+   - Role: admin
+   - Permissions: Full access to all methods
+   - MFA: Optional (TOTP ready)
+
+2. lambda-service
+   - Type: Service account
+   - Role: lambda
+   - Permissions: Full access (Lambda function authentication)
+   - MFA: N/A (service accounts)
+
+3. orchestrator-service
+   - Type: Service account
+   - Role: orchestrator
+   - Permissions: extract_document, validate_document, archive_document, list_skills, get_health
+   - MFA: N/A
+```
+
+**Roles → A2A Principal Mapping**:
+| Keycloak Role | A2A Principal | Allowed Methods |
+|---------------|---------------|-----------------|
+| `admin` | admin | `*` (all methods) |
+| `lambda` | lambda | `*` (all methods) |
+| `orchestrator` | orchestrator | `extract_document`, `validate_document`, `archive_document`, `list_skills`, `get_health` |
+| `document-processor` | document-processor | `process_document`, `extract_document`, `validate_document`, `archive_document` |
+| `viewer` | viewer | `list_skills`, `get_health` (read-only) |
+
+### **Implementation: KeycloakJWTValidator**
+
+**File**: `keycloak_auth.py` (lines 1-210)
+
+**Key Components**:
+```python
+class KeycloakJWTValidator:
+    """
+    Validates JWT tokens issued by Keycloak using JWKS (JSON Web Key Set)
+    
+    Features:
+    - RS256 signature verification using RSA public key
+    - Public key caching (1-hour TTL) to reduce JWKS endpoint load
+    - Token expiration validation
+    - Issuer verification (iss claim must match Keycloak URL)
+    - Audience verification (aud claim must match client_id)
+    - Role extraction from realm_access.roles
+    """
+    
+    def __init__(self, keycloak_url: str, realm: str, client_id: str, cache_ttl: int = 3600):
+        self.keycloak_url = keycloak_url.rstrip('/')
+        self.realm = realm
+        self.client_id = client_id
+        self.cache_ttl = cache_ttl
+        
+        # JWKS endpoint for public key retrieval
+        self.jwks_uri = f"{self.keycloak_url}/realms/{realm}/protocol/openid-connect/certs"
+        
+        # In-memory cache for public keys
+        self._jwks_cache = None
+        self._cache_timestamp = None
+    
+    def verify_token(self, token: str) -> Tuple[str, List[str], Dict[str, Any]]:
+        """
+        Verify JWT token and extract claims
+        
+        Returns:
+            Tuple of (username, roles, full_claims)
+        
+        Raises:
+            ValueError: If token is invalid, expired, or signature verification fails
+        """
+        # 1. Fetch public keys from JWKS endpoint (cached)
+        jwks = self._get_jwks()
+        
+        # 2. Decode JWT header to get key ID (kid)
+        unverified_header = jwt.get_unverified_header(token)
+        kid = unverified_header.get('kid')
+        
+        # 3. Find matching public key
+        rsa_key = self._find_rsa_key(jwks, kid)
+        
+        # 4. Verify signature and decode claims
+        try:
+            claims = jwt.decode(
+                token,
+                rsa_key,
+                algorithms=['RS256'],
+                audience=self.client_id,
+                issuer=f"{self.keycloak_url}/realms/{self.realm}"
+            )
+        except jwt.ExpiredSignatureError:
+            raise ValueError("Token has expired")
+        except jwt.InvalidTokenError as e:
+            raise ValueError(f"Invalid token: {e}")
+        
+        # 5. Extract username and roles
+        username = claims.get('preferred_username') or claims.get('sub')
+        roles = claims.get('realm_access', {}).get('roles', [])
+        
+        return username, roles, claims
+```
+
+**Security Features**:
+1. **Asymmetric Cryptography (RS256)**:
+   - Keycloak signs tokens with **private key** (kept secret)
+   - Agents verify tokens with **public key** (distributed via JWKS)
+   - No shared secrets → easier key distribution, better security
+
+2. **Public Key Caching**:
+   - JWKS endpoint called once per hour
+   - Reduces load on Keycloak
+   - Cached in memory (no disk I/O)
+
+3. **Token Expiration**:
+   - `exp` claim checked on every request
+   - Expired tokens rejected immediately
+   - Short lifespan (5 min) limits exposure
+
+4. **Issuer & Audience Validation**:
+   - `iss` claim must match `http://keycloak.ca-a2a.local:8080/realms/ca-a2a`
+   - `aud` claim must match `ca-a2a-agents`
+   - Prevents token substitution attacks
+
+### **Implementation: KeycloakRBACMapper**
+
+**File**: `keycloak_auth.py` (lines 211-305)
+
+**Role Mapping Logic**:
+```python
+class KeycloakRBACMapper:
+    """
+    Maps Keycloak roles to A2A RBAC principals
+    
+    Default Mappings:
+    - admin role → admin principal → all methods
+    - lambda role → lambda principal → all methods
+    - orchestrator role → orchestrator principal → specific methods
+    - document-processor role → document-processor principal → document methods
+    - viewer role → viewer principal → read-only methods
+    """
+    
+    def __init__(self, custom_mappings: Dict[str, Tuple[str, List[str]]] = None):
+        # Default role → (principal, allowed_methods) mappings
+        self.role_mappings = {
+            "admin": ("admin", ["*"]),
+            "lambda": ("lambda", ["*"]),
+            "orchestrator": ("orchestrator", [
+                "extract_document",
+                "validate_document",
+                "archive_document",
+                "list_skills",
+                "get_health"
+            ]),
+            "document-processor": ("document-processor", [
+                "process_document",
+                "extract_document",
+                "validate_document",
+                "archive_document"
+            ]),
+            "viewer": ("viewer", [
+                "list_skills",
+                "get_health"
+            ])
+        }
+        
+        # Merge custom mappings if provided
+        if custom_mappings:
+            self.role_mappings.update(custom_mappings)
+    
+    def map_roles_to_principal(self, keycloak_roles: List[str]) -> Tuple[str, List[str]]:
+        """
+        Map Keycloak roles to A2A principal and allowed methods
+        
+        Priority order (most privileged first):
+        1. admin - Full access
+        2. lambda - Full access (service account)
+        3. orchestrator - Pipeline orchestration
+        4. document-processor - Document operations
+        5. viewer - Read-only access
+        
+        Returns:
+            Tuple of (principal, allowed_methods)
+        """
+        # Check roles in priority order
+        priority_order = ["admin", "lambda", "orchestrator", "document-processor", "viewer"]
+        
+        for role in priority_order:
+            if role in keycloak_roles:
+                return self.role_mappings[role]
+        
+        # No recognized roles → default to viewer (least privilege)
+        return self.role_mappings["viewer"]
+```
+
+### **Integration: A2ASecurityManager**
+
+**File**: `a2a_security.py` (lines 45-92, 120-175)
+
+**Initialization**:
+```python
+class A2ASecurityManager:
+    def __init__(self, agent_id: str):
+        # ... existing code ...
+        
+        # Keycloak OAuth2/OIDC integration (NEW)
+        self.use_keycloak = os.getenv("A2A_USE_KEYCLOAK", "false").lower() == "true"
+        self.keycloak_validator = None
+        self.keycloak_rbac_mapper = None
+        
+        if self.use_keycloak:
+            if not KEYCLOAK_AVAILABLE:
+                raise RuntimeError("Keycloak authentication enabled but keycloak_auth module not available")
+            
+            keycloak_url = os.getenv("KEYCLOAK_URL")
+            keycloak_realm = os.getenv("KEYCLOAK_REALM", "ca-a2a")
+            keycloak_client_id = os.getenv("KEYCLOAK_CLIENT_ID", "ca-a2a-agents")
+            
+            if not keycloak_url:
+                raise ValueError("KEYCLOAK_URL environment variable required when A2A_USE_KEYCLOAK=true")
+            
+            self.keycloak_validator = KeycloakJWTValidator(
+                keycloak_url=keycloak_url,
+                realm=keycloak_realm,
+                client_id=keycloak_client_id,
+                cache_ttl=int(os.getenv("KEYCLOAK_CACHE_TTL", "3600"))
+            )
+            
+            self.keycloak_rbac_mapper = KeycloakRBACMapper()
+            logger.info(f"Keycloak authentication enabled for realm: {keycloak_realm}")
+```
+
+**Hybrid Authentication**:
+```python
+async def authenticate_and_authorize(self, headers: Dict[str, str], method: str, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Authenticate and authorize request (supports multiple methods)
+    
+    Auth Priority:
+    1. Keycloak JWT (if A2A_USE_KEYCLOAK=true)
+    2. Legacy JWT (if A2A_JWT_PUBLIC_KEY_PEM set)
+    3. API Key (if A2A_API_KEYS_JSON set)
+    
+    Returns:
+        Auth context with principal, allowed_methods, dynamic_rbac
+    """
+    # Extract Authorization header
+    auth_header = headers.get("authorization", headers.get("Authorization", ""))
+    
+    if auth_header.startswith("Bearer "):
+        token = auth_header[7:]
+        
+        # Try Keycloak JWT first (if enabled)
+        if self.use_keycloak:
+            try:
+                return await self._verify_keycloak_jwt(token=token, method=method, message_dict=message_dict)
+            except Exception as e:
+                logger.debug(f"Keycloak JWT verification failed: {e}, trying legacy auth")
+                # Fall through to legacy JWT
+        
+        # Try legacy JWT
+        if self.jwt_public_key_pem:
+            return await self._verify_legacy_jwt(token=token, method=method, message_dict=message_dict)
+    
+    # Try API Key
+    api_key = headers.get("x-api-key", headers.get("X-API-Key", ""))
+    if api_key and self.api_keys:
+        return await self._verify_api_key(headers=headers, method=method)
+    
+    raise ValueError("No valid authentication credentials provided")
+```
+
+**Keycloak JWT Verification**:
+```python
+async def _verify_keycloak_jwt(self, *, token: str, method: str, message_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Verify JWT token issued by Keycloak
+    
+    Returns:
+        Auth context with Keycloak-specific metadata
+    """
+    # Verify token signature and extract claims
+    username, keycloak_roles, claims = self.keycloak_validator.verify_token(token)
+    
+    # Map Keycloak roles to A2A principal
+    principal, allowed_methods = self.keycloak_rbac_mapper.map_roles_to_principal(keycloak_roles)
+    
+    # Check method authorization
+    if "*" not in allowed_methods and method not in allowed_methods:
+        raise PermissionError(f"Principal '{principal}' not authorized for method '{method}'")
+    
+    # Build auth context
+    auth_context = {
+        "mode": "keycloak_jwt",
+        "username": username,
+        "keycloak_roles": keycloak_roles,
+        "rbac_principal": principal,
+        "allowed_methods": allowed_methods,
+        "dynamic_rbac": True,  # Roles can be updated in Keycloak without redeployment
+        "methods_override": allowed_methods,
+        "token_claims": claims
+    }
+    
+    return auth_context
+```
+
+### **API Usage Examples**
+
+**1. Obtain Access Token (Password Grant)**:
+```bash
+curl -X POST "http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=ca-a2a-agents" \
+  -d "client_secret=<client_secret>" \
+  -d "username=admin-user" \
+  -d "password=<user_password>"
+
+# Response:
+{
+  "access_token": "eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJxdW5...",
+  "expires_in": 300,
+  "refresh_expires_in": 2592000,
+  "refresh_token": "eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICI3...",
+  "token_type": "Bearer",
+  "not-before-policy": 0,
+  "session_state": "8f3e4d2c-1b7a-4c9d-8e2f-5a6b7c8d9e0f",
+  "scope": "profile email"
+}
+```
+
+**2. Call Agent with Keycloak Token**:
+```bash
+curl -X POST "http://orchestrator.ca-a2a.local:8001/message" \
+  -H "Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJxdW5..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "list_skills",
+    "params": {},
+    "id": 1
+  }'
+
+# Response:
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "skills": ["process_document", "coordinate_pipeline"],
+    "agent": "orchestrator",
+    "auth_context": {
+      "mode": "keycloak_jwt",
+      "username": "admin-user",
+      "rbac_principal": "admin",
+      "dynamic_rbac": true
+    }
+  },
+  "id": 1
+}
+```
+
+**3. Refresh Access Token**:
+```bash
+curl -X POST "http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "client_id=ca-a2a-agents" \
+  -d "client_secret=<client_secret>" \
+  -d "refresh_token=<refresh_token>"
+
+# Returns new access_token and refresh_token
+```
+
+### **Token Structure (Decoded JWT)**
+
+**Keycloak Access Token**:
+```json
+{
+  "header": {
+    "alg": "RS256",
+    "typ": "JWT",
+    "kid": "qunlkj_cDRkZiIsImtpZCI"  // Key ID for JWKS lookup
+  },
+  "payload": {
+    "exp": 1736900100,  // Expiration (5 min from iat)
+    "iat": 1736899800,  // Issued at
+    "jti": "8f3e4d2c-1b7a-4c9d-8e2f-5a6b7c8d9e0f",  // Unique token ID
+    "iss": "http://keycloak.ca-a2a.local:8080/realms/ca-a2a",  // Issuer
+    "aud": "ca-a2a-agents",  // Audience (client ID)
+    "sub": "f1234567-89ab-cdef-0123-456789abcdef",  // Subject (user ID)
+    "typ": "Bearer",
+    "azp": "ca-a2a-agents",  // Authorized party
+    "session_state": "8f3e4d2c-1b7a-4c9d-8e2f-5a6b7c8d9e0f",
+    "acr": "1",
+    "realm_access": {
+      "roles": ["admin", "default-roles-ca-a2a"]  // User roles
+    },
+    "scope": "profile email",
+    "email_verified": true,
+    "preferred_username": "admin-user",  // Username extracted by validator
+    "email": "admin@example.com"
+  },
+  "signature": "..."  // RS256 signature verified using public key from JWKS
+}
+```
+
+### **Security Comparison: Legacy JWT vs Keycloak JWT**
+
+| Aspect | Legacy JWT (HS256) | Keycloak JWT (RS256) |
+|--------|-------------------|----------------------|
+| **Algorithm** | HS256 (HMAC + SHA-256) | RS256 (RSA + SHA-256) |
+| **Key Type** | Symmetric (shared secret) | Asymmetric (public/private key pair) |
+| **Key Distribution** | Secret must be shared with all agents | Public key distributed via JWKS endpoint |
+| **Key Rotation** | Requires agent redeployment | Automatic via JWKS cache refresh |
+| **Token Issuance** | Manual generation (Python script) | Automatic via Keycloak API |
+| **User Management** | Manual (no central database) | Centralized (Keycloak admin console) |
+| **Role Management** | Static RBAC JSON file | Dynamic (Keycloak roles) |
+| **Token Revocation** | Database-backed revocation list | Built-in Keycloak revocation |
+| **Audit Logging** | Application logs only | Keycloak audit events + app logs |
+| **MFA Support** | Not supported | Built-in TOTP, SMS, email |
+| **SSO Integration** | Not supported | SAML, OAuth2, OIDC providers |
+
+### **Monitoring & Observability**
+
+**CloudWatch Logs** (`/ecs/ca-a2a-keycloak`):
+```
+2026-01-14 12:30:45 INFO  [org.keycloak.services] (ServerService Thread Pool -- 45) KC-SERVICES0001: Keycloak 23.0 started in 12345ms
+2026-01-14 12:30:45 INFO  [io.quarkus] (main) Listening on: http://0.0.0.0:8080
+2026-01-14 12:31:10 INFO  [org.keycloak.events] (executor-thread-1) type=LOGIN, realmId=ca-a2a, clientId=ca-a2a-agents, userId=f1234567-89ab-cdef-0123-456789abcdef, username=admin-user, ipAddress=10.0.10.25, auth_method=password, auth_session_id=8f3e4d2c-1b7a-4c9d-8e2f-5a6b7c8d9e0f
+```
+
+**Agent Logs** (Keycloak JWT verification):
+```python
+logger.info(f"Keycloak JWT verification successful: username={username}, roles={keycloak_roles}, principal={principal}")
+# Output: Keycloak JWT verification successful: username=admin-user, roles=['admin'], principal=admin
+```
+
+### **Testing**
+
+**Unit Tests** (`test_keycloak_integration.py`):
+```bash
+pytest test_keycloak_integration.py -v
+
+# Tests:
+# ✅ test_keycloak_jwt_validator_initialization
+# ✅ test_keycloak_jwt_validator_verify_token (mocked)
+# ✅ test_keycloak_rbac_mapper_default_roles
+# ✅ test_keycloak_rbac_mapper_admin_role
+# ✅ test_keycloak_rbac_mapper_orchestrator_role
+# ✅ test_keycloak_rbac_mapper_viewer_role
+# ✅ test_keycloak_auth_client_initialization
+# ✅ test_security_manager_keycloak_integration
+# ✅ test_keycloak_integration_end_to_end (requires running Keycloak)
+```
+
+**Integration Tests** (`test-keycloak-auth.sh`):
+```bash
+./test-keycloak-auth.sh
+
+# Tests:
+# ✅ Authenticate user and obtain token
+# ✅ Verify JWKS endpoint
+# ✅ Call orchestrator with Keycloak JWT
+# ✅ Refresh token
+# ✅ Invalid token rejection
+```
+
+### **Documentation References**
+
+- [`KEYCLOAK_INTEGRATION_GUIDE.md`](./KEYCLOAK_INTEGRATION_GUIDE.md) - Comprehensive guide (624 lines)
+- [`KEYCLOAK_QUICK_START.md`](./KEYCLOAK_QUICK_START.md) - 15-minute quick start (248 lines)
+- [`KEYCLOAK_IMPLEMENTATION_SUMMARY.md`](./KEYCLOAK_IMPLEMENTATION_SUMMARY.md) - Implementation summary (421 lines)
+- [`keycloak_auth.py`](./keycloak_auth.py) - Source code with docstrings (450 lines)
+- [`keycloak_client_example.py`](./keycloak_client_example.py) - Client usage examples (331 lines)
 
 ---
 

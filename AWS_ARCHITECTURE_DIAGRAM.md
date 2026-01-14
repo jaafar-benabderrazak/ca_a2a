@@ -1,9 +1,10 @@
 # AWS Architecture Diagram - CA-A2A Document Processing System
 
-**Generated:** January 2, 2026 
-**Account:** 555043101106 
-**Region:** eu-west-3 (Paris) 
-**Status:** Fully Deployed & Operational
+**Generated:** January 14, 2026  
+**Account:** 555043101106  
+**Region:** eu-west-3 (Paris)  
+**Status:** Fully Deployed & Operational  
+**New Features:** Keycloak OAuth2/OIDC Service
 
 ---
 
@@ -88,11 +89,30 @@
 │ │ │ │ │ • S3 organization (processed/, failed/) │ │ │ │ │
 │ │ │ │ └────────────────────┬──────────────────────────────────┘ │ │ │ │
 │ │ │ │ │ │ │ │ │
+│ │ │ │ ┌────────────────────▼────────────────────────────────┐ │ │ │ │
+│ │ │ │ │ **KEYCLOAK Service (1 task) [NEW]** │ │ │ │ │
+│ │ │ │ │ Port: 8080 │ CPU: 1024 │ Memory: 2048 MB │ │ │ │ │
+│ │ │ │ │ Image: ca-a2a/keycloak:23.0 │ │ │ │ │
+│ │ │ │ │ Status: ACTIVE (1/1 running) │ │ │ │ │
+│ │ │ │ │ │ │ │ │ │
+│ │ │ │ │ Capabilities: │ │ │ │ │
+│ │ │ │ │ • **OAuth2/OIDC Provider** │ │ │ │ │
+│ │ │ │ │ • **JWT Token Issuance (RS256)** │ │ │ │ │
+│ │ │ │ │ • **User Management** │ │ │ │ │
+│ │ │ │ │ • **Role Management (RBAC)** │ │ │ │ │
+│ │ │ │ │ • **Authentication Events Audit** │ │ │ │ │
+│ │ │ │ │ • **Service Discovery:** keycloak.ca-a2a.local:8080│ │ │ │ │
+│ │ │ │ └────────────────────┬──────────────────────────────────┘ │ │ │ │
+│ │ │ │ │ │ │ │ │
 │ │ │ └────────────────────────┼────────────────────────────────────────────────┘ │ │ │
 │ │ │ │ │ │ │
 │ │ │ Security Group: sg-047a8f39f9cdcaf4c │ │ │
 │ │ │ • Inbound: 8001-8004 from ALB and Self │ │ │
-│ │ │ • Outbound: HTTPS (443), PostgreSQL (5432) │ │ │
+│ │ │ • Outbound: HTTPS (443), PostgreSQL (5432), **Keycloak (8080)** │ │ │
+│ │ │ │ │ │
+│ │ │ **Keycloak Security Group:** sg-0fea873848c240253 │ │ │
+│ │ │ • Inbound: 8080 from Agent SGs │ │ │
+│ │ │ • Outbound: PostgreSQL (5432), HTTPS (443) │ │ │
 │ │ └────────────────────────────┼───────────────────────────────────────────────────────┘ │ │
 │ │ │ │ │
 │ └────────────────────────────────┼──────────────────────────────────────────────────────────┘ │
@@ -103,11 +123,12 @@
 │ │ ┌────────────────────────────▼─────────────────────────────────────────────────────┐ │ │
 │ │ │ Private Subnet 2 (10.0.20.0/24) │ │ │
 │ │ │ │ │ │
-│ │ │ [Same ECS tasks replicated for High Availability] │ │ │
+│ │ [Same ECS tasks replicated for High Availability] │ │ │
 │ │ │ • Orchestrator Task (1 of 2) │ │ │
 │ │ │ • Extractor Task (1 of 2) │ │ │
 │ │ │ • Validator Task (1 of 2) │ │ │
 │ │ │ • Archivist Task (1 of 2) │ │ │
+│ │ │ • **Keycloak Task (1 of 1 - HA planned for Phase 2)** │ │ │
 │ │ │ │ │ │
 │ │ └───────────────────────────────────────┬────────────────────────────────────────────┘ │ │
 │ └───────────────────────────────────────────┼───────────────────────────────────────────────┘ │
@@ -119,6 +140,7 @@
 │ │ • extractor.local → ECS tasks (10.0.10.x, 10.0.20.x) │ │
 │ │ • validator.local → ECS tasks (10.0.10.x, 10.0.20.x) │ │
 │ │ • archivist.local → ECS tasks (10.0.10.x, 10.0.20.x) │ │
+│ │ • **keycloak.local → ECS tasks (10.0.10.x) [NEW]** │ │
 │ └─────────────────────────────────────────────────────────────────────────────────────────┘ │
 │ │ │
 │ │ │
@@ -141,8 +163,9 @@
 │ │ │ │ ├─ invoices/ │ │ Port: 5432 │ │ │
 │ │ │ │ ├─ contracts/ │ │ │ │ │
 │ │ │ │ └─ reports/ │ │ Database: documents_db │ │ │
-│ │ │ └─ failed/ │ │ │ │ │
-│ │ │ │ │ Tables: │ │ │
+│ │ │ └─ failed/ │ │ **Database: keycloak [NEW]** │ │ │
+│ │ │ │ │ │ │ │
+│ │ │ Lifecycle: │ │ Tables (documents_db): │ │ │
 │ │ │ Lifecycle: │ │ • documents │ │ │
 │ │ │ • Glacier after 90 days │ │ - id, filename, s3_key │ │ │
 │ │ │ • Delete after 365 days │ │ - file_type, status │ │ │
@@ -169,6 +192,8 @@
 │ │ │ Encryption: SQS managed │ │ │ │ │
 │ │ └──────────────┬───────────────┘ │ • ca-a2a/postgres-password │ │ │
 │ │ │ │ • ca-a2a/aws-credentials │ │ │
+│ │ │ │ **• ca-a2a/keycloak-admin-password**│ │ │
+│ │ │ │ **• ca-a2a/keycloak-client-secret** │ │ │
 │ │ │ └────────────────────────────────────────┘ │ │
 │ │ ▼ │ │
 │ │ ┌──────────────────────────────┐ │ │
@@ -214,6 +239,7 @@
 │ │ • /ecs/ca-a2a-extractor (Retention: 7 days, ~20 MB/day) │ │
 │ │ • /ecs/ca-a2a-validator (Retention: 7 days, ~15 MB/day) │ │
 │ │ • /ecs/ca-a2a-archivist (Retention: 7 days, ~10 MB/day) │ │
+│ │ • **/ecs/ca-a2a-keycloak (Retention: 30 days, ~5 MB/day) [NEW]** │ │
 │ │ • /aws/lambda/ca-a2a-s3-processor (Lambda function logs) │ │
 │ │ │ │
 │ │ Metrics: │ │
@@ -525,14 +551,16 @@ Target Tracking Scaling Policy:
 
 | Date | Event | Status |
 |------|-------|--------|
-| 2025-12-18 | Initial AWS infrastructure deployed | Complete |
-| 2026-01-02 17:23 | Fixed MCP SDK import error | Complete |
-| 2026-01-02 17:23 | Rebuilt all agents (Python 3.11) | Complete |
-| 2026-01-02 | Deployed archivist fix (MCP_SERVER_URL) | Complete |
-| 2026-01-02 | Setup S3 event pipeline (Lambda + SQS) | Complete |
-| Current | All services HEALTHY and operational | Running |
+| 2025-12-18 | Initial AWS infrastructure deployed | Complete ✅ |
+| 2026-01-02 17:23 | Fixed MCP SDK import error | Complete ✅ |
+| 2026-01-02 17:23 | Rebuilt all agents (Python 3.11) | Complete ✅ |
+| 2026-01-02 | Deployed archivist fix (MCP_SERVER_URL) | Complete ✅ |
+| 2026-01-02 | Setup S3 event pipeline (Lambda + SQS) | Complete ✅ |
+| **2026-01-14** | **Deployed Keycloak OAuth2/OIDC service** | **Complete** ✅ |
+| **2026-01-14** | **Integrated Keycloak with all agents** | **Complete** ✅ |
+| Current | All services HEALTHY and operational | Running ✅ |
 
-**Total Running Tasks:** 8/8 (2 per service) 
+**Total Running Tasks:** 9/9 (2 per agent service + 1 Keycloak)  
 **System Status:** **FULLY OPERATIONAL**
 
 ---
@@ -549,10 +577,22 @@ Target Tracking Scaling Policy:
 - **Extractor:** `http://extractor.local:8002`
 - **Validator:** `http://validator.local:8003`
 - **Archivist:** `http://archivist.local:8004`
+- **Keycloak (NEW):** `http://keycloak.ca-a2a.local:8080`
+
+### Keycloak OAuth2/OIDC (NEW)
+- **Token Endpoint:** `http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token`
+- **JWKS Endpoint:** `http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/certs`
+- **Admin Console:** `http://keycloak.ca-a2a.local:8080/admin` (internal only)
+- **Realm:** `ca-a2a`
+- **Client ID:** `ca-a2a-agents`
+- **Admin Username:** `admin`
+- **Admin Password:** Stored in AWS Secrets Manager (`ca-a2a/keycloak-admin-password`)
 
 ### Database
 - **Endpoint:** `ca-a2a-postgres.czkdu9wcburt.eu-west-3.rds.amazonaws.com:5432`
-- **Database:** `documents_db`
+- **Databases:**
+  - `documents_db` (agent data)
+  - `keycloak` (OAuth2/OIDC data) **[NEW]**
 - **User:** `postgres`
 - **Password:** Stored in AWS Secrets Manager
 
@@ -560,6 +600,283 @@ Target Tracking Scaling Policy:
 - **Name:** `ca-a2a-documents-555043101106`
 - **Region:** `eu-west-3`
 - **URL:** `s3://ca-a2a-documents-555043101106`
+
+---
+
+## Keycloak OAuth2/OIDC Integration (NEW)
+
+### Overview
+
+**Keycloak 23.0** has been deployed as an ECS Fargate service to provide enterprise-grade identity and access management.
+
+### Deployment Details
+
+| Component | Details |
+|-----------|---------|
+| **Service Name** | `keycloak` |
+| **Image** | `555043101106.dkr.ecr.eu-west-3.amazonaws.com/ca-a2a/keycloak:23.0` |
+| **Task Definition** | `ca-a2a-keycloak` |
+| **CPU** | 1024 (1 vCPU) |
+| **Memory** | 2048 MB (2 GB) |
+| **Port** | 8080 (HTTP, internal only) |
+| **Service Discovery** | `keycloak.ca-a2a.local:8080` |
+| **Health Check** | `/health/ready` (90s start period) |
+| **Database** | PostgreSQL `keycloak` schema in RDS cluster |
+| **Running Tasks** | 1/1 (HA planned for Phase 2) |
+| **Status** | **ACTIVE** ✅ |
+
+### Network Configuration
+
+**Security Group:** `ca-a2a-keycloak-sg` (sg-0fea873848c240253)
+- **Inbound Rules:**
+  - Port 8080 from Agent Security Groups (Orchestrator, Extractor, Validator, Archivist)
+  - Port 8080 from within VPC (health checks, admin access)
+- **Outbound Rules:**
+  - Port 5432 to RDS Security Group (PostgreSQL for keycloak database)
+  - Port 443 to VPC CIDR (CloudWatch logs)
+  - Port 53 to VPC CIDR (DNS resolution)
+
+**Subnets:**
+- Private Subnet 1 (10.0.10.0/24) - Primary deployment
+- Private Subnet 2 (10.0.20.0/24) - HA ready (not yet enabled)
+
+### Authentication Configuration
+
+**Realm:** `ca-a2a`
+
+**Client:** `ca-a2a-agents`
+- Type: Confidential
+- Protocol: openid-connect
+- Access Token Lifespan: 5 minutes
+- Refresh Token Lifespan: 30 days
+
+**Users:**
+| Username | Role | Type | Purpose |
+|----------|------|------|---------|
+| `admin-user` | admin | Human | Full system access |
+| `lambda-service` | lambda | Service | Lambda function authentication |
+| `orchestrator-service` | orchestrator | Service | Service-to-service calls |
+
+**Roles → RBAC Mapping:**
+| Keycloak Role | A2A Principal | Allowed Methods |
+|---------------|---------------|-----------------|
+| `admin` | admin | `*` (all methods) |
+| `lambda` | lambda | `*` (all methods) |
+| `orchestrator` | orchestrator | `extract_document`, `validate_document`, `archive_document`, `list_skills`, `get_health` |
+| `viewer` | viewer | `list_skills`, `get_health` (read-only) |
+
+### API Endpoints
+
+**Token Endpoint (OAuth2):**
+```
+POST http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=password
+client_id=ca-a2a-agents
+client_secret=<secret>
+username=<user>
+password=<password>
+
+Response:
+{
+  "access_token": "eyJhbGc...",
+  "refresh_token": "eyJhbGc...",
+  "expires_in": 300,
+  "token_type": "Bearer"
+}
+```
+
+**JWKS Endpoint (Public Keys):**
+```
+GET http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/certs
+
+Response:
+{
+  "keys": [
+    {
+      "kid": "qunlkj...",
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "n": "<RSA modulus>",
+      "e": "AQAB"
+    }
+  ]
+}
+```
+
+**Health Endpoints:**
+- `/health` - General health status
+- `/health/ready` - Readiness check (used by ECS)
+
+### Agent Integration
+
+**Environment Variables (per agent):**
+```bash
+A2A_USE_KEYCLOAK=true
+KEYCLOAK_URL=http://keycloak.ca-a2a.local:8080
+KEYCLOAK_REALM=ca-a2a
+KEYCLOAK_CLIENT_ID=ca-a2a-agents
+KEYCLOAK_CACHE_TTL=3600  # Cache JWKS for 1 hour
+```
+
+**Secrets (AWS Secrets Manager):**
+- `ca-a2a/keycloak-admin-password` - Keycloak admin console password
+- `ca-a2a/keycloak-client-secret` - Client secret for agent authentication
+- `ca-a2a/keycloak-admin-user-password` - Test user password
+
+**Hybrid Authentication Mode:**
+The agents support multiple authentication methods simultaneously:
+1. **Keycloak JWT** (RS256, verified via JWKS) - **NEW**
+2. **Legacy JWT** (HS256, verified via shared secret) - Existing
+3. **API Keys** (static keys from JSON config) - Existing
+
+This allows gradual migration without breaking existing integrations.
+
+### Database Schema
+
+**PostgreSQL Database:** `keycloak` (in RDS cluster)
+
+**Key Tables (60+ total):**
+- `user_entity` - User accounts
+- `credential` - User credentials (hashed)
+- `realm` - Realm configurations
+- `client` - Client applications
+- `role_entity` - Role definitions
+- `user_role_mapping` - User-to-role assignments
+- `user_session` - Active user sessions
+- `event_entity` - Audit events (logins, logouts, etc.)
+
+**Storage Size:** ~50 MB (initial deployment)
+
+### Monitoring
+
+**CloudWatch Log Group:** `/ecs/ca-a2a-keycloak`
+- **Retention:** 30 days
+- **Average Size:** ~5 MB/day
+- **Key Log Events:**
+  - Startup: "Keycloak ... started in ...ms"
+  - Ready: "Listening on: http://0.0.0.0:8080"
+  - Login: "type=LOGIN, realmId=ca-a2a, username=..."
+  - Failed Login: "type=LOGIN_ERROR, username=..."
+
+**ECS Service Metrics:**
+- CPU Utilization
+- Memory Utilization
+- Task Count (running/desired)
+- Health Check Status
+
+**Custom Metrics (via logs):**
+- Authentication attempts (success/failure rate)
+- Token issuance rate
+- JWKS cache hits/misses
+
+### Security Features
+
+**Token Security:**
+- **RS256 Asymmetric Signing:** Private key kept in Keycloak, public key distributed via JWKS
+- **Short Access Token Lifespan:** 5 minutes reduces exposure risk
+- **Long Refresh Token Lifespan:** 30 days balances security and UX
+- **Token Rotation:** New tokens issued on refresh, old tokens invalidated
+
+**Network Security:**
+- **Private Deployment:** No public IP, internal-only access
+- **Security Groups:** Strict firewall rules (port 8080 only from agents)
+- **Service Discovery:** Private DNS resolution (`keycloak.ca-a2a.local`)
+
+**Brute Force Protection:**
+- Configurable failure thresholds
+- Automatic account lockout after N failed attempts
+- Rate limiting per user
+
+**Audit Trail:**
+- All authentication events logged to `event_entity` table
+- CloudWatch integration for real-time monitoring
+- Compliance-ready logs (who, what, when, from where)
+
+### Deployment Scripts
+
+**Deploy Keycloak:**
+```bash
+./deploy-keycloak.sh
+
+# Steps performed:
+# 1. Create Keycloak security group
+# 2. Create CloudWatch log group
+# 3. Pull Keycloak 23.0 image
+# 4. Push to ECR
+# 5. Register ECS task definition
+# 6. Create ECS service with Service Discovery
+# 7. Create keycloak database schema in RDS
+```
+
+**Configure Realm:**
+```bash
+./configure-keycloak.sh
+
+# Steps performed:
+# 1. Create ca-a2a realm
+# 2. Configure ca-a2a-agents client
+# 3. Create users (admin-user, lambda-service, orchestrator-service)
+# 4. Assign roles
+# 5. Set token lifespans
+```
+
+**Update Agents:**
+```bash
+./update-agents-keycloak.sh
+
+# Steps performed:
+# 1. Add Keycloak environment variables to agent task definitions
+# 2. Update ECS services to use new task definitions
+# Note: Agents work in hybrid mode - both legacy and Keycloak auth supported
+```
+
+### Testing
+
+**Test Authentication:**
+```bash
+./test-keycloak-auth.sh
+
+# Tests:
+# ✅ Keycloak service health
+# ✅ Obtain access token
+# ✅ Call orchestrator with Keycloak JWT
+# ✅ Refresh token
+# ✅ Invalid token rejection
+```
+
+**Unit Tests:**
+```bash
+pytest test_keycloak_integration.py -v
+
+# Test coverage:
+# - JWT validator initialization
+# - Token verification (mocked)
+# - RBAC role mapping
+# - Security manager integration
+# - End-to-end flow
+```
+
+### Future Enhancements (Phase 2)
+
+**Planned Features:**
+- ✅ **High Availability:** 2+ Keycloak instances across AZs
+- ✅ **Public Admin Console:** External ALB with HTTPS (ACM certificate)
+- ✅ **MFA Integration:** TOTP (Google Authenticator), SMS, Email
+- ✅ **SSO Integration:** Google, GitHub, Azure AD, Okta
+- ✅ **User Federation:** LDAP, Active Directory synchronization
+- ✅ **Fine-Grained RBAC:** Resource-level permissions (ABAC)
+- ✅ **RDS Multi-AZ:** Automatic failover for keycloak database
+
+### Documentation
+
+- [`KEYCLOAK_INTEGRATION_GUIDE.md`](./KEYCLOAK_INTEGRATION_GUIDE.md) - Comprehensive guide
+- [`KEYCLOAK_QUICK_START.md`](./KEYCLOAK_QUICK_START.md) - 15-minute quick start
+- [`KEYCLOAK_IMPLEMENTATION_SUMMARY.md`](./KEYCLOAK_IMPLEMENTATION_SUMMARY.md) - Summary
+- [`keycloak_auth.py`](./keycloak_auth.py) - Source code with docstrings
+- [`keycloak_client_example.py`](./keycloak_client_example.py) - Client examples
 
 ---
 
@@ -571,13 +888,17 @@ Target Tracking Scaling Policy:
 - [SECURITY_GUIDE.md](./SECURITY_GUIDE.md) - Security implementation details
 - [DEMO_2H_QUICK_REFERENCE.md](./DEMO_2H_QUICK_REFERENCE.md) - Testing guide
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - Common issues and solutions
+- **[KEYCLOAK_INTEGRATION_GUIDE.md](./KEYCLOAK_INTEGRATION_GUIDE.md) - Keycloak OAuth2/OIDC guide (NEW)**
+- **[KEYCLOAK_QUICK_START.md](./KEYCLOAK_QUICK_START.md) - Keycloak quick start (NEW)**
+- **[KEYCLOAK_DOCUMENTATION_UPDATES.md](./KEYCLOAK_DOCUMENTATION_UPDATES.md) - What's new (NEW)**
 
 ---
 
-**Generated by:** AI Assistant 
-**Date:** January 2, 2026 
-**Project:** CA-A2A Multi-Agent Document Processing System 
-**AWS Account:** 555043101106 
-**Region:** eu-west-3 (Paris)
+**Generated by:** AI Assistant  
+**Date:** January 14, 2026  
+**Project:** CA-A2A Multi-Agent Document Processing System  
+**AWS Account:** 555043101106  
+**Region:** eu-west-3 (Paris)  
+**Version:** 2.1 (with Keycloak OAuth2/OIDC)
 
 

@@ -2,6 +2,10 @@
 
 **Complete Testing Framework for Multi-Agent System with Enhanced Security**
 
+**Version**: 2.1  
+**Last Updated**: January 14, 2026  
+**New Features**: Keycloak OAuth2/OIDC Testing Suite
+
 ---
 
 ## Table of Contents
@@ -18,14 +22,15 @@
 
 ## Overview
 
-The enhanced deployment script now includes **40+ comprehensive tests** across:
+The enhanced deployment script now includes **50+ comprehensive tests** across:
 - **24 Security Feature Tests** (HMAC, Schema, Revocation, mTLS, Performance)
 - **8 Agent Functionality Tests** (Health, Skills, Communication)
 - **8 RBAC & Rate Limiting Tests**
+- **9 Keycloak OAuth2/OIDC Tests (NEW)**
 - **6 Security Audit Checks**
 - **10 Compliance Criteria**
 
-**Total Test Coverage:** ~56 distinct validation points
+**Total Test Coverage:** ~65 distinct validation points
 
 ---
 
@@ -43,7 +48,11 @@ The enhanced deployment script now includes **40+ comprehensive tests** across:
 - Tests authorization, rate limiting, A2A calls
 - Tests: 8 (authorization, rate limits, data persistence)
 
-### **Category D: Security Audit (Step 7)**
+### **Category D: Keycloak OAuth2/OIDC (Step 6.6-6.14) (NEW)**
+- Tests OAuth2 authentication flow, token lifecycle, RBAC mapping
+- Tests: 9 (service health, authentication, token refresh, RBAC, JWKS, hybrid mode)
+
+### **Category E: Security Audit (Step 7)**
 - Comprehensive security posture evaluation
 - Checks: 6 audit areas + 10 compliance criteria
 
@@ -316,6 +325,591 @@ SELECT jti, revoked_at, revoked_by, reason FROM revoked_tokens;
 ```
 
 **Why This Matters:** Ensures data durability and audit trail
+
+---
+
+## Keycloak OAuth2/OIDC Security Tests (NEW)
+
+### **Test 6.6: Keycloak Service Health**
+
+**Purpose:** Verify Keycloak service is running and accessible
+
+**Test Code:**
+```bash
+# Check Keycloak ECS service
+aws ecs describe-services \
+  --cluster ca-a2a-cluster \
+  --service keycloak \
+  --query 'services[0].[serviceName, status, runningCount, desiredCount]' \
+  --output table
+
+# Get Keycloak task private IP
+KEYCLOAK_TASK_ARN=$(aws ecs list-tasks \
+  --cluster ca-a2a-cluster \
+  --service-name keycloak \
+  --query 'taskArns[0]' \
+  --output text)
+
+KEYCLOAK_IP=$(aws ecs describe-tasks \
+  --cluster ca-a2a-cluster \
+  --tasks $KEYCLOAK_TASK_ARN \
+  --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+  --output text)
+
+# Test health endpoint
+curl -s http://${KEYCLOAK_IP}:8080/health
+curl -s http://${KEYCLOAK_IP}:8080/health/ready
+```
+
+**Expected Output:**
+```
+✅ Keycloak service status
+  - Running count: 1/1
+  - Health check: PASSED
+  - Private IP: 10.0.10.x
+  - Health endpoint: {"status":"UP"}
+  - Ready endpoint: {"status":"UP"}
+```
+
+**What This Tests:**
+1. **ECS Service**: Keycloak is deployed and running
+2. **Network Connectivity**: Can reach Keycloak from VPC
+3. **Health Checks**: Keycloak is fully started and ready
+4. **Service Discovery**: `keycloak.ca-a2a.local:8080` resolves correctly
+
+---
+
+### **Test 6.7: Keycloak Authentication Flow**
+
+**Purpose:** Verify end-to-end OAuth2/OIDC authentication
+
+**Test Scenario 1: Obtain Access Token**
+
+```bash
+# Authenticate as admin-user
+KEYCLOAK_URL="http://keycloak.ca-a2a.local:8080"
+REALM="ca-a2a"
+CLIENT_ID="ca-a2a-agents"
+CLIENT_SECRET=$(aws secretsmanager get-secret-value \
+  --secret-id ca-a2a/keycloak-client-secret \
+  --query SecretString \
+  --output text)
+USERNAME="admin-user"
+PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id ca-a2a/keycloak-admin-user-password \
+  --query SecretString \
+  --output text)
+
+# Get token
+TOKEN_RESPONSE=$(curl -s -X POST "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=${CLIENT_ID}" \
+  -d "client_secret=${CLIENT_SECRET}" \
+  -d "username=${USERNAME}" \
+  -d "password=${PASSWORD}")
+
+ACCESS_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.access_token')
+REFRESH_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.refresh_token')
+EXPIRES_IN=$(echo $TOKEN_RESPONSE | jq -r '.expires_in')
+
+echo "Access Token: ${ACCESS_TOKEN:0:50}..."
+echo "Expires in: $EXPIRES_IN seconds"
+```
+
+**Expected Output:**
+```
+✅ Keycloak authentication
+  - Access token obtained: eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6IC...
+  - Refresh token obtained: eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6IC...
+  - Expires in: 300 seconds (5 minutes)
+  - Token type: Bearer
+```
+
+**What This Tests:**
+1. **Password Grant Flow**: Keycloak accepts username/password
+2. **Token Issuance**: Access token and refresh token generated
+3. **Token Structure**: JWT format with RS256 signature
+4. **Token Lifespan**: 5-minute expiration
+
+---
+
+### **Test 6.8: Agent API Call with Keycloak Token**
+
+**Purpose:** Verify agents accept and validate Keycloak JWTs
+
+**Test Code:**
+```bash
+# Get orchestrator IP
+ORCH_IP=$(aws ecs describe-tasks \
+  --cluster ca-a2a-cluster \
+  --tasks $(aws ecs list-tasks \
+    --cluster ca-a2a-cluster \
+    --service-name orchestrator \
+    --query 'taskArns[0]' \
+    --output text) \
+  --query 'tasks[0].containers[0].networkInterfaces[0].privateIpv4Address' \
+  --output text)
+
+# Call orchestrator with Keycloak token
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "list_skills",
+    "params": {},
+    "id": 1
+  }'
+```
+
+**Expected Output:**
+```json
+{
+  "jsonrpc": "2.0",
+  "result": {
+    "skills": ["process_document", "coordinate_pipeline"],
+    "agent": "orchestrator",
+    "auth_context": {
+      "mode": "keycloak_jwt",
+      "username": "admin-user",
+      "keycloak_roles": ["admin"],
+      "rbac_principal": "admin",
+      "allowed_methods": ["*"],
+      "dynamic_rbac": true
+    }
+  },
+  "id": 1
+}
+```
+
+**What This Tests:**
+1. **JWT Validation**: Agent verifies RS256 signature using JWKS
+2. **RBAC Mapping**: Keycloak roles mapped to A2A principals
+3. **Authorization**: Admin role has full access (`allowed_methods`: `["*"]`)
+4. **Auth Context**: Response includes Keycloak-specific metadata
+
+---
+
+### **Test 6.9: Token Refresh**
+
+**Purpose:** Verify token refresh mechanism
+
+**Test Code:**
+```bash
+# Wait for access token to expire (or simulate)
+echo "Refreshing access token..."
+
+# Use refresh token to get new access token
+NEW_TOKEN_RESPONSE=$(curl -s -X POST "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=refresh_token" \
+  -d "client_id=${CLIENT_ID}" \
+  -d "client_secret=${CLIENT_SECRET}" \
+  -d "refresh_token=${REFRESH_TOKEN}")
+
+NEW_ACCESS_TOKEN=$(echo $NEW_TOKEN_RESPONSE | jq -r '.access_token')
+NEW_REFRESH_TOKEN=$(echo $NEW_TOKEN_RESPONSE | jq -r '.refresh_token')
+
+echo "New Access Token: ${NEW_ACCESS_TOKEN:0:50}..."
+```
+
+**Expected Output:**
+```
+✅ Token refresh
+  - New access token obtained: eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6IC...
+  - New refresh token obtained: eyJhbGciOiJIUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6IC...
+  - Old tokens invalidated
+```
+
+**What This Tests:**
+1. **Refresh Token Grant**: Keycloak accepts refresh token
+2. **Token Rotation**: New tokens issued, old tokens invalidated
+3. **Continuous Access**: Users can maintain sessions beyond 5 minutes
+
+---
+
+### **Test 6.10: Invalid Token Rejection**
+
+**Purpose:** Verify agents reject invalid/expired tokens
+
+**Test Scenario 1: Expired Token**
+
+```bash
+# Use expired token (simulate by using old token after 5 minutes)
+sleep 300  # Wait 5 minutes
+
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "list_skills",
+    "params": {},
+    "id": 1
+  }'
+```
+
+**Expected Output:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32001,
+    "message": "Authentication failed: Token has expired"
+  },
+  "id": 1
+}
+```
+
+**Test Scenario 2: Invalid Signature**
+
+```bash
+# Tamper with token (change last character)
+TAMPERED_TOKEN="${ACCESS_TOKEN:0:-1}X"
+
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${TAMPERED_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "list_skills",
+    "params": {},
+    "id": 1
+  }'
+```
+
+**Expected Output:**
+```json
+{
+  "jsonrpc": "2.0",
+  "error": {
+    "code": -32001,
+    "message": "Authentication failed: Invalid token signature"
+  },
+  "id": 1
+}
+```
+
+**What This Tests:**
+1. **Token Expiration**: Expired tokens rejected (5-minute lifespan)
+2. **Signature Validation**: Tampered tokens detected and rejected
+3. **Error Handling**: Clear error messages for debugging
+
+---
+
+### **Test 6.11: RBAC with Keycloak Roles**
+
+**Purpose:** Verify Keycloak roles correctly map to A2A RBAC
+
+**Test Scenario 1: Admin Role (Full Access)**
+
+```bash
+# Admin user should access all methods
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "process_document",
+    "params": {"s3_key": "test.pdf"},
+    "id": 1
+  }'
+```
+
+**Expected Result:** ✅ Request succeeds (admin role → admin principal → `*` methods)
+
+**Test Scenario 2: Viewer Role (Read-Only)**
+
+```bash
+# Authenticate as viewer user
+VIEWER_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id ca-a2a/keycloak-viewer-password \
+  --query SecretString \
+  --output text)
+
+VIEWER_TOKEN=$(curl -s -X POST "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=password" \
+  -d "client_id=${CLIENT_ID}" \
+  -d "client_secret=${CLIENT_SECRET}" \
+  -d "username=viewer-user" \
+  -d "password=${VIEWER_PASSWORD}" | jq -r '.access_token')
+
+# Viewer should only access read-only methods
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${VIEWER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "list_skills",
+    "params": {},
+    "id": 1
+  }'
+# Expected: ✅ Success
+
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${VIEWER_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc": "2.0",
+    "method": "process_document",
+    "params": {"s3_key": "test.pdf"},
+    "id": 1
+  }'
+# Expected: ❌ 403 Forbidden
+```
+
+**Expected Output:**
+```
+✅ Admin role test
+  - list_skills: ALLOWED
+  - process_document: ALLOWED
+  - All methods: ALLOWED
+
+❌ Viewer role test
+  - list_skills: ALLOWED
+  - get_health: ALLOWED
+  - process_document: FORBIDDEN (403)
+```
+
+**RBAC Mapping:**
+| Keycloak Role | A2A Principal | Allowed Methods |
+|---------------|---------------|-----------------|
+| `admin` | admin | `*` (all) |
+| `lambda` | lambda | `*` (all) |
+| `orchestrator` | orchestrator | `extract_document`, `validate_document`, `archive_document`, `list_skills`, `get_health` |
+| `viewer` | viewer | `list_skills`, `get_health` |
+
+**What This Tests:**
+1. **Role Mapping**: Keycloak roles correctly map to A2A principals
+2. **Method Filtering**: RBAC policies enforced based on principal
+3. **Least Privilege**: Viewer has minimal access (read-only)
+
+---
+
+### **Test 6.12: JWKS Endpoint & Public Key Caching**
+
+**Purpose:** Verify agent fetches and caches Keycloak public keys
+
+**Test Code:**
+```bash
+# Check JWKS endpoint
+curl -s "${KEYCLOAK_URL}/realms/${REALM}/protocol/openid-connect/certs" | jq
+
+# Expected structure:
+# {
+#   "keys": [
+#     {
+#       "kid": "qunlkj_cDRkZiIsImtpZCI",
+#       "kty": "RSA",
+#       "alg": "RS256",
+#       "use": "sig",
+#       "n": "<RSA modulus>",
+#       "e": "AQAB"
+#     }
+#   ]
+# }
+```
+
+**Agent-Side Verification** (check CloudWatch logs):
+```bash
+# View orchestrator logs for JWKS cache activity
+aws logs tail /ecs/ca-a2a-orchestrator --since 10m --filter-pattern "JWKS"
+
+# Expected log entries:
+# - "Fetching JWKS from Keycloak: http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/certs"
+# - "JWKS cached successfully, TTL: 3600 seconds"
+# - "Using cached JWKS (age: 120 seconds)"
+```
+
+**What This Tests:**
+1. **JWKS Endpoint**: Public keys exposed via standard endpoint
+2. **Caching**: Agent caches keys for 1 hour (reduces load)
+3. **Key Rotation**: Agents automatically detect new keys on cache expiry
+
+---
+
+### **Test 6.13: Hybrid Authentication Mode**
+
+**Purpose:** Verify backward compatibility (legacy JWT + API Key + Keycloak)
+
+**Test Scenario 1: Keycloak JWT**
+```bash
+# Use Keycloak token
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":1}'
+# Expected: ✅ Success (auth mode: keycloak_jwt)
+```
+
+**Test Scenario 2: Legacy JWT**
+```bash
+# Generate legacy JWT (HS256)
+LEGACY_JWT=$(python3 -c "
+import jwt
+import os
+token = jwt.encode({'sub': 'test-user', 'exp': $(date -u +%s) + 3600}, os.getenv('JWT_SECRET'), algorithm='HS256')
+print(token)
+")
+
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "Authorization: Bearer ${LEGACY_JWT}" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":1}'
+# Expected: ✅ Success (auth mode: legacy_jwt) - if legacy JWT enabled
+```
+
+**Test Scenario 3: API Key**
+```bash
+# Use API key
+API_KEY=$(aws ecs describe-task-definition \
+  --task-definition ca-a2a-orchestrator \
+  --query 'taskDefinition.containerDefinitions[0].environment[?name==`A2A_API_KEYS_JSON`].value' \
+  --output text | jq -r '.["lambda-s3-processor"]')
+
+curl -X POST "http://${ORCH_IP}:8001/message" \
+  -H "X-API-Key: ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":1}'
+# Expected: ✅ Success (auth mode: api_key)
+```
+
+**Expected Output:**
+```
+✅ Hybrid authentication mode
+  - Keycloak JWT: SUPPORTED
+  - Legacy JWT: SUPPORTED (if enabled)
+  - API Key: SUPPORTED
+  - Auth priority: Keycloak → Legacy JWT → API Key
+```
+
+**What This Tests:**
+1. **Backward Compatibility**: All auth methods work simultaneously
+2. **Priority Order**: Keycloak JWT tried first, then fallback
+3. **Gradual Migration**: Allows phased rollout without breaking changes
+
+---
+
+### **Test 6.14: Keycloak Admin Console Access (Optional)**
+
+**Purpose:** Verify admin console accessibility for user management
+
+**Test Code:**
+```bash
+# Access admin console (requires ALB or public access setup)
+# If deployed with public access:
+# URL: https://keycloak.<domain>/admin
+
+# Login credentials:
+ADMIN_USERNAME="admin"
+ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id ca-a2a/keycloak-admin-password \
+  --query SecretString \
+  --output text)
+
+echo "Admin Console: ${KEYCLOAK_URL}/admin"
+echo "Username: ${ADMIN_USERNAME}"
+echo "Password: ${ADMIN_PASSWORD}"
+```
+
+**Manual Verification:**
+1. Navigate to admin console URL
+2. Login with admin credentials
+3. Verify:
+   - ✅ Realm `ca-a2a` exists
+   - ✅ Client `ca-a2a-agents` configured
+   - ✅ Users visible (admin-user, lambda-service, etc.)
+   - ✅ Roles defined (admin, lambda, orchestrator, viewer)
+   - ✅ Audit events logged (recent logins)
+
+**What This Tests:**
+1. **Admin Access**: Console accessible for management
+2. **Configuration**: All realm settings correctly applied
+3. **Audit Trail**: Authentication events visible
+
+---
+
+### **Automated Test Suite: Keycloak Integration**
+
+**Test Script**: `test-keycloak-auth.sh`
+
+```bash
+#!/bin/bash
+# Automated Keycloak authentication testing
+
+set -e
+
+echo "================================"
+echo "Keycloak OAuth2/OIDC Test Suite"
+echo "================================"
+
+# Test 1: Service Health
+echo "Test 1: Keycloak service health..."
+KEYCLOAK_HEALTH=$(curl -s http://keycloak.ca-a2a.local:8080/health)
+echo "$KEYCLOAK_HEALTH" | grep -q "UP" && echo "✅ PASSED" || echo "❌ FAILED"
+
+# Test 2: Obtain Token
+echo "Test 2: Obtain access token..."
+TOKEN_RESPONSE=$(curl -s -X POST "http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token" \
+  -d "grant_type=password" \
+  -d "client_id=ca-a2a-agents" \
+  -d "client_secret=${KEYCLOAK_CLIENT_SECRET}" \
+  -d "username=admin-user" \
+  -d "password=${ADMIN_PASSWORD}")
+ACCESS_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.access_token')
+[ -n "$ACCESS_TOKEN" ] && [ "$ACCESS_TOKEN" != "null" ] && echo "✅ PASSED" || echo "❌ FAILED"
+
+# Test 3: Agent API Call
+echo "Test 3: Call agent with Keycloak token..."
+AGENT_RESPONSE=$(curl -s -X POST "http://orchestrator.ca-a2a.local:8001/message" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":1}')
+echo "$AGENT_RESPONSE" | grep -q "process_document" && echo "✅ PASSED" || echo "❌ FAILED"
+
+# Test 4: Token Refresh
+echo "Test 4: Refresh token..."
+REFRESH_TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.refresh_token')
+NEW_TOKEN_RESPONSE=$(curl -s -X POST "http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token" \
+  -d "grant_type=refresh_token" \
+  -d "client_id=ca-a2a-agents" \
+  -d "client_secret=${KEYCLOAK_CLIENT_SECRET}" \
+  -d "refresh_token=${REFRESH_TOKEN}")
+NEW_ACCESS_TOKEN=$(echo $NEW_TOKEN_RESPONSE | jq -r '.access_token')
+[ -n "$NEW_ACCESS_TOKEN" ] && [ "$NEW_ACCESS_TOKEN" != "null" ] && echo "✅ PASSED" || echo "❌ FAILED"
+
+# Test 5: Invalid Token Rejection
+echo "Test 5: Invalid token rejection..."
+INVALID_RESPONSE=$(curl -s -X POST "http://orchestrator.ca-a2a.local:8001/message" \
+  -H "Authorization: Bearer INVALID_TOKEN_12345" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"list_skills","params":{},"id":1}')
+echo "$INVALID_RESPONSE" | grep -q "error" && echo "✅ PASSED" || echo "❌ FAILED"
+
+echo "================================"
+echo "All Keycloak tests completed"
+echo "================================"
+```
+
+**Run Tests:**
+```bash
+./test-keycloak-auth.sh
+
+# Expected output:
+# ================================
+# Keycloak OAuth2/OIDC Test Suite
+# ================================
+# Test 1: Keycloak service health... ✅ PASSED
+# Test 2: Obtain access token... ✅ PASSED
+# Test 3: Call agent with Keycloak token... ✅ PASSED
+# Test 4: Refresh token... ✅ PASSED
+# Test 5: Invalid token rejection... ✅ PASSED
+# ================================
+# All Keycloak tests completed
+# ================================
+```
 
 ---
 
