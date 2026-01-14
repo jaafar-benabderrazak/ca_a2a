@@ -3,6 +3,8 @@ Keycloak OAuth2/OIDC Integration for A2A Security
 
 Provides JWT validation using Keycloak's public keys (JWKS endpoint)
 and role-based access control mapping.
+
+Supports RFC 8473 Token Binding for certificate-bound tokens.
 """
 
 import os
@@ -11,8 +13,18 @@ import logging
 import requests
 from typing import Dict, Any, Tuple, Optional, List
 from urllib.parse import urljoin
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 
 logger = logging.getLogger(__name__)
+
+# Import token binding validator
+try:
+    from token_binding import TokenBindingValidator, CertificateValidator
+    TOKEN_BINDING_AVAILABLE = True
+except ImportError:
+    logger.warning("token_binding module not available. Token binding will not work.")
+    TOKEN_BINDING_AVAILABLE = False
 
 try:
     import jwt
@@ -32,6 +44,7 @@ class KeycloakJWTValidator:
     - Caches public keys for performance
     - Validates token signature, expiration, issuer, audience
     - Extracts user roles for RBAC
+    - Supports RFC 8473 Token Binding (certificate-bound tokens)
     """
     
     def __init__(
@@ -39,7 +52,9 @@ class KeycloakJWTValidator:
         keycloak_url: str,
         realm: str,
         client_id: str,
-        cache_ttl: int = 3600
+        cache_ttl: int = 3600,
+        require_token_binding: bool = False,
+        trusted_ca_cert_path: Optional[str] = None
     ):
         """
         Initialize Keycloak JWT validator.
@@ -49,6 +64,8 @@ class KeycloakJWTValidator:
             realm: Keycloak realm name (e.g., ca-a2a)
             client_id: Expected audience/client ID (e.g., ca-a2a-agents)
             cache_ttl: How long to cache public keys (seconds)
+            require_token_binding: If True, reject tokens without certificate binding
+            trusted_ca_cert_path: Path to trusted CA certificate for mTLS validation
         """
         if jwt is None or PyJWKClient is None:
             raise ImportError("PyJWT is required for Keycloak authentication. Install with: pip install PyJWT[crypto]")
@@ -57,6 +74,7 @@ class KeycloakJWTValidator:
         self.realm = realm
         self.client_id = client_id
         self.cache_ttl = cache_ttl
+        self.require_token_binding = require_token_binding
         
         # JWKS endpoint
         self.jwks_uri = f"{self.keycloak_url}/realms/{self.realm}/protocol/openid-connect/certs"
@@ -70,18 +88,38 @@ class KeycloakJWTValidator:
             cache_jwk_set_ttl=cache_ttl
         )
         
+        # Initialize token binding validator
+        self.token_binding_validator = None
+        self.certificate_validator = None
+        if TOKEN_BINDING_AVAILABLE:
+            self.token_binding_validator = TokenBindingValidator()
+            self.certificate_validator = CertificateValidator(trusted_ca_cert_path)
+            logger.info("Token binding support enabled")
+        elif require_token_binding:
+            raise ImportError("Token binding required but token_binding module not available")
+        
         logger.info(f"Keycloak JWT validator initialized for realm: {realm}")
         logger.info(f"JWKS endpoint: {self.jwks_uri}")
+        logger.info(f"Token binding required: {require_token_binding}")
     
-    def verify_token(self, token: str) -> Tuple[str, List[str], Dict[str, Any]]:
+    def verify_token(
+        self, 
+        token: str,
+        client_certificate: Optional[x509.Certificate] = None
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
         """
         Verify JWT token from Keycloak.
+        
+        Args:
+            token: JWT access token
+            client_certificate: Client's TLS certificate (for token binding validation)
         
         Returns:
             Tuple of (principal, roles, claims)
             
         Raises:
             jwt.InvalidTokenError: If token is invalid
+            ValueError: If token binding validation fails
         """
         try:
             # Get signing key from JWKS
@@ -102,6 +140,35 @@ class KeycloakJWTValidator:
                 }
             )
             
+            # Verify token binding (RFC 8473)
+            if self.token_binding_validator and client_certificate:
+                # Validate client certificate first
+                if self.certificate_validator:
+                    cert_valid, cert_error = self.certificate_validator.validate_certificate(
+                        client_certificate,
+                        check_expiration=True,
+                        check_key_usage=True
+                    )
+                    if not cert_valid:
+                        raise ValueError(f"Client certificate validation failed: {cert_error}")
+                
+                # Verify token binding
+                binding_valid, binding_error = self.token_binding_validator.verify_token_binding(
+                    claims,
+                    client_certificate
+                )
+                
+                if not binding_valid:
+                    if self.require_token_binding:
+                        raise ValueError(f"Token binding validation failed: {binding_error}")
+                    else:
+                        logger.warning(f"Token binding validation failed (not enforced): {binding_error}")
+                else:
+                    logger.info("Token binding validated successfully")
+            
+            elif self.require_token_binding:
+                raise ValueError("Token binding required but client certificate not provided")
+            
             # Extract principal (username)
             principal = claims.get('preferred_username') or claims.get('sub')
             
@@ -109,7 +176,7 @@ class KeycloakJWTValidator:
             # Keycloak puts roles in: realm_access.roles or resource_access.<client>.roles
             roles = self._extract_roles(claims)
             
-            logger.info(f"Token verified for principal: {principal}, roles: {roles}")
+            logger.info(f"Token verified for principal: {principal}, roles: {roles}, token_binding={client_certificate is not None}")
             
             return principal, roles, claims
             
