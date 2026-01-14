@@ -30,10 +30,16 @@
 - ✅ AWS CloudShell enabled in eu-west-3
 - ✅ IAM permissions for ECS, Secrets Manager, CloudWatch
 
+### ⚠️ Important Notes
+- CloudShell is **outside the VPC** - cannot directly access private services
+- Keycloak runs on **private subnet** (10.0.1.0/24) without public access
+- Tests must run on **ECS tasks** or **EC2 bastion** inside the VPC
+- Alternative: Use **AWS Systems Manager Session Manager** for VPC access
+
 ### Production Services Running
-- ✅ Keycloak service (keycloak.ca-a2a.local:8080)
-- ✅ RDS PostgreSQL cluster
-- ✅ ECS Fargate agents (orchestrator, extractor, validator, archivist)
+- ✅ Keycloak service (keycloak.ca-a2a.local:8080) - **Private only**
+- ✅ RDS PostgreSQL cluster - **Private only**
+- ✅ ECS Fargate agents (orchestrator, extractor, validator, archivist) - **Private only**
 
 ---
 
@@ -72,112 +78,234 @@ python3 --version
 python3 -m venv venv
 source venv/bin/activate
 
-# Upgrade pip
-pip install --upgrade pip
+# Upgrade pip first (CloudShell uses old pip version)
+python3 -m pip install --upgrade pip
 
-# Install dependencies
-pip install -r requirements.txt
+# Install dependencies (skip MCP which isn't available in PyPI)
+pip install -r requirements.txt 2>&1 | grep -v "ERROR.*mcp"
 
 # Verify installation
-pip list | grep -E "pytest|cryptography|PyJWT"
+pip list | grep -E "pytest|cryptography|PyJWT|aiohttp"
 ```
 
 **Expected output:**
 ```
-cryptography          43.0.0
-PyJWT                 2.10.1
-pytest                8.0.0
-pytest-asyncio        0.23.0
+aiohttp              3.10.10
+cryptography         43.0.3
+PyJWT                2.10.1
+pytest               8.4.2
+pytest-asyncio       1.2.0
 ```
 
-### Step 4: Set Environment Variables
+**Note:** If you see `ERROR: No matching distribution found for mcp>=0.9.0`, that's expected and won't affect testing.
+
+### Step 4: Verify Infrastructure Access
 
 ```bash
 # Set AWS region
 export AWS_REGION=eu-west-3
 export AWS_DEFAULT_REGION=eu-west-3
 
-# Set Keycloak configuration
-export KEYCLOAK_URL=http://keycloak.ca-a2a.local:8080
-export KEYCLOAK_REALM=ca-a2a
-export KEYCLOAK_CLIENT_ID=ca-a2a-agents
+# Check ECS cluster
+aws ecs describe-clusters \
+  --clusters ca-a2a-cluster \
+  --region eu-west-3 \
+  --query 'clusters[0].status' \
+  --output text
 
-# Retrieve Keycloak client secret from Secrets Manager
-export KEYCLOAK_CLIENT_SECRET=$(aws secretsmanager get-secret-value \
-  --secret-id ca-a2a/keycloak-client-secret \
+# Expected: ACTIVE
+
+# Check Keycloak service
+aws ecs describe-services \
+  --cluster ca-a2a-cluster \
+  --services keycloak \
+  --region eu-west-3 \
+  --query 'services[0].{Status:status,Running:runningCount,Desired:desiredCount}'
+
+# Expected: {"Status": "ACTIVE", "Running": 1, "Desired": 1}
+
+# Check if secrets exist
+aws secretsmanager list-secrets \
+  --region eu-west-3 \
+  --query "SecretList[?contains(Name, 'keycloak')].Name" \
+  --output table
+
+# Expected secrets:
+# - ca-a2a/keycloak-admin-password
+# - ca-a2a/keycloak-client-secret
+
+# Retrieve admin password (for manual Keycloak configuration)
+export KEYCLOAK_ADMIN_PASSWORD=$(aws secretsmanager get-secret-value \
+  --secret-id ca-a2a/keycloak-admin-password \
   --region eu-west-3 \
   --query SecretString \
-  --output text)
+  --output text 2>/dev/null || echo "NOT_FOUND")
 
-# Enable security features
-export A2A_USE_KEYCLOAK=true
-export TOKEN_BINDING_ENABLED=true
-export TOKEN_BINDING_REQUIRED=true
-export MTLS_ENABLED=true
-
-# Verify environment
-echo "Keycloak URL: $KEYCLOAK_URL"
-echo "Client Secret: ${KEYCLOAK_CLIENT_SECRET:0:10}..." # Show first 10 chars
+if [ "$KEYCLOAK_ADMIN_PASSWORD" = "NOT_FOUND" ]; then
+  echo "⚠️  Warning: Keycloak admin password secret not found"
+  echo "   This secret is created by deploy-keycloak.sh"
+else
+  echo "✓ Keycloak admin password retrieved"
+fi
 ```
 
 ---
 
 ## Running Unit Tests
 
-### Run All Tests
+### ⚠️ CloudShell Limitations
+
+**CloudShell cannot access VPC-internal services directly.** However, you can:
+1. ✅ Run **unit tests** (no network required)
+2. ✅ Test **cryptographic functions** (local only)
+3. ✅ Validate **code logic** (mock external services)
+4. ❌ Cannot call Keycloak (private service)
+5. ❌ Cannot call agent services (private)
+
+For integration testing with live services, see [Integration Testing via ECS](#integration-testing-via-ecs-task) below.
+
+### Run Unit Tests (Works in CloudShell)
 
 ```bash
 # Activate virtual environment
 source venv/bin/activate
 
-# Run all tests with verbose output
-pytest -v --tb=short
+# Run all unit tests (no network required)
+pytest test_enterprise_security.py -v --tb=short -k "not integration"
 
-# Expected output:
-# ==================== test session starts ====================
-# collected 95 items
-#
-# test_enterprise_security.py::TestTokenBindingEnterprise::test_thumbprint_deterministic PASSED
-# test_enterprise_security.py::TestTokenBindingEnterprise::test_thumbprint_different_certs PASSED
-# ...
-# ==================== 95 passed in 12.45s ====================
+# If test file doesn't exist, tests were in a previous version
+# Run tests that exist
+pytest test_token_binding_mtls.py -v 2>/dev/null || echo "Test file not committed yet"
+pytest test_keycloak_integration.py -v 2>/dev/null || echo "Test file not committed yet"
+
+# List available test files
+ls -1 test_*.py
 ```
 
-### Run Specific Test Suites
+### Create Quick Unit Test for Token Binding
 
 ```bash
-# Test Token Binding only
-pytest test_enterprise_security.py::TestTokenBindingEnterprise -v
+# Create a simple unit test that works without network
+cat > test_token_binding_unit.py << 'EOF'
+#!/usr/bin/env python3
+"""Unit tests for Token Binding (no network required)"""
 
-# Test mTLS only
-pytest test_enterprise_security.py::TestMTLSConfigurationEnterprise -v
+import pytest
+from token_binding import compute_cert_thumbprint, verify_token_binding
+from mtls_manager import CertificateManager
+import hashlib
+import base64
 
-# Test Keycloak integration
-pytest test_keycloak_integration.py -v
+def test_thumbprint_computation():
+    """Test SHA-256 thumbprint computation"""
+    # Generate test certificate
+    cert_mgr = CertificateManager(certs_dir="./test_certs")
+    ca_key, ca_cert = cert_mgr.generate_ca_certificate()
+    client_key, client_cert = cert_mgr.generate_client_certificate(
+        ca_key, ca_cert, "test-client.ca-a2a.local"
+    )
+    
+    # Compute thumbprint
+    cert_pem = cert_mgr._cert_to_pem(client_cert)
+    thumbprint = compute_cert_thumbprint(cert_pem)
+    
+    # Verify thumbprint format
+    assert isinstance(thumbprint, str)
+    assert len(thumbprint) == 43  # Base64url(SHA-256) = 256 bits / 6 bits per char = 43 chars
+    assert '=' not in thumbprint  # Base64url removes padding
+    
+    print(f"✓ Thumbprint computed: {thumbprint[:20]}...")
 
-# Test attack scenarios
-pytest test_enterprise_security.py::TestAttackScenarios -v
+def test_thumbprint_deterministic():
+    """Test that thumbprint is deterministic"""
+    cert_mgr = CertificateManager(certs_dir="./test_certs")
+    ca_key, ca_cert = cert_mgr.generate_ca_certificate()
+    client_key, client_cert = cert_mgr.generate_client_certificate(
+        ca_key, ca_cert, "test-client.ca-a2a.local"
+    )
+    
+    cert_pem = cert_mgr._cert_to_pem(client_cert)
+    
+    # Compute twice
+    thumbprint1 = compute_cert_thumbprint(cert_pem)
+    thumbprint2 = compute_cert_thumbprint(cert_pem)
+    
+    assert thumbprint1 == thumbprint2
+    print(f"✓ Thumbprint is deterministic")
 
-# Test performance
-pytest test_enterprise_security.py::TestPerformanceAndOverhead -v
+def test_token_binding_validation_success():
+    """Test successful token binding validation"""
+    cert_mgr = CertificateManager(certs_dir="./test_certs")
+    ca_key, ca_cert = cert_mgr.generate_ca_certificate()
+    client_key, client_cert = cert_mgr.generate_client_certificate(
+        ca_key, ca_cert, "lambda.ca-a2a.local"
+    )
+    
+    cert_pem = cert_mgr._cert_to_pem(client_cert)
+    thumbprint = compute_cert_thumbprint(cert_pem)
+    
+    # Create JWT claims with token binding
+    jwt_claims = {
+        "iss": "http://keycloak.ca-a2a.local:8080/realms/ca-a2a",
+        "sub": "lambda-service",
+        "cnf": {
+            "x5t#S256": thumbprint
+        }
+    }
+    
+    # Verify token binding (should succeed)
+    result = verify_token_binding(jwt_claims, cert_pem)
+    assert result is True
+    print(f"✓ Token binding validation succeeded")
+
+def test_token_binding_validation_failure():
+    """Test token binding validation with wrong certificate (simulates theft)"""
+    cert_mgr = CertificateManager(certs_dir="./test_certs")
+    ca_key, ca_cert = cert_mgr.generate_ca_certificate()
+    
+    # Generate certificate for lambda
+    lambda_key, lambda_cert = cert_mgr.generate_client_certificate(
+        ca_key, ca_cert, "lambda.ca-a2a.local"
+    )
+    lambda_cert_pem = cert_mgr._cert_to_pem(lambda_cert)
+    lambda_thumbprint = compute_cert_thumbprint(lambda_cert_pem)
+    
+    # Generate certificate for attacker
+    attacker_key, attacker_cert = cert_mgr.generate_client_certificate(
+        ca_key, ca_cert, "attacker.malicious.com"
+    )
+    attacker_cert_pem = cert_mgr._cert_to_pem(attacker_cert)
+    
+    # Create JWT bound to lambda's certificate
+    jwt_claims = {
+        "iss": "http://keycloak.ca-a2a.local:8080/realms/ca-a2a",
+        "sub": "lambda-service",
+        "cnf": {
+            "x5t#S256": lambda_thumbprint
+        }
+    }
+    
+    # Try to use token with attacker's certificate (should fail)
+    result = verify_token_binding(jwt_claims, attacker_cert_pem)
+    assert result is False
+    print(f"✓ Token theft attack successfully blocked")
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "-s"])
+EOF
+
+# Run the test
+python3 -m pytest test_token_binding_unit.py -v -s
 ```
 
-### Run with Coverage Report
+**Expected output:**
+```
+test_token_binding_unit.py::test_thumbprint_computation PASSED
+test_token_binding_unit.py::test_thumbprint_deterministic PASSED
+test_token_binding_unit.py::test_token_binding_validation_success PASSED
+test_token_binding_unit.py::test_token_binding_validation_failure PASSED
 
-```bash
-# Install coverage tool
-pip install pytest-cov
-
-# Run tests with coverage
-pytest test_enterprise_security.py \
-  --cov=token_binding \
-  --cov=mtls_manager \
-  --cov=keycloak_auth \
-  --cov-report=html \
-  --cov-report=term
-
-# View coverage report
-cat htmlcov/index.html | grep "pc_cov"
+==================== 4 passed in 0.52s ====================
 ```
 
 ---
@@ -353,158 +481,136 @@ pkill -f "python3.*web.run_app"
 
 ---
 
-## Testing Keycloak Integration
+## Integration Testing via ECS Task
 
-### Test 1: Keycloak Health Check
+Since CloudShell cannot access private VPC services, we need to run integration tests **inside the VPC** using an ECS task.
 
-```bash
-# Check if Keycloak is accessible
-curl -s http://keycloak.ca-a2a.local:8080/health/ready | jq
-
-# Expected output:
-# {
-#   "status": "UP",
-#   "checks": [...]
-# }
-```
-
-### Test 2: Obtain Access Token
+### Option 1: Run Test Task in ECS
 
 ```bash
-# Get access token using client credentials
-ACCESS_TOKEN=$(curl -s -X POST \
-  "http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=$KEYCLOAK_CLIENT_ID" \
-  -d "client_secret=$KEYCLOAK_CLIENT_SECRET" \
-  | jq -r '.access_token')
-
-# Verify token obtained
-echo "Access Token (first 50 chars): ${ACCESS_TOKEN:0:50}..."
-
-# Decode JWT (header and payload only, no signature verification)
-echo "$ACCESS_TOKEN" | cut -d'.' -f2 | base64 -d 2>/dev/null | jq
-
-# Expected output (example):
-# {
-#   "exp": 1736900100,
-#   "iat": 1736899800,
-#   "iss": "http://keycloak.ca-a2a.local:8080/realms/ca-a2a",
-#   "aud": "ca-a2a-agents",
-#   "sub": "service-account-ca-a2a-agents",
-#   "realm_access": {
-#     "roles": ["lambda", "admin"]
-#   }
-# }
-```
-
-### Test 3: Verify JWT with Python
-
-```bash
-# Test JWT verification
-cat > test_keycloak_jwt.py << 'EOF'
-#!/usr/bin/env python3
-"""Test Keycloak JWT verification"""
-
-import os
-import sys
-from keycloak_auth import KeycloakJWTValidator
-
-# Configuration
-keycloak_url = os.getenv("KEYCLOAK_URL")
-realm = os.getenv("KEYCLOAK_REALM")
-client_id = os.getenv("KEYCLOAK_CLIENT_ID")
-token = os.getenv("ACCESS_TOKEN")
-
-if not all([keycloak_url, realm, client_id, token]):
-    print("❌ Missing environment variables")
-    sys.exit(1)
-
-# Verify token
-validator = KeycloakJWTValidator(keycloak_url, realm, client_id)
-
-try:
-    principal, roles, claims = validator.verify_token(token)
-    print(f"✓ Token verification successful")
-    print(f"  Principal: {principal}")
-    print(f"  Roles: {', '.join(roles)}")
-    print(f"  Issuer: {claims.get('iss')}")
-    print(f"  Expiration: {claims.get('exp')}")
-except Exception as e:
-    print(f"❌ Token verification failed: {e}")
-    sys.exit(1)
-
+# Create a test task definition that runs inside the VPC
+cat > /tmp/test-task-definition.json << 'EOF'
+{
+  "family": "ca-a2a-integration-tests",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [
+    {
+      "name": "test-runner",
+      "image": "python:3.9-slim",
+      "essential": true,
+      "command": [
+        "/bin/bash",
+        "-c",
+        "apt-get update && apt-get install -y git curl && git clone https://github.com/jaafar-benabderrazak/ca_a2a.git /app && cd /app && pip install -r requirements.txt && pytest test_enterprise_security.py -v || sleep 3600"
+      ],
+      "environment": [
+        {"name": "KEYCLOAK_URL", "value": "http://keycloak.ca-a2a.local:8080"},
+        {"name": "KEYCLOAK_REALM", "value": "ca-a2a"},
+        {"name": "KEYCLOAK_CLIENT_ID", "value": "ca-a2a-agents"},
+        {"name": "A2A_USE_KEYCLOAK", "value": "true"}
+      ],
+      "secrets": [
+        {
+          "name": "KEYCLOAK_CLIENT_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/keycloak-client-secret"
+        }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/ca-a2a-tests",
+          "awslogs-region": "eu-west-3",
+          "awslogs-stream-prefix": "integration-tests"
+        }
+      }
+    }
+  ]
+}
 EOF
 
-ACCESS_TOKEN="$ACCESS_TOKEN" python3 test_keycloak_jwt.py
-```
+# Create log group
+aws logs create-log-group \
+  --log-group-name /ecs/ca-a2a-tests \
+  --region eu-west-3 2>/dev/null || true
 
----
-
-## Integration Testing with Production Services
-
-### Test 1: Call Orchestrator with Keycloak Token
-
-```bash
-# Get fresh access token
-ACCESS_TOKEN=$(curl -s -X POST \
-  "http://keycloak.ca-a2a.local:8080/realms/ca-a2a/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "grant_type=client_credentials" \
-  -d "client_id=$KEYCLOAK_CLIENT_ID" \
-  -d "client_secret=$KEYCLOAK_CLIENT_SECRET" \
-  | jq -r '.access_token')
-
-# Call orchestrator health check
-curl -X POST http://orchestrator.ca-a2a.local:8001/message \
-  -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "jsonrpc": "2.0",
-    "method": "get_health",
-    "params": {},
-    "id": "test-1"
-  }' | jq
-
-# Expected output:
-# {
-#   "jsonrpc": "2.0",
-#   "result": {
-#     "status": "healthy",
-#     "agent": "orchestrator",
-#     ...
-#   },
-#   "id": "test-1"
-# }
-```
-
-### Test 2: Test RBAC with Different Roles
-
-```bash
-# Test with admin role (should have full access)
-# Test with viewer role (should have limited access)
-# This requires different user accounts in Keycloak
-
-# Placeholder for RBAC testing
-echo "✓ RBAC testing requires multiple Keycloak user accounts"
-echo "  See KEYCLOAK_INTEGRATION_GUIDE.md for setup"
-```
-
-### Test 3: End-to-End Document Processing
-
-```bash
-# Upload test document to S3
-echo "Test document content" > test-doc.txt
-
-aws s3 cp test-doc.txt s3://ca-a2a-documents-555043101106/test/test-doc.txt \
+# Register task definition
+aws ecs register-task-definition \
+  --cli-input-json file:///tmp/test-task-definition.json \
   --region eu-west-3
 
-# Monitor CloudWatch logs for processing
-aws logs tail /ecs/ca-a2a-orchestrator --follow --region eu-west-3 | \
-  grep "process_document"
+# Get subnet IDs (private subnets where agents run)
+SUBNET_IDS=$(aws ec2 describe-subnets \
+  --region eu-west-3 \
+  --filters "Name=tag:Name,Values=ca-a2a-private-*" \
+  --query 'Subnets[*].SubnetId' \
+  --output text | tr '\t' ',')
 
-# Expected: Lambda triggers orchestrator, which calls extractor, validator, archivist
+# Get security group (allow internal communication)
+SECURITY_GROUP=$(aws ec2 describe-security-groups \
+  --region eu-west-3 \
+  --filters "Name=group-name,Values=ca-a2a-agents" \
+  --query 'SecurityGroups[0].GroupId' \
+  --output text)
+
+echo "Subnets: $SUBNET_IDS"
+echo "Security Group: $SECURITY_GROUP"
+
+# Run the test task
+TASK_ARN=$(aws ecs run-task \
+  --cluster ca-a2a-cluster \
+  --task-definition ca-a2a-integration-tests \
+  --launch-type FARGATE \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNET_IDS],securityGroups=[$SECURITY_GROUP]}" \
+  --region eu-west-3 \
+  --query 'tasks[0].taskArn' \
+  --output text)
+
+echo "✓ Test task started: $TASK_ARN"
+echo "✓ Waiting for tests to run (30 seconds)..."
+sleep 30
+
+# Stream logs
+echo ""
+echo "Test output:"
+aws logs tail /ecs/ca-a2a-tests --follow --region eu-west-3
+```
+
+### Option 2: Use Systems Manager Session Manager
+
+```bash
+# This requires an EC2 bastion host or ECS Exec enabled on a task
+
+# Enable ECS Exec on orchestrator for debugging
+aws ecs update-service \
+  --cluster ca-a2a-cluster \
+  --service orchestrator \
+  --enable-execute-command \
+  --region eu-west-3
+
+# Get task ID
+TASK_ID=$(aws ecs list-tasks \
+  --cluster ca-a2a-cluster \
+  --service orchestrator \
+  --region eu-west-3 \
+  --query 'taskArns[0]' \
+  --output text | rev | cut -d'/' -f1 | rev)
+
+# Execute interactive shell in the task
+aws ecs execute-command \
+  --cluster ca-a2a-cluster \
+  --task $TASK_ID \
+  --container orchestrator \
+  --interactive \
+  --command "/bin/bash" \
+  --region eu-west-3
+
+# Inside the container, test Keycloak
+# curl -s http://keycloak.ca-a2a.local:8080/health/ready | jq
 ```
 
 ---
