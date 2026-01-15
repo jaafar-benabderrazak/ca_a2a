@@ -16,7 +16,7 @@
 4. [Security Layers Deep Dive](#security-layers-deep-dive)
 5. [Authentication Mechanisms](#authentication-mechanisms)
 6. [Authorization & RBAC](#authorization--rbac)
-7. [Message Integrity](#message-integrity)
+7. [JWT Signature & Token Integrity](#jwt-signature--token-integrity)
 8. [Input Validation (JSON Schema)](#input-validation-json-schema)
 9. [Replay Protection](#replay-protection)
 10. [Rate Limiting](#rate-limiting)
@@ -1591,214 +1591,78 @@ A2A_RBAC_POLICY_JSON='{
 
 ---
 
-## ️ Message Integrity
+## JWT Signature & Token Integrity
 
-### **Primary Mechanism: JWT Signature Verification (RS256)**
+### **Overview**
 
-**Production Configuration:**
-- ✅ **JWT Signatures (RS256)** - Default and recommended
-- ⚠️ **HMAC Request Signing** - Optional, not enabled by default
+Token integrity in the A2A system is cryptographically enforced through **JWT signature verification (RS256)**. Every access token issued by Keycloak is signed with an RSA private key, and agents verify the signature using public keys distributed via the JWKS (JSON Web Key Set) endpoint.
 
-In production, message integrity is ensured through **Keycloak JWT signatures (RS256)**. Every access token is cryptographically signed by Keycloak, and agents verify the signature using public keys from the JWKS endpoint. This provides:
+### **How JWT Signatures Work**
 
-- ✅ **Message Integrity** - Any modification to JWT claims breaks the signature
-- ✅ **Non-repudiation** - Only Keycloak can sign tokens (private key)
-- ✅ **Token Binding** - Combined with RFC 8473 for certificate-bound tokens
-- ✅ **Zero Configuration** - No shared secrets between agents
-- ✅ **Key Rotation** - Keycloak manages key lifecycle automatically
+**Token Signing (Keycloak):**
+```
+1. Create JWT Claims
+   ├─ Header: {"alg": "RS256", "typ": "JWT", "kid": "key-id"}
+   ├─ Payload: {"sub": "user", "exp": 1736900100, "roles": [...]}
+   └─ Signature: RSA_sign(private_key, header + payload)
 
-**JWT Signature Flow:**
+2. Encode Token
+   └─ Base64url(header).Base64url(payload).Base64url(signature)
+```
+
+**Token Verification (Agents):**
+```
+1. Receive Token
+   └─ Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9...
+
+2. Fetch Public Key
+   └─ GET /realms/ca-a2a/protocol/openid-connect/certs (cached 1 hour)
+
+3. Verify Signature
+   └─ RSA_verify(public_key, header + payload, signature)
+
+4. Validate Claims
+   ├─ Check expiration (exp)
+   ├─ Verify issuer (iss)
+   ├─ Verify audience (aud)
+   └─ Verify token binding (cnf.x5t#S256)
+
+5. Extract Authorization
+   └─ realm_access.roles → RBAC principal
+```
+
+### **JWT Signature Verification Flow**
+
 ```mermaid
 sequenceDiagram
     participant Keycloak
     participant Agent
-    participant JWKS
+    participant JWKS as JWKS Endpoint
     
-    Note over Keycloak: Sign Token
+    Note over Keycloak: Token Issuance
     Keycloak->>Keycloak: Create JWT claims
     Keycloak->>Keycloak: Sign with RSA private key (RS256)
     Keycloak->>Agent: Access Token (signed JWT)
     
-    Note over Agent: Verify Signature
+    Note over Agent: Token Verification
     Agent->>JWKS: GET /certs (fetch public keys)
-    JWKS-->>Agent: RSA public key
-    Agent->>Agent: Verify signature with public key
+    JWKS-->>Agent: RSA public key (cached 1h)
+    Agent->>Agent: Verify RS256 signature
+    Agent->>Agent: Validate exp, iss, aud claims
+    Agent->>Agent: Verify token binding (x5t#S256)
     
-    alt Signature Valid
-        Agent->>Agent: Extract claims, proceed
-    else Signature Invalid
-        Agent-->>Agent: 401 Unauthorized (tampered token)
+    alt All Checks Pass
+        Agent->>Agent: Extract roles & proceed
+    else Verification Failed
+        Agent-->>Agent: 401 Unauthorized
     end
-```
-
-**Why JWT Signatures Replace HMAC:**
-| Feature | JWT Signature (RS256) | HMAC Request Signing |
-|---------|----------------------|---------------------|
-| **Key Distribution** | Public keys via JWKS | Shared secrets required |
-| **Key Rotation** | Automatic (Keycloak) | Manual coordination |
-| **Token Binding** | ✅ Supported (RFC 8473) | ❌ No token binding |
-| **Overhead** | ~2ms (cached keys) | ~0.3ms per request |
-| **Configuration** | Zero (default) | Requires secrets |
-| **Production Status** | ✅ **Active** | ⚠️ Optional |
-
----
-
-### **Optional: HMAC Request Signing (Not Used by Default)**
-
-**Status:** Available as an additional security layer but **disabled by default** in production.
-
-**Configuration:**
-```bash
-# To enable HMAC (optional, not recommended with JWT signatures):
-A2A_ENABLE_HMAC_SIGNING=true
-A2A_HMAC_SECRET_KEY=<64-char-secret>
-A2A_HMAC_MAX_AGE_SECONDS=300
-```
-
-**Note:** HMAC request signing adds redundancy when JWT signatures are already in use. It may be useful for:
-- Legacy systems without OAuth2/OIDC support
-- Additional defense-in-depth for highly sensitive operations
-- Debugging and testing scenarios
-
-### **HMAC Signing & Verification Flow (Optional)**
-<img width="1386" height="578" alt="Capture d'écran 2026-01-11 223027" src="https://github.com/user-attachments/assets/dc82f3c4-0070-47e2-9a11-87b86571d6ba" />
-
-```mermaid
-sequenceDiagram
- participant Client as Client Agent
- participant Server as Server Agent
- 
- Note over Client: Prepare Request
- Client->>Client: 1. body = '{"method":"extract_document"}'
- Client->>Client: 2. timestamp = current_unix_time()
- Client->>Client: 3. body_hash = SHA256(body)
- Client->>Client: 4. signing_string = "POST\n/message\n{timestamp}\n{body_hash}"
- 
- Note over Client: Generate HMAC Signature
- Client->>Client: 5. signature = HMAC-SHA256(secret_key, signing_string)
- Client->>Client: 6. header = "{timestamp}:{signature}"
- 
- Client->>Server: POST /message<br/>X-Signature: {timestamp}:{signature}<br/>Body: {body}
- 
- Note over Server: Verify Signature
- Server->>Server: 7. Extract timestamp & signature from header
- Server->>Server: 8. Check timestamp freshness (< 5 min)
- 
- alt Timestamp Too Old/Future
- Server-->>Client: 401 Signature Expired/Future
- end
- 
- Server->>Server: 9. body_hash = SHA256(received_body)
- Server->>Server: 10. signing_string = "POST\n/message\n{timestamp}\n{body_hash}"
- Server->>Server: 11. expected_sig = HMAC-SHA256(secret_key, signing_string)
- Server->>Server: 12. Compare signatures (constant-time)
- 
- alt Signatures Match
- Server-->>Client: Request Processed
- else Signatures Don't Match
- Server-->>Client: 401 Invalid Signature (Tampered)
- end
-```
-
-### **HMAC Implementation Details**
-
-**Signing String Construction:**
-```
-Signing String Format:
-{HTTP_METHOD}\n{PATH}\n{TIMESTAMP}\n{BODY_SHA256}
-
-Example:
-POST
-/message
-1735867245
-abc123def456...789
-```
-
-**Code Implementation** (`a2a_security_enhanced.py:45-89`):
-```python
-class RequestSigner:
- def __init__(self, secret_key: str, max_age_seconds: int = 300):
- self.secret_key = secret_key.encode('utf-8')
- self.max_age_seconds = max_age_seconds # Default: 5 minutes
- 
- def sign_request(self, method: str, path: str, body: bytes) -> str:
- """
- Sign request with HMAC-SHA256
- 
- Returns: "{timestamp}:{signature}"
- Example: "1735867245:a3f2c9d8e1b4f5a6b7c8d9e0f1a2b3c4..."
- """
- # Get current Unix timestamp
- timestamp = str(int(time.time()))
- 
- # Hash the request body
- body_hash = hashlib.sha256(body).hexdigest()
- 
- # Construct signing string
- signing_string = f"{method.upper()}\n{path}\n{timestamp}\n{body_hash}"
- 
- # Generate HMAC signature
- signature = hmac.new(
- self.secret_key,
- signing_string.encode('utf-8'),
- hashlib.sha256
- ).hexdigest()
- 
- return f"{timestamp}:{signature}"
- 
- def verify_signature(
- self,
- signature_header: str,
- method: str,
- path: str,
- body: bytes
- ) -> Tuple[bool, Optional[str]]:
- """
- Verify HMAC signature
- 
- Security Checks:
- 1. Signature format validation
- 2. Timestamp freshness (replay protection)
- 3. Signature verification (integrity)
- """
- # Parse signature header
- if not signature_header or ":" not in signature_header:
- return False, "Invalid signature format"
- 
- try:
- timestamp_str, received_signature = signature_header.split(':', 1)
- timestamp = int(timestamp_str)
- except ValueError:
- return False, "Invalid timestamp in signature"
- 
- # Check timestamp freshness (replay protection)
- now = int(time.time())
- age = abs(now - timestamp)
- 
- if age > self.max_age_seconds:
- return False, f"Signature too old/future (age: {age}s, max: {self.max_age_seconds}s)"
- 
- # Reconstruct signing string
- body_hash = hashlib.sha256(body).hexdigest()
- signing_string = f"{method.upper()}\n{path}\n{timestamp_str}\n{body_hash}"
- 
- # Compute expected signature
- expected_signature = hmac.new(
- self.secret_key,
- signing_string.encode('utf-8'),
- hashlib.sha256
- ).hexdigest()
- 
- # Constant-time comparison (prevents timing attacks)
- if not hmac.compare_digest(received_signature, expected_signature):
- return False, "Invalid signature (tampered)"
- 
- return True, None
 ```
 
 ### **Security Properties**
 
-**1. Message Integrity:**
+**1. Message Integrity**
+
+**2. Token Authenticity**
 ```python
 # Original request
 body = b'{"method":"test","params":{"s3_key":"valid.pdf"}}'
@@ -1811,7 +1675,67 @@ tampered = b'{"method":"test","params":{"s3_key":"../../etc/passwd"}}'
 verify(signature, tampered) # False - body hash mismatch
 ```
 
-**2. Replay Protection:**
+### **Implementation: JWT Verification**
+
+**Code** (`keycloak_auth.py:105-170`):
+```python
+class KeycloakJWTValidator:
+    def verify_token(
+        self, 
+        token: str,
+        client_certificate: Optional[x509.Certificate] = None
+    ) -> Tuple[str, List[str], Dict[str, Any]]:
+        """
+        Verify JWT token from Keycloak with Token Binding support.
+        
+        Returns:
+            Tuple of (principal, roles, claims)
+        """
+        # 1. Get signing key from JWKS endpoint (cached)
+        signing_key = self.jwks_client.get_signing_key_from_jwt(token)
+        
+        # 2. Verify signature and validate standard claims
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            audience=self.client_id,
+            issuer=self.issuer,
+            options={
+                "verify_signature": True,
+                "verify_exp": True,
+                "verify_aud": True,
+                "verify_iss": True
+            }
+        )
+        
+        # 3. Verify token binding (RFC 8473)
+        if self.token_binding_validator and client_certificate:
+            binding_valid, error = self.token_binding_validator.verify_token_binding(
+                claims,
+                client_certificate
+            )
+            if not binding_valid:
+                raise ValueError(f"Token binding validation failed: {error}")
+        
+        # 4. Extract principal and roles
+        principal = claims.get('preferred_username') or claims.get('sub')
+        roles = claims.get('realm_access', {}).get('roles', [])
+        
+        return principal, roles, claims
+```
+
+### **Performance Characteristics**
+
+| Operation | Time | Notes |
+|-----------|------|-------|
+| **JWKS Fetch** | ~50ms | Only on first request or cache expiry |
+| **Signature Verification** | ~2ms | With cached public key |
+| **Token Binding Check** | ~0.3ms | SHA-256 thumbprint comparison |
+| **Role Extraction** | <0.1ms | Direct claim access |
+| **Total** | ~2-5ms | Negligible overhead (~0.3% of typical request) |
+
+---
 ```python
 # Request at 10:00 AM
 timestamp = 1735867200
@@ -1825,27 +1749,53 @@ if age > max_age_seconds (300): # Rejected
  return "Signature expired"
 ```
 
-**3. Authentication (JWT):**
 ```python
-# Only Keycloak with private key can sign tokens
-# Agents verify with public key (from JWKS)
+# Only Keycloak possesses the RSA private key
+# Agents only have public keys (from JWKS)
 
-# Attacker cannot forge tokens without Keycloak's private key
-# RS256 uses 2048-bit RSA key pair (computationally infeasible to break)
+# Attacker cannot forge valid tokens
+fake_claims = {"sub": "attacker", "roles": ["admin"]}
+fake_signature = rsa_sign(attacker_private_key, fake_claims)  # ❌ Wrong key
+
+verify_jwt(fake_token)  # ❌ InvalidSignatureError
+# Keycloak's public key doesn't match attacker's signature
 ```
 
-**HMAC vs JWT Signature:**
+**3. Key Distribution & Rotation**
 ```python
-# Production: JWT Signature (RS256) - Default
-# - Keycloak signs with private key
-# - Agents verify with public key
-# - No shared secrets required
-# - Automatic key rotation via JWKS
+# Keycloak JWT Validator Configuration
+validator = KeycloakJWTValidator(
+    keycloak_url="http://keycloak.ca-a2a.local:8080",
+    realm="ca-a2a",
+    client_id="ca-a2a-agents",
+    cache_ttl=3600  # Cache public keys for 1 hour
+)
 
-# Optional: HMAC Request Signing (disabled by default)
-# - Requires shared secret between agents
-# - Manual secret distribution
-# - Adds redundancy with JWT signatures
+# Automatic key fetching from JWKS endpoint
+# GET /realms/ca-a2a/protocol/openid-connect/certs
+# Returns: {"keys": [{"kid": "...", "kty": "RSA", "n": "...", "e": "AQAB"}]}
+
+# Key rotation handled transparently by Keycloak
+# - New keys added to JWKS
+# - Old keys retired after grace period
+# - Zero downtime for agents
+```
+
+**4. Replay Protection via Expiration**
+```python
+# Short-lived access tokens (5 minutes)
+claims = {
+    "exp": 1736900100,  # Expiration timestamp
+    "iat": 1736899800,  # Issued at timestamp
+    "sub": "user"
+}
+
+# Token automatically invalid after 5 minutes
+current_time = 1736900200  # 6 minutes after issuance
+if current_time >= claims["exp"]:
+    raise jwt.ExpiredSignatureError("Token has expired")
+
+# Limits exposure window if token is stolen
 ```
 
 ---
