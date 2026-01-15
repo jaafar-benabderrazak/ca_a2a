@@ -483,13 +483,7 @@ The A2A protocol implements **enterprise-grade authentication** using Keycloak O
 ✅ **Short-lived Tokens** - 5-minute access tokens with refresh capability  
 ✅ **Asymmetric Cryptography** - RS256 (RSA + SHA-256) signatures
 
-**Security Benefits:**
-- ✅ **Centralized Identity Management** - Single source of truth for users
-- ✅ **Zero Token Theft** - Tokens unusable without client certificate
-- ✅ **Zero Trust Enforcement** - Every connection verified with certificates
-- ✅ **Automatic Expiration** - No manual revocation needed for short-lived tokens
-- ✅ **Audit Trail** - Comprehensive authentication event logging in Keycloak
-- ✅ **MFA Ready** - Support for multi-factor authentication (TOTP, SMS)
+**For comprehensive security benefits and metrics, see [Security Metrics](#security-metrics) at the end of this document.**
 
 ---
 
@@ -526,10 +520,7 @@ The RDS cluster provides persistent storage for:
 -- - event_entity: Audit events (login, logout, token issuance)
 ```
 
-**Performance:**
-- Token verification: ~2ms (JWKS public key cached for 1 hour)
-- User authentication: ~50ms (password verification + token issuance)
-- Role lookup: <1ms (included in JWT claims, no database query)
+**Performance:** See detailed metrics in [Performance Characteristics](#performance-characteristics) (Section 7).
 
 ---
 
@@ -719,79 +710,13 @@ async def _verify_keycloak_jwt(
     return principal, auth_context
 ```
 
-**Security Considerations:**
+**For detailed JWT signature verification, token expiration, and security properties, see [Section 7: JWT Signature & Token Integrity](#jwt-signature--token-integrity).**
 
-1. **Asymmetric Cryptography (RS256):**
- ```python
-   # Keycloak signs with PRIVATE key (secret)
-   signature = RSA_sign(private_key, token_payload)
-   
-   # Agents verify with PUBLIC key (distributed via JWKS)
-   is_valid = RSA_verify(public_key, token_payload, signature)
-   
-   # Benefits:
-   # - No shared secrets between Keycloak and agents
-   # - Public key can be freely distributed
-   # - Private key compromise doesn't affect all agents
-   ```
+**For complete performance metrics, see [Performance Characteristics](#performance-characteristics) in Section 7.**
 
-2. **JWKS Public Key Caching:**
- ```python
-   # Public key cached for 1 hour (reduces Keycloak load)
-   jwks_cache = {
-       "keys": [...],
-       "timestamp": 1736900100,
-       "ttl": 3600
-   }
-   
-   # Cache hit: No network call to Keycloak
-   # Cache miss: Fetch from /realms/ca-a2a/protocol/openid-connect/certs
-   ```
-
-3. **Token Expiration:**
- ```python
-   # Short-lived access tokens (5 minutes)
-   exp_claim = claims["exp"] # 1736900100
-   now = int(time.time()) # 1736899900
-   
-   if now >= exp_claim:
-       raise ValueError("Token has expired")
-   
-   # Benefits:
-   # - Limited exposure window if token is stolen
-   # - Automatic expiration without revocation list
-   ```
-
-4. **Issuer & Audience Validation:**
-   ```python
-   # Issuer must match Keycloak realm
-   expected_issuer = "http://keycloak.ca-a2a.local:8080/realms/ca-a2a"
-   if claims["iss"] != expected_issuer:
-       raise ValueError("Invalid issuer")
-   
-   # Audience must match client ID
-   expected_audience = "ca-a2a-agents"
-   if claims["aud"] != expected_audience:
-       raise ValueError("Invalid audience")
-   
-   # Prevents token substitution attacks
-   ```
-
-5. **Dynamic Role Extraction:**
-   ```python
-   # Roles extracted from JWT claims (no database lookup)
-   keycloak_roles = claims.get("realm_access", {}).get("roles", [])
-   # Example: ["admin", "default-roles-ca-a2a"]
-   
-   # Mapped to A2A principal
-   principal, allowed_methods = mapper.map_roles_to_principal(keycloak_roles)
-   # Example: ("admin", ["*"])
-   
-   # Benefits:
-   # - Real-time role updates (just reissue token)
-   # - No agent redeployment needed
-   # - Centralized role management in Keycloak
-   ```
+**For configuration details, see:**
+- Environment variables and mTLS configuration: [Token Binding Configuration](#configuration)
+- RBAC policy configuration: [Authorization Code Implementation](#authorization-code-implementation)
 
 ---
 
@@ -817,47 +742,7 @@ Building on Keycloak OAuth2/OIDC, the system now implements **enterprise-grade p
 
 Token Binding extends OAuth 2.0 to create **proof-of-possession tokens**. The access token becomes cryptographically bound to the client's TLS certificate, making it unusable without the corresponding private key.
 
-**How It Works:**
-
-```mermaid
-sequenceDiagram
-    participant Client as Lambda (Client)
-    participant Keycloak
-    participant Agent as Orchestrator (Server)
-    participant JWKS as JWKS Endpoint
-    
-    Note over Client: Step 1: Obtain Certificate-Bound Token
-    Client->>Keycloak: POST /token (mTLS connection)<br/>+ client_credentials grant<br/>+ client certificate (lambda-cert.pem)
-    Keycloak->>Keycloak: Verify client certificate
-    Keycloak->>Keycloak: Compute cert thumbprint<br/>SHA256(DER(cert)) = "bwcK0esc..."
-    Keycloak->>Keycloak: Create JWT with cnf claim:<br/>{"cnf": {"x5t#S256": "bwcK0esc..."}}
-    Keycloak-->>Client: Access Token (certificate-bound JWT)
-    
-    Note over Client: Step 2: Call Agent with mTLS + Token
-    Client->>Agent: POST /message (mTLS connection)<br/>Authorization: Bearer <token><br/>+ client certificate
-    
-    Note over Agent: Step 3: Extract Client Certificate
-    Agent->>Agent: Extract cert from TLS connection
-    Agent->>Agent: Compute presented_thumbprint<br/>SHA256(DER(cert))
-    
-    Note over Agent: Step 4: Verify JWT
-    Agent->>JWKS: GET /certs (fetch public keys)
-    JWKS-->>Agent: RSA public key
-    Agent->>Agent: Verify JWT signature (RS256)
-    Agent->>Agent: Check exp, iss, aud
-    
-    Note over Agent: Step 5: Verify Token Binding
-    Agent->>Agent: Extract cnf.x5t#S256 from JWT
-    Agent->>Agent: Compare thumbprints:<br/>presented == expected?
-    
-    alt Token Binding Valid
-        Agent->>Agent: Constant-time comparison: MATCH
-        Agent-->>Client: 200 OK + Result
-    else Token Binding Invalid
-        Agent->>Agent: Constant-time comparison: MISMATCH
-        Agent-->>Client: 401 Unauthorized<br/>(Token not bound to certificate)
-    end
-```
+**For the complete authentication flow including Token Binding, see [Authentication Flow with Token Binding](#authentication-flow-with-token-binding) above.**
 
 ### **Certificate-Bound Token Structure**
 
@@ -918,29 +803,7 @@ Server ← ChangeCipherSpec                 → ChangeCipherSpec
                                    ✓ BOTH client and server authenticated
 ```
 
-**Certificate Chain:**
-
-```
-Root CA (ca-cert.pem)
-  │
-  ├─── orchestrator-cert.pem
-  │    ├─ Subject: CN=orchestrator.ca-a2a.local, O=CA A2A, C=FR
-  │    ├─ Key Usage: Digital Signature, Key Encipherment
-  │    ├─ Extended Key Usage: TLS Client Auth, TLS Server Auth
-  │    └─ Validity: 365 days
-  │
-  ├─── extractor-cert.pem
-  │    └─ ...
-  │
-  ├─── validator-cert.pem
-  │    └─ ...
-  │
-  ├─── lambda-cert.pem
-  │    └─ ...
-  │
-  └─── keycloak-cert.pem
-       └─ ...
-```
+**Certificate Chain:** See [Certificate Management](#certificate-management) below for complete certificate structure and generation instructions.
 
 ### **Implementation: Token Binding Validator**
 
@@ -1292,29 +1155,37 @@ openssl s_client -connect orchestrator.ca-a2a.local:8001 \
   -CAfile ./certs/ca/ca-cert.pem
 ```
 
-### **Configuration**
+### **Configuration Reference**
 
 **Environment Variables:**
 
 ```bash
-# Enable mTLS
+# mTLS Configuration
 MTLS_ENABLED=true
 MTLS_CERT_PATH=/app/certs/orchestrator-cert.pem
 MTLS_KEY_PATH=/app/certs/orchestrator-key.pem
 MTLS_CA_CERT_PATH=/app/certs/ca-cert.pem
 MTLS_REQUIRE_CLIENT_CERT=true
-MTLS_VERIFY_SERVER=true
 
-# Enable Token Binding
+# Token Binding Configuration
 TOKEN_BINDING_ENABLED=true
 TOKEN_BINDING_REQUIRED=true  # Reject tokens without binding
 
-# Keycloak (with token binding)
+# Keycloak OAuth2/OIDC Configuration
 KEYCLOAK_URL=http://keycloak.ca-a2a.local:8080
 KEYCLOAK_REALM=ca-a2a
 KEYCLOAK_CLIENT_ID=ca-a2a-agents
 KEYCLOAK_CLIENT_SECRET=<from-secrets-manager>
+KEYCLOAK_CACHE_TTL=3600
+
+# Security Features
+A2A_REQUIRE_AUTH=true
+A2A_ENABLE_RATE_LIMIT=true
+A2A_RATE_LIMIT_PER_MINUTE=300
+A2A_ENABLE_REPLAY_PROTECTION=true
 ```
+
+**For RBAC configuration, see [Authorization Code Implementation](#authorization-code-implementation).**
 
 **AWS Secrets Manager (Certificates):**
 
@@ -1386,14 +1257,7 @@ curl -k -X POST https://orchestrator.ca-a2a.local:8001/message \
 
 ### **Performance Impact**
 
-| Operation | Overhead | Mitigation |
-|-----------|----------|------------|
-| **Certificate Thumbprint Computation** | ~0.5ms | Cached on first request |
-| **Token Binding Verification** | ~0.3ms (constant-time compare) | Minimal CPU impact |
-| **mTLS Handshake** | +10ms (first request) | Connection pooling, session resumption |
-| **Total Request Overhead** | +2-4ms | <2% of typical 200ms request |
-
-**Verdict**: Negligible performance impact for massive security improvement.
+For complete performance analysis including mTLS, Token Binding, and JWT verification overhead, see [Performance Characteristics](#performance-characteristics) in Section 7 and [End-to-End Request Timeline](#end-to-end-request-timeline) in Section 13.
 
 ### **Compliance & Standards**
 
@@ -1732,12 +1596,7 @@ class KeycloakJWTValidator:
 | **Role Extraction** | <0.1ms | Direct claim access |
 | **Total** | ~2-5ms | Negligible overhead (~0.3% of typical request) |
 
-**Security Benefits:**
-- ✅ **Tamper Detection**: Any modification breaks signature
-- ✅ **Authenticity**: Only Keycloak can sign tokens
-- ✅ **Key Rotation**: Automatic via JWKS endpoint
-- ✅ **Replay Protection**: Built-in token expiration
-- ✅ **No Shared Secrets**: Public key distribution
+**Security Benefits:** See [Security Metrics](#security-metrics) for comprehensive security analysis.
 
 **3. Key Distribution & Rotation**
 ```python
@@ -2576,15 +2435,20 @@ sequenceDiagram
 ```
 
 **Total Request Processing Time:**
-- Network: ~1ms
-- mTLS Handshake: ~10ms (first request only, then session resumption)
-- JWT Signature Verification: ~2ms (JWKS cached)
-- Token Binding Verification: ~0.3ms
-- Authorization (RBAC): ~0.1ms
-- Schema Validation: ~1.5ms
-- Rate Limiting: ~0.1ms
-- Method Execution: Variable (e.g., 180ms for PDF extraction)
-- **Total Security Overhead:** ~2-5ms (~0.3-1% of typical request)
+
+| Security Layer | Time | Notes |
+|----------------|------|-------|
+| Network | ~1ms | VPC internal routing |
+| mTLS Handshake | ~10ms | First request only (session resumption) |
+| JWT Signature Verification | ~2ms | JWKS cached (1 hour TTL) |
+| Token Binding Verification | ~0.3ms | SHA-256 thumbprint comparison |
+| Authorization (RBAC) | ~0.1ms | In-memory policy check |
+| Schema Validation | ~1.5ms | JSON schema validation |
+| Rate Limiting | ~0.1ms | Token bucket algorithm |
+| **Total Security Overhead** | **~2-5ms** | **~0.3-1% of typical request** |
+| Method Execution | Variable | e.g., 180ms for PDF extraction |
+
+**This consolidated view shows all security layers' performance impact. For end-to-end latency breakdown, see [End-to-End Request Timeline](#end-to-end-request-timeline).**
 
 ---
 
