@@ -158,7 +158,7 @@
    - Backups : Automatiques, 7 jours de rétention
    ```
 
-**Transition :** "Maintenant que nous avons vu la topologie, plongeons dans les 9 couches de sécurité..."
+**Transition :** "Maintenant que nous avons vu la topologie, plongeons dans les 9 couches de sécurité avec un diagramme de flux complet..."
 
 ---
 
@@ -174,11 +174,57 @@
 
 > "Pensez à ces couches comme à un système de sas de sécurité dans un datacenter physique : vous devez passer badge + code + biométrie + escorte. Ici, une requête passe par 9 contrôles avant d'accéder aux données."
 
-### 3.2 Détail des Couches (2 min par couche critique)
+### 3.2 Flux de Sécurité Complet (⭐ NOUVEAU v5.1)
+
+**[SLIDE 7 - Visual Security Flow]**
+
+> "Voici la nouveauté majeure de la documentation v5.1 : un diagramme de flux complet montrant le parcours d'une requête à travers les 9 couches. Chaque couleur représente une couche de sécurité."
+
+**Diagramme de Séquence (simplifié pour présentation) :**
+
+```
+User → ALB → Orchestrator → Keycloak
+                ↓
+         [9 Security Layers]
+                ↓
+         MCP Server → RDS/S3
+                ↓
+         Response → User
+```
+
+**Points de Contrôle par Couche :**
+
+| Couche | Contrôle | Critère de Passage | Réponse en Échec |
+|--------|----------|-------------------|------------------|
+| **L1** | Réseau | IP/VPC autorisée | Connection refused |
+| **L2** | Identité | JWT dans header | 401 Unauthorized |
+| **L3** | Authentification | Signature RS256 valide | 401 Invalid Token |
+| **L4** | Autorisation | Rôle RBAC correct | 403 Forbidden |
+| **L5** | Accès Ressources | MCP Server opérationnel | 503 Service Unavailable |
+| **L6** | Intégrité | Hash JWT = body | 403 Tampering Detected |
+| **L7** | Validation | Schema JSON valide | 400 Invalid Params |
+| **L8** | Replay | jti non utilisé | 403 Replay Detected |
+| **L9** | Rate Limit | < 300 req/min | 429 Too Many Requests |
+
+**Message Clé :**
+
+> "Toutes les couches doivent valider. Une seule échec = rejet de la requête. C'est le fail-secure principle."
+
+**Garanties de Sécurité :**
+
+1. **Defense-in-Depth** : Chaque couche protège indépendamment
+2. **Fail-Secure** : Tous les checks doivent passer
+3. **Observable** : Chaque couche log dans CloudWatch
+4. **Performance** : Overhead total ~53ms (21% du temps total)
+5. **No Single Point of Failure** : Compromettre une couche ne suffit pas
+
+**Transition :** "Détaillons maintenant les couches les plus critiques..."
+
+### 3.3 Détail des Couches (2 min par couche critique)
 
 #### **Couche 1 : Network Perimeter**
 
-**[SLIDE 7 - Security Groups]**
+**[SLIDE 8 - Security Groups]**
 
 ```python
 # Configuration Technique
@@ -204,7 +250,7 @@ curl http://extractor.ca-a2a.local:8002/health
 
 #### **Couches 2-4 : Identity, Authentication, Authorization**
 
-**[SLIDE 8 - Flow Keycloak]**
+**[SLIDE 9 - Flow Keycloak]**
 
 > "Ces trois couches forment le cœur de notre système d'authentification. Laissez-moi vous montrer le flow complet."
 
@@ -306,7 +352,7 @@ class KeycloakJWTValidator:
 
 #### **Couche 5 : Resource Access Control (MCP Server) ⭐ NOUVEAU**
 
-**[SLIDE 9 - Architecture MCP]**
+**[SLIDE 10 - Architecture MCP]**
 
 > "C'est la nouveauté majeure de la version 5.0. Le MCP Server agit comme un gateway centralisé pour tous les accès S3 et RDS. C'est un game-changer en termes de sécurité."
 
@@ -425,7 +471,7 @@ curl -X POST http://mcp-server.ca-a2a.local:8000/call_tool \
 
 #### **Couches 6-9 : Integrity, Validation, Replay, Rate Limiting**
 
-**[SLIDE 10 - Couches Applicatives]**
+**[SLIDE 11 - Couches Applicatives]**
 
 > "Les quatre dernières couches sont implémentées au niveau applicatif. Chacune ajoute une protection spécifique."
 
@@ -446,7 +492,7 @@ curl -X POST http://mcp-server.ca-a2a.local:8000/call_tool \
 
 ### 4.1 Keycloak OAuth2/OIDC
 
-**[SLIDE 11 - Keycloak Architecture]**
+**[SLIDE 12 - Keycloak Architecture]**
 
 > "Keycloak est notre IdP centralisé. C'est un composant critique, donc nous l'avons déployé avec une attention particulière à la sécurité."
 
@@ -487,7 +533,7 @@ Keycloak ECS Service:
 
 ### 4.2 RBAC (Role-Based Access Control)
 
-**[SLIDE 12 - Mapping Roles]**
+**[SLIDE 13 - Mapping Roles]**
 
 > "Nous avons défini 5 rôles avec des permissions granulaires. Le mapping Keycloak → A2A RBAC est géré automatiquement."
 
@@ -581,7 +627,7 @@ Result: DENIED (403 Forbidden)
 
 ### 4.3 Token Revocation
 
-**[SLIDE 13 - Architecture Hybride]**
+**[SLIDE 14 - Architecture Hybride]**
 
 > "Une des features les plus complexes : la révocation de tokens. Nous avons implémenté un système hybride cache + base de données."
 
@@ -669,7 +715,7 @@ CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 
 ### 5.1 Bénéfices Sécurité Quantifiés
 
-**[SLIDE 14 - Tableau des Gains]**
+**[SLIDE 15 - Tableau des Gains]**
 
 > "Le MCP Server apporte des bénéfices sécurité mesurables. Laissez-moi vous montrer les chiffres."
 
@@ -690,7 +736,7 @@ CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 
 ### 5.2 Circuit Breaker Pattern
 
-**[SLIDE 15 - États Circuit Breaker]**
+**[SLIDE 16 - États Circuit Breaker]**
 
 **Diagramme d'États :**
 
@@ -781,7 +827,7 @@ class CircuitBreaker:
 
 ### 5.3 Connection Pooling Avancé
 
-**[SLIDE 16 - Pool Configuration]**
+**[SLIDE 17 - Pool Configuration]**
 
 **Configuration Optimale :**
 
@@ -844,7 +890,7 @@ if pool_metrics["used"] >= pool_metrics["max"]:
 
 ### 5.4 API Reference Technique
 
-**[SLIDE 17 - Exemples API]**
+**[SLIDE 18 - Exemples API]**
 
 **Opération S3 - GetObject avec Retry :**
 
@@ -909,7 +955,7 @@ async with mcp_context() as mcp:
 
 ### 6.1 Introduction à la Validation Multi-Couches
 
-**[SLIDE 18 - Validation Flow]**
+**[SLIDE 19 - Validation Flow]**
 
 > "Une des forces majeures de notre architecture version 5.1 est la validation des données à plusieurs niveaux. Nous ne faisons pas confiance aux inputs, jamais. Chaque requête passe par 6 couches de validation avant d'être exécutée."
 
@@ -939,7 +985,7 @@ Exécution Méthode
 
 ### 6.2 JSON Schema : Protection contre l'Injection
 
-**[SLIDE 19 - JSON Schema Exemple]**
+**[SLIDE 20 - JSON Schema Exemple]**
 
 > "JSON Schema est notre première ligne de défense contre les injections. Regardez cet exemple pour `process_document` :"
 
@@ -1004,7 +1050,7 @@ Exécution Méthode
 
 ### 6.3 Pydantic : Type Safety et Validation Avancée
 
-**[SLIDE 20 - Pydantic Models]**
+**[SLIDE 21 - Pydantic Models]**
 
 > "Au-delà de JSON Schema, nous utilisons Pydantic pour la validation type-safe. C'est une double sécurité."
 
@@ -1046,7 +1092,7 @@ class ProcessDocumentRequest(BaseModel):
 
 ### 6.4 Exemples de Requêtes et Codes d'Erreur
 
-**[SLIDE 21 - Exemples Réels]**
+**[SLIDE 22 - Exemples Réels]**
 
 **Exemple 1 : Path Traversal (Bloqué par JSON Schema)**
 
@@ -1110,7 +1156,7 @@ curl -X POST http://orchestrator:8001/message \
 
 ### 7.1 Network Segmentation
 
-**[SLIDE 18 - VPC Layout]**
+**[SLIDE 23 - VPC Layout]**
 
 **Architecture Réseau :**
 
@@ -1192,7 +1238,7 @@ psql -h ca-a2a-postgres.*.rds.amazonaws.com -U postgres
 
 ### 7.2 Encryption
 
-**[SLIDE 19 - Encryption Layers]**
+**[SLIDE 24 - Encryption Layers]**
 
 **Chiffrement At Rest :**
 
@@ -1236,7 +1282,7 @@ pool = await asyncpg.create_pool(
 
 ### 7.3 VPC Endpoints (PrivateLink)
 
-**[SLIDE 20 - Flux sans Internet]**
+**[SLIDE 25 - Flux sans Internet]**
 
 **Endpoints Configurés :**
 
@@ -1288,7 +1334,7 @@ VPC Endpoints:
 
 ### 8.1 Observabilité
 
-**[SLIDE 21 - Stack de Monitoring]**
+**[SLIDE 26 - Stack de Monitoring]**
 
 **Architecture Monitoring :**
 
@@ -1355,7 +1401,7 @@ fields @timestamp, jti, sourceIP
 
 ### 8.2 Métriques Custom CloudWatch
 
-**[SLIDE 22 - Métriques Sécurité]**
+**[SLIDE 27 - Métriques Sécurité]**
 
 **Métriques Implémentées :**
 
@@ -1439,7 +1485,7 @@ Alarms:
 
 ### 8.3 Incident Response
 
-**[SLIDE 23 - Runbook Token Theft]**
+**[SLIDE 28 - Runbook Token Theft]**
 
 **Exemple : Réponse à un Vol de Token (Détection + Mitigation) :**
 
@@ -1541,7 +1587,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.1 Récapitulatif des Points Clés
 
-**[SLIDE 24 - Key Takeaways]**
+**[SLIDE 29 - Key Takeaways]**
 
 > "Récapitulons les points essentiels de cette architecture de sécurité."
 
@@ -1574,7 +1620,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.2 Roadmap Sécurité
 
-**[SLIDE 25 - Évolutions Futures]**
+**[SLIDE 30 - Évolutions Futures]**
 
 **Court Terme (Q1 2026) :**
 
@@ -1619,7 +1665,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.3 Métriques de Succès
 
-**[SLIDE 26 - KPIs Sécurité]**
+**[SLIDE 31 - KPIs Sécurité]**
 
 **Métriques à Suivre :**
 
@@ -1635,7 +1681,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.4 Resources et Documentation
 
-**[SLIDE 27 - Ressources]**
+**[SLIDE 32 - Ressources]**
 
 **Documentation Technique :**
 
@@ -1670,7 +1716,7 @@ Commit: f993a1d (latest)
 
 ### 9.5 Clôture
 
-**[SLIDE 28 - Questions]**
+**[SLIDE 33 - Questions]**
 
 > "Nous avons couvert beaucoup de terrain aujourd'hui : de la topologie réseau jusqu'à la réponse aux incidents, en passant par l'authentification centralisée et le MCP Server."
 
