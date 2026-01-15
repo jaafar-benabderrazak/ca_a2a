@@ -321,6 +321,9 @@ class A2AMessage:
 
 ## ️ Security Layers Deep Dive
 
+<img width="665" height="501" alt="image" src="https://github.com/user-attachments/assets/066e2291-6967-413f-b039-6f24b7be8921" />
+
+
 ### **Defense-in-Depth Architecture**
 <img width="1377" height="367" alt="Capture d’écran 2026-01-11 222956" src="https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453" />
 
