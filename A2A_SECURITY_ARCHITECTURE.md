@@ -1,6 +1,6 @@
 # CA-A2A Security Architecture
 
-**Version:** 5.0  
+**Version:** 5.1  
 **Last Updated:** January 15, 2026  
 **Status:** Production Deployed  
 **Region:** eu-west-3 (Paris)  
@@ -764,11 +764,11 @@ def get_secret(secret_name: str) -> str:
 
 ---
 
-## 6. Protocol Security (A2A)
+## 7. Protocol Security (A2A)
 
-### 6.1 JSON-RPC 2.0 Message Format
+### 7.1 JSON-RPC 2.0 Message Format
 
-**Request:**
+**Request Structure:**
 ```json
 {
   "jsonrpc": "2.0",
@@ -781,7 +781,7 @@ def get_secret(secret_name: str) -> str:
 }
 ```
 
-**Response:**
+**Response Structure:**
 ```json
 {
   "jsonrpc": "2.0",
@@ -813,7 +813,584 @@ def get_secret(secret_name: str) -> str:
 }
 ```
 
-### 6.2 Security Checks per Request
+### 7.2 HTTP Headers Schema
+
+**Required Headers:**
+
+| Header | Type | Required | Description | Example |
+|--------|------|----------|-------------|---------|
+| `Content-Type` | String | ✅ Yes | Must be `application/json` | `application/json` |
+| `Authorization` | String | ✅ Yes | Bearer JWT token from Keycloak | `Bearer eyJhbGc...` |
+| `X-Correlation-ID` | String | ⚠️ Optional | Request tracing ID | `2026-01-15T10:30:00Z-a1b2c3d4` |
+| `User-Agent` | String | ⚠️ Optional | Client identifier | `CA-A2A-Client/1.0` |
+
+**Security Headers (Response):**
+
+| Header | Value | Purpose |
+|--------|-------|---------|
+| `X-Content-Type-Options` | `nosniff` | Prevent MIME-type sniffing |
+| `X-Frame-Options` | `DENY` | Prevent clickjacking |
+| `X-XSS-Protection` | `1; mode=block` | XSS protection |
+| `Strict-Transport-Security` | `max-age=31536000` | Force HTTPS |
+| `Content-Security-Policy` | `default-src 'self'` | CSP policy |
+
+**Header Validation:**
+```python
+# base_agent.py - Header validation
+def validate_headers(headers: Dict[str, str]) -> Tuple[bool, Optional[str]]:
+    """Validate required HTTP headers"""
+    
+    # Check Content-Type
+    content_type = headers.get('Content-Type', '')
+    if not content_type.startswith('application/json'):
+        return False, "Content-Type must be application/json"
+    
+    # Check Authorization
+    auth = headers.get('Authorization', '')
+    if not auth.startswith('Bearer '):
+        return False, "Authorization header must use Bearer token"
+    
+    # Extract and validate JWT format
+    token = auth.replace('Bearer ', '').strip()
+    if not token or len(token) < 10:
+        return False, "Invalid JWT token format"
+    
+    return True, None
+```
+
+### 7.3 JSON Schema Validation
+
+**Schema Definition for All Methods:**
+
+The system validates all incoming requests against predefined JSON schemas. This prevents injection attacks, malformed data, and ensures type safety.
+
+#### 7.3.1 Process Document Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "s3_key": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$",
+      "not": {"pattern": "\\.\\."},
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "S3 object key (no path traversal)"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "normal", "high"],
+      "description": "Processing priority"
+    },
+    "correlation_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9-]+$",
+      "maxLength": 128,
+      "description": "Request correlation ID for tracing"
+    }
+  },
+  "required": ["s3_key"],
+  "additionalProperties": false
+}
+```
+
+**Security Features:**
+- ✅ **Path Traversal Protection:** Pattern `^[a-zA-Z0-9/_-]` prevents `../` sequences
+- ✅ **Length Limits:** Max 1024 chars prevents buffer overflow
+- ✅ **No Additional Properties:** `additionalProperties: false` prevents mass assignment
+- ✅ **Type Safety:** Strict string type checking
+
+#### 7.3.2 Extract Document Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "s3_key": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$",
+      "not": {"pattern": "\\.\\."},
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "correlation_id": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": ["s3_key"],
+  "additionalProperties": false
+}
+```
+
+#### 7.3.3 Validate Document Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "extracted_data": {
+      "type": "object",
+      "description": "Extracted document data from extractor"
+    },
+    "s3_key": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "correlation_id": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": ["extracted_data"],
+  "additionalProperties": false
+}
+```
+
+#### 7.3.4 Archive Document Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "s3_key": {
+      "type": "string",
+      "maxLength": 1024
+    },
+    "extracted_data": {
+      "type": "object",
+      "description": "Extracted document data"
+    },
+    "validation_result": {
+      "type": "object",
+      "description": "Validation results from validator"
+    },
+    "correlation_id": {
+      "type": "string",
+      "maxLength": 128
+    }
+  },
+  "required": ["s3_key", "extracted_data", "validation_result"],
+  "additionalProperties": false
+}
+```
+
+#### 7.3.5 Get Document Schema
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "document_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Database document ID"
+    }
+  },
+  "required": ["document_id"],
+  "additionalProperties": false
+}
+```
+
+**Implementation:**
+```python
+# a2a_security_enhanced.py
+class JSONSchemaValidator:
+    """Validates JSON-RPC method parameters against predefined schemas"""
+    
+    SCHEMAS = {
+        "process_document": {...},  # As above
+        "extract_document": {...},
+        "validate_document": {...},
+        "archive_document": {...},
+        "get_document": {...}
+    }
+    
+    def validate(self, method: str, params: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+        """
+        Validate params against schema for given method
+        Returns: (is_valid, error_message)
+        """
+        if not self.enabled:
+            return True, None
+        
+        schema = self.SCHEMAS.get(method)
+        if not schema:
+            logger.debug(f"No schema defined for method: {method}")
+            return True, None  # No schema = allow (backward compatibility)
+        
+        try:
+            self.validator.validate(instance=params, schema=schema)
+            return True, None
+        except self.validator.ValidationError as e:
+            error_msg = f"Schema validation failed for '{method}': {e.message}"
+            logger.warning(error_msg)
+            return False, error_msg
+```
+
+### 7.4 Pydantic Models (Type-Safe Validation)
+
+In addition to JSON Schema, the system uses **Pydantic models** for stronger type safety and automatic validation.
+
+#### 7.4.1 Process Document Models
+
+```python
+from pydantic import BaseModel, Field, field_validator
+from typing import Literal
+
+class ProcessDocumentRequest(BaseModel):
+    """Type-safe request for document processing"""
+    s3_key: str = Field(
+        ..., 
+        description="S3 key of the document", 
+        min_length=1,
+        max_length=1024
+    )
+    priority: Literal["low", "normal", "high"] = Field(
+        default="normal", 
+        description="Processing priority"
+    )
+    
+    @field_validator('s3_key')
+    @classmethod
+    def validate_s3_key(cls, v: str) -> str:
+        """Custom validation: prevent path traversal"""
+        if not v.strip():
+            raise ValueError("s3_key cannot be empty")
+        if ".." in v:
+            raise ValueError("Path traversal not allowed")
+        if not v[0].isalnum():
+            raise ValueError("s3_key must start with alphanumeric")
+        return v.strip()
+    
+    model_config = {"extra": "forbid"}  # Reject unknown fields
+
+class ProcessDocumentResponse(BaseModel):
+    """Type-safe response from document processing"""
+    task_id: str
+    s3_key: str
+    status: Literal["pending", "processing", "completed", "failed"]
+    message: str
+```
+
+#### 7.4.2 Extract Document Models
+
+```python
+class ExtractDocumentRequest(BaseModel):
+    """Request to extract document data"""
+    s3_key: str = Field(..., min_length=1, max_length=1024)
+
+class PDFExtractedData(BaseModel):
+    """Complete PDF extraction result"""
+    pages: List[Dict[str, Any]]
+    tables: List[Dict[str, Any]]
+    metadata: Dict[str, Any]
+    total_pages: int
+    text_content: str
+
+class ExtractDocumentResponse(BaseModel):
+    """Response from document extraction"""
+    s3_key: str
+    document_type: Literal["pdf", "csv", "unknown"]
+    file_name: str
+    file_size: int
+    extracted_data: Dict[str, Any]  # PDFExtractedData or CSVExtractedData
+    extraction_status: Literal["success", "partial", "failed"]
+```
+
+#### 7.4.3 Complete Model Inventory
+
+| Method | Request Model | Response Model | Fields |
+|--------|---------------|----------------|--------|
+| `process_document` | `ProcessDocumentRequest` | `ProcessDocumentResponse` | s3_key, priority |
+| `process_batch` | `ProcessBatchRequest` | `ProcessBatchResponse` | prefix, limit |
+| `extract_document` | `ExtractDocumentRequest` | `ExtractDocumentResponse` | s3_key |
+| `validate_document` | `ValidateDocumentRequest` | `ValidateDocumentResponse` | extracted_data |
+| `archive_document` | `ArchiveDocumentRequest` | `ArchiveDocumentResponse` | s3_key, data |
+| `get_task_status` | `GetTaskStatusRequest` | `GetTaskStatusResponse` | task_id |
+| `list_pending_documents` | `ListPendingDocumentsRequest` | `ListPendingDocumentsResponse` | limit |
+
+**Usage in Agent:**
+```python
+# base_agent.py
+from pydantic import ValidationError
+from pydantic_models import ProcessDocumentRequest
+
+async def handle_process_document(self, params: dict) -> dict:
+    """Handle process_document with Pydantic validation"""
+    try:
+        # Validate input with Pydantic
+        request = ProcessDocumentRequest(**params)
+        
+        # Access type-safe fields
+        s3_key = request.s3_key  # Guaranteed to be valid
+        priority = request.priority  # Guaranteed to be "low", "normal", or "high"
+        
+        # Process document...
+        result = await self._process(s3_key, priority)
+        
+        # Return validated response
+        return ProcessDocumentResponse(
+            task_id=result['task_id'],
+            s3_key=s3_key,
+            status=result['status'],
+            message=result['message']
+        ).model_dump()
+        
+    except ValidationError as e:
+        # Pydantic validation failed
+        raise ValueError(f"Invalid request: {e.errors()}")
+```
+
+### 7.5 Content Validation Rules
+
+**Validation Layers:**
+
+```mermaid
+graph TD
+    A[Incoming Request] --> B{1. HTTP Headers Valid?}
+    B -->|No| E1[401 Unauthorized]
+    B -->|Yes| C{2. JSON Parseable?}
+    C -->|No| E2[-32700 Parse Error]
+    C -->|Yes| D{3. JSON-RPC 2.0 Format?}
+    D -->|No| E3[-32600 Invalid Request]
+    D -->|Yes| F{4. JSON Schema Valid?}
+    F -->|No| E4[-32602 Invalid Params]
+    F -->|Yes| G{5. Pydantic Model Valid?}
+    G -->|No| E5[-32602 Type Error]
+    G -->|Yes| H{6. Business Rules Valid?}
+    H -->|No| E6[-32000 Business Error]
+    H -->|Yes| I[Execute Method]
+    
+    style A fill:#90EE90
+    style I fill:#6bcf7f
+    style E1 fill:#ff6b6b
+    style E2 fill:#ff6b6b
+    style E3 fill:#ff6b6b
+    style E4 fill:#ff6b6b
+    style E5 fill:#ff6b6b
+    style E6 fill:#ff6b6b
+```
+
+**Validation Order:**
+1. **HTTP Headers:** Check Authorization, Content-Type
+2. **JSON Parsing:** Ensure valid JSON syntax
+3. **JSON-RPC Format:** Verify jsonrpc, id, method fields
+4. **JSON Schema:** Validate against predefined schema
+5. **Pydantic Model:** Type checking and custom validators
+6. **Business Rules:** Application-specific validation
+
+**Security Benefits:**
+
+| Layer | Attack Prevented | Example |
+|-------|------------------|---------|
+| **HTTP Headers** | Unauthorized access | Missing/invalid JWT |
+| **JSON Parsing** | DoS via malformed JSON | `{"key": "value"` (unclosed) |
+| **JSON-RPC Format** | Protocol confusion | Missing `jsonrpc: "2.0"` |
+| **JSON Schema** | Injection attacks | `s3_key: "../../etc/passwd"` |
+| **Pydantic Models** | Type confusion | `document_id: "abc"` (should be int) |
+| **Business Rules** | Logic bypass | `priority: "critical"` (invalid enum) |
+
+### 7.6 Error Code Reference
+
+**JSON-RPC 2.0 Error Codes:**
+
+| Code | Meaning | Trigger | Response Status |
+|------|---------|---------|-----------------|
+| `-32700` | Parse error | Invalid JSON syntax | 400 Bad Request |
+| `-32600` | Invalid Request | Missing jsonrpc field | 400 Bad Request |
+| `-32601` | Method not found | Unknown method name | 404 Not Found |
+| `-32602` | Invalid params | Schema/type validation failed | 400 Bad Request |
+| `-32603` | Internal error | Server-side exception | 500 Internal Error |
+| `-32000` | Server error | Business logic error | 400 Bad Request |
+
+**Security Error Codes:**
+
+| Code | Meaning | Trigger | Response Status |
+|------|---------|---------|-----------------|
+| `-32010` | Unauthorized | JWT missing/invalid/expired | 401 Unauthorized |
+| `-32011` | Forbidden | Insufficient permissions (RBAC) | 403 Forbidden |
+| `-32012` | Rate limit exceeded | Too many requests | 429 Too Many Requests |
+| `-32013` | Replay detected | Duplicate jti | 403 Forbidden |
+| `-32014` | Token revoked | Blacklisted JWT | 403 Forbidden |
+
+**Example Error Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-12345",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params",
+    "data": {
+      "detail": "Schema validation failed for 'process_document': 's3_key' does not match pattern '^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$'",
+      "field": "s3_key",
+      "provided_value": "../../../etc/passwd",
+      "expected_pattern": "^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$"
+    }
+  },
+  "_meta": {
+    "correlation_id": "2026-01-15T10:30:00Z-a1b2c3d4"
+  }
+}
+```
+
+### 7.7 Request/Response Examples
+
+#### Example 1: Successful Process Document
+
+**Request:**
+```bash
+curl -X POST http://orchestrator.ca-a2a.local:8001/message \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer eyJhbGc..." \
+  -H "X-Correlation-ID: demo-2026-01-15-001" \
+  -d '{
+    "jsonrpc": "2.0",
+    "id": "req-001",
+    "method": "process_document",
+    "params": {
+      "s3_key": "uploads/invoice_2026_01_15.pdf",
+      "priority": "high"
+    }
+  }'
+```
+
+**Response (200 OK):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-001",
+  "result": {
+    "task_id": "task-abc123",
+    "s3_key": "uploads/invoice_2026_01_15.pdf",
+    "status": "processing",
+    "message": "Document processing started",
+    "started_at": "2026-01-15T10:30:00Z"
+  },
+  "_meta": {
+    "correlation_id": "demo-2026-01-15-001",
+    "duration_ms": 25,
+    "agent": "orchestrator",
+    "principal": "document-processor"
+  }
+}
+```
+
+#### Example 2: Validation Failure (Path Traversal)
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-002",
+  "method": "process_document",
+  "params": {
+    "s3_key": "../../etc/passwd",
+    "priority": "high"
+  }
+}
+```
+
+**Response (400 Bad Request):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-002",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params",
+    "data": {
+      "detail": "Schema validation failed: 's3_key' contains path traversal sequence",
+      "field": "s3_key",
+      "validation": "pattern_mismatch"
+    }
+  },
+  "_meta": {
+    "correlation_id": "2026-01-15T10:30:01Z-def456"
+  }
+}
+```
+
+#### Example 3: Authorization Failure (Insufficient Permissions)
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-003",
+  "method": "delete_all_documents",
+  "params": {}
+}
+```
+
+**Headers:**
+```
+Authorization: Bearer <JWT with roles: ["viewer"]>
+```
+
+**Response (403 Forbidden):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-003",
+  "error": {
+    "code": -32011,
+    "message": "Forbidden",
+    "data": {
+      "detail": "Principal 'viewer' not authorized to call method 'delete_all_documents'",
+      "principal": "viewer",
+      "method": "delete_all_documents",
+      "required_role": "admin",
+      "provided_roles": ["viewer"]
+    }
+  },
+  "_meta": {
+    "correlation_id": "2026-01-15T10:30:02Z-ghi789"
+  }
+}
+```
+
+#### Example 4: Rate Limit Exceeded
+
+**Request:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-350",
+  "method": "list_documents",
+  "params": {}
+}
+```
+
+**Response (429 Too Many Requests):**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-350",
+  "error": {
+    "code": -32012,
+    "message": "Rate limit exceeded",
+    "data": {
+      "detail": "Principal 'document-processor' exceeded 300 requests per minute",
+      "limit": 300,
+      "window_seconds": 60,
+      "retry_after": 15
+    }
+  },
+  "_meta": {
+    "correlation_id": "2026-01-15T10:31:00Z-jkl012",
+    "rate_limit": {
+      "limit": 300,
+      "remaining": 0,
+      "reset_at": "2026-01-15T10:31:15Z"
+    }
+  }
+}
+```
+
+### 7.8 Security Checks per Request
 
 **Order of Execution:**
 
@@ -875,7 +1452,7 @@ graph TD
     style E9 fill:#ff6b6b
 ```
 
-### 6.3 Replay Protection Implementation
+### 7.9 Replay Protection Implementation
 
 **Mechanism:** Track JWT `jti` (JWT ID) claim in a TTL-based cache.
 
@@ -901,7 +1478,7 @@ class ReplayProtector:
 
 **TTL:** 120 seconds (2 minutes) - matches typical JWT expiration
 
-### 6.4 Rate Limiting
+### 7.10 Rate Limiting
 
 **Algorithm:** Sliding Window per Principal
 
@@ -934,9 +1511,9 @@ class SlidingWindowRateLimiter:
 
 ---
 
-## 7. Monitoring & Audit
+## 8. Monitoring & Audit
 
-### 7.1 CloudWatch Logs
+### 8.1 CloudWatch Logs
 
 **Log Groups:**
 
@@ -963,7 +1540,7 @@ class SlidingWindowRateLimiter:
 }
 ```
 
-### 7.2 Security Events Logged
+### 8.2 Security Events Logged
 
 | Event Type | Trigger | Log Level |
 |------------|---------|-----------|
@@ -994,7 +1571,7 @@ aws logs filter-log-events \
   | jq '.events[].message | fromjson | .principal' | sort | uniq -c
 ```
 
-### 7.3 Metrics (Recommended)
+### 8.3 Metrics (Recommended)
 
 **CloudWatch Custom Metrics to Implement:**
 
@@ -1009,9 +1586,9 @@ aws logs filter-log-events \
 
 ---
 
-## 8. Threat Model & Defenses
+## 9. Threat Model & Defenses
 
-### 8.1 STRIDE Analysis
+### 9.1 STRIDE Analysis
 
 | Threat | Attack Vector | Defense Layer | Mitigation |
 |--------|---------------|---------------|------------|
@@ -1022,7 +1599,7 @@ aws logs filter-log-events \
 | **Denial of Service** | Flood requests | L6, L8 | Input validation + rate limiting |
 | **Elevation of Privilege** | Bypass RBAC | L4 | Keycloak roles + RBAC enforcement |
 
-### 8.2 Attack Scenarios & Defenses
+### 9.2 Attack Scenarios & Defenses
 
 #### Scenario 1: Token Theft
 
@@ -1596,9 +2173,9 @@ def validate_s3_key(s3_key: str) -> bool:
 
 ---
 
-## 9. Security Operations
+## 10. Security Operations
 
-### 9.1 Incident Response
+### 10.1 Incident Response
 
 **Token Compromise Procedure:**
 
@@ -1628,7 +2205,7 @@ aws logs filter-log-events \
   --region eu-west-3
 ```
 
-### 9.2 Security Auditing
+### 10.2 Security Auditing
 
 **Weekly Security Review Checklist:**
 
@@ -1681,7 +2258,7 @@ echo ""
 echo "=== End of Report ==="
 ```
 
-### 9.3 Compliance
+### 10.3 Compliance
 
 **GDPR Considerations:**
 
@@ -1706,9 +2283,9 @@ echo "=== End of Report ==="
 
 ---
 
-## 10. Implementation Reference
+## 11. Implementation Reference
 
-### 10.1 Key Files
+### 11.1 Key Files
 
 | File | Purpose | Lines |
 |------|---------|-------|
@@ -1720,7 +2297,7 @@ echo "=== End of Report ==="
 | `deploy-keycloak.sh` | Keycloak deployment script | 250 |
 | `configure-keycloak.sh` | Keycloak realm/client setup | 180 |
 
-### 10.2 Environment Variables
+### 11.2 Environment Variables
 
 **Security Configuration:**
 
@@ -1758,7 +2335,7 @@ KEYCLOAK_ADMIN_PASSWORD=<retrieved-from-secrets-manager>
 KEYCLOAK_CLIENT_SECRET=<retrieved-from-secrets-manager>
 ```
 
-### 10.3 Deployment Commands
+### 11.3 Deployment Commands
 
 **Deploy Keycloak:**
 ```bash
@@ -1886,6 +2463,8 @@ done
 
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
+| 5.1 | 2026-01-15 | Jaafar Benabderrazak | Added comprehensive JSON schema documentation, HTTP headers schema, Pydantic models, content validation rules, error code reference, and request/response examples |
+| 5.0 | 2026-01-15 | Jaafar Benabderrazak | Added MCP Server (Layer 5), updated architecture diagrams, increased layers from 8 to 9 |
 | 4.0 | 2026-01-15 | Jaafar Benabderrazak | Complete rewrite based on production architecture |
 | 3.0 | 2026-01-14 | - | Added Keycloak OAuth2, token revocation |
 | 2.0 | 2026-01-12 | - | Added mTLS, token binding |
