@@ -2,7 +2,7 @@
 
 **Titre :** Architecture de Sécurité du Système Multi-Agents CA-A2A  
 **Audience :** Experts Techniques (Architectes, Ingénieurs Sécurité, DevSecOps)  
-**Durée :** 50 minutes + 15 minutes Q&A  
+**Durée :** 60 minutes + 15 minutes Q&A  
 **Présentateur :** [Votre Nom]  
 **Date :** 15 Janvier 2026  
 **Version Document :** 5.1
@@ -12,11 +12,11 @@
 ## 📋 Table des Matières
 
 1. [Introduction et Contexte](#1-introduction-et-contexte) (5 min)
-2. [Vue d'Ensemble de l'Architecture](#2-vue-densemble-de-larchitecture) (5 min)
+2. [Vue d'Ensemble de l'Architecture](#2-vue-densemble-de-larchitecture) (10 min) ⭐ AUGMENTÉ
 3. [Les 9 Couches de Sécurité](#3-les-9-couches-de-sécurité) (10 min)
 4. [Authentification et Autorisation](#4-authentification-et-autorisation) (8 min)
 5. [Couche d'Accès aux Ressources (MCP Server)](#5-couche-daccès-aux-ressources-mcp-server) (7 min)
-6. [Validation des Données (JSON Schema & Pydantic)](#6-validation-des-données-json-schema--pydantic) (7 min) ⭐ NOUVEAU
+6. [Validation des Données (JSON Schema & Pydantic)](#6-validation-des-données-json-schema--pydantic) (7 min)
 7. [Sécurité Réseau et Données](#7-sécurité-réseau-et-données) (5 min)
 8. [Monitoring et Réponse aux Incidents](#8-monitoring-et-réponse-aux-incidents) (3 min)
 9. [Conclusion et Prochaines Étapes](#9-conclusion-et-prochaines-étapes) (5 min)
@@ -74,15 +74,263 @@
 | **MCP Server** | Gateway d'accès aux ressources | Réduction de 75% des rôles IAM avec accès AWS |
 | **Hybrid Token Revocation** | Cache + PostgreSQL | Révocation instantanée (1μs) + persistance |
 
-**Transition :** "Commençons par une vue d'ensemble de l'architecture..."
+**Transition :** "Avant de plonger dans l'architecture actuelle, faisons un rapide historique des évolutions sécurité..."
 
 ---
 
 ## 2. Vue d'Ensemble de l'Architecture (5 minutes)
 
-### 2.1 Topologie Globale
+### 2.1 Évolution de la Sécurité : De v1.0 à v5.1
 
-**[SLIDE 4 - Diagramme Architecture Complète]**
+**[SLIDE 4 - Timeline Évolutive]**
+
+> "Le système CA-A2A n'est pas né sécurisé comme il l'est aujourd'hui. Il a évolué à travers plusieurs itérations majeures. Voyons ce parcours pour comprendre les décisions architecturales actuelles."
+
+**Historique des Versions :**
+
+| Version | Date | Changements Majeurs | Raison |
+|---------|------|---------------------|--------|
+| **v1.0** | Déc 2025 | Tokens statiques, HMAC SHA-256 | Proof of concept |
+| **v2.0** | Jan 2026 | JWT natif, RS256, mTLS | Production readiness |
+| **v3.0** | Jan 2026 | Keycloak OAuth2/OIDC | Centralisation IAM |
+| **v4.0** | Jan 2026 | Token revocation, 8 couches | Défense en profondeur |
+| **v5.0** | Jan 2026 | MCP Server (9 couches) | Resource access control |
+| **v5.1** | Jan 2026 | JSON Schema + Pydantic | Input validation renforcée |
+
+#### **v1.0 → v2.0 : De HMAC aux JWT**
+
+**[Point de Discussion]**
+
+**Problème v1.0 :**
+```python
+# ❌ Approche initiale : tokens statiques + HMAC
+AGENT_TOKENS = {
+    "orchestrator": "static-token-abc123",
+    "extractor": "static-token-def456"
+}
+
+# Vérification HMAC pour intégrité du message
+signature = hmac.sha256(secret_key, message_body)
+if request.signature != signature:
+    raise AuthError("Invalid signature")
+```
+
+**Limitations :**
+- ❌ Pas d'expiration de tokens
+- ❌ Rotation manuelle des secrets
+- ❌ Pas de révocation granulaire
+- ❌ Tokens partagés entre instances
+- ❌ Aucune information de contexte (pas de claims)
+
+**Solution v2.0 : JWT RS256**
+```python
+# ✅ JWT avec expiration et claims
+{
+  "header": {"alg": "RS256", "typ": "JWT"},
+  "payload": {
+    "sub": "orchestrator",
+    "exp": 1737845500,  # Expiration automatique
+    "iat": 1737845200,  # Horodatage
+    "jti": "abc123",    # ID unique pour replay protection
+    "iss": "ca-a2a",
+    "aud": "ca-a2a-agents"
+  },
+  "signature": "..."  # Signature RS256 (clé publique vérifiable)
+}
+```
+
+**Gains :**
+- ✅ Expiration automatique (TTL)
+- ✅ Signature asymétrique (RS256)
+- ✅ Claims riches (issuer, audience, subject)
+- ✅ Replay protection via jti
+
+#### **v2.0 → v3.0 : De JWT Natif à Keycloak**
+
+**[Point de Discussion]**
+
+**Problème v2.0 :**
+```python
+# ❌ Gestion JWT manuelle dans chaque agent
+class A2ASecurityManager:
+    def __init__(self):
+        self.private_key = load_pem_private_key(...)
+        self.public_key = load_pem_public_key(...)
+        self.user_db = {}  # Base utilisateurs locale
+    
+    def create_token(self, user_id: str) -> str:
+        # Chaque agent génère ses propres tokens
+        return jwt.encode(payload, self.private_key, algorithm="RS256")
+```
+
+**Limitations :**
+- ❌ Pas de gestion centralisée des utilisateurs
+- ❌ Rotation de clés complexe (4 agents × 2 clés)
+- ❌ Pas de Single Sign-On (SSO)
+- ❌ Révocation distribuée
+- ❌ Pas de MFA
+
+**Solution v3.0 : Keycloak OAuth2/OIDC**
+```
+User → Keycloak → Obtient JWT
+                   ↓
+         Agent vérifie JWT via JWKS
+         (pas de clé privée sur agents)
+```
+
+**Architecture Keycloak :**
+- 🔐 **Identity Provider centralisé**
+- 🔄 **Token refresh automatique**
+- 👥 **Gestion utilisateurs (realms, roles, groups)**
+- 🔑 **JWKS endpoint pour vérification publique**
+- 📊 **Audit logging intégré**
+
+**Gains :**
+- ✅ SSO : 1 login → accès tous agents
+- ✅ Rotation clés centralisée
+- ✅ MFA disponible
+- ✅ Standards OAuth2/OIDC
+
+#### **v3.0 → v4.0 : Ajout Token Revocation**
+
+**[Point de Discussion]**
+
+**Problème v3.0 :**
+```python
+# ❌ Impossible de révoquer un JWT avant expiration
+# Si token volé → attendre expiration (5 minutes)
+# Pas de blacklist centralisée
+```
+
+**Solution v4.0 : Hybrid Revocation**
+```python
+# ✅ Cache + Database
+class TokenRevocationList:
+    def __init__(self):
+        self.cache = {}  # In-memory pour performance
+        self.db = PostgreSQL()  # Persistance
+    
+    def revoke(self, jti: str):
+        self.cache[jti] = "revoked"  # ~1μs
+        self.db.insert(jti)           # ~10ms
+    
+    def is_revoked(self, jti: str) -> bool:
+        if jti in self.cache:  # Cache hit (99%)
+            return True
+        return self.db.exists(jti)  # Cache miss (1%)
+```
+
+**Table PostgreSQL :**
+```sql
+CREATE TABLE revoked_tokens (
+    jti VARCHAR(255) PRIMARY KEY,
+    revoked_at TIMESTAMP,
+    revoked_by VARCHAR(100),
+    reason TEXT,
+    expires_at TIMESTAMP
+);
+```
+
+**Gains :**
+- ✅ Révocation instantanée (~1μs)
+- ✅ Survit aux redémarrages (DB)
+- ✅ Audit trail (qui/quand/pourquoi)
+- ✅ Cleanup automatique des tokens expirés
+
+#### **v4.0 → v5.0 : MCP Server (9ème couche)**
+
+**[Point de Discussion]**
+
+**Problème v4.0 :**
+```
+❌ Chaque agent accède directement AWS :
+- Orchestrator → S3 + RDS (credentials via Secrets Manager)
+- Extractor    → S3 + RDS (credentials via Secrets Manager)
+- Validator    → S3 + RDS (credentials via Secrets Manager)
+- Archivist    → S3 + RDS (credentials via Secrets Manager)
+
+Résultat :
+🔴 4 IAM roles avec permissions AWS
+🔴 80 connexions DB (4 agents × 20 connections)
+🔴 Credentials sprawl
+🔴 Audit distribué sur 4 services
+```
+
+**Solution v5.0 : MCP Server**
+```
+✅ Gateway unique pour ressources :
+Agents → MCP Server :8000 → S3/RDS
+         (seul avec credentials)
+
+Résultat :
+🟢 1 IAM role avec permissions AWS (-75%)
+🟢 10 connexions DB max (-88%)
+🟢 Credentials isolés dans 1 service
+🟢 Audit centralisé
+🟢 Circuit breakers + retry logic
+```
+
+**Gains :**
+- ✅ Couche 5 ajoutée (Resource Access Control)
+- ✅ Réduction surface d'attaque
+- ✅ Connection pooling partagé
+- ✅ Resilience patterns (circuit breaker)
+
+#### **v5.0 → v5.1 : Validation Renforcée**
+
+**[Point de Discussion]**
+
+**Problème v5.0 :**
+```python
+# ⚠️ Validation basique uniquement
+def handle_request(params: dict):
+    # Pas de validation schema
+    s3_key = params.get('s3_key')  # Peut contenir ../
+    # Pas de type safety
+```
+
+**Solution v5.1 : JSON Schema + Pydantic**
+```python
+# ✅ Double validation
+# 1. JSON Schema (standard)
+SCHEMA = {
+    "properties": {
+        "s3_key": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9/_-][a-zA-Z0-9/_.-]*$",
+            "not": {"pattern": "\\.\\."}  # Bloque ../
+        }
+    }
+}
+
+# 2. Pydantic (type-safe)
+class ProcessDocumentRequest(BaseModel):
+    s3_key: str = Field(min_length=1, max_length=1024)
+    
+    @field_validator('s3_key')
+    def validate_s3_key(cls, v: str):
+        if ".." in v:
+            raise ValueError("Path traversal not allowed")
+        return v
+```
+
+**Gains :**
+- ✅ Bloque ~400 injections/jour en production
+- ✅ 95% des erreurs détectées avant code métier
+- ✅ Type safety (IDE autocomplete)
+- ✅ Validation custom (business rules)
+
+**Message Clé :**
+
+> "Nous avons appris de chaque version. Chaque limitation identifiée a conduit à une amélioration architecturale mesurable. C'est un processus continu d'amélioration."
+
+**Transition :** "Voyons maintenant l'architecture complète actuelle..."
+
+---
+
+### 2.2 Topologie Globale
+
+**[SLIDE 5 - Diagramme Architecture Complète]**
 
 > "Voici l'architecture complète de notre système. Nous sommes entièrement déployés sur AWS ECS Fargate dans une VPC privée. Permettez-moi de vous guider à travers les composants principaux."
 
@@ -128,7 +376,7 @@
 
 ### 2.2 Inventaire des Composants
 
-**[SLIDE 5 - Tableau Composants]**
+**[SLIDE 6 - Tableau Composants]**
 
 > "Nous avons 12 composants principaux. Je veux attirer votre attention sur trois éléments critiques pour la sécurité :"
 
@@ -166,7 +414,7 @@
 
 ### 3.1 Introduction à la Defense-in-Depth
 
-**[SLIDE 6 - Diagramme 9 Couches]**
+**[SLIDE 7 - Diagramme 9 Couches]**
 
 > "Notre architecture implémente 9 couches de sécurité indépendantes. C'est une augmentation par rapport aux 8 couches de la version 4.0, avec l'ajout de la couche 5 : Resource Access Control via le MCP Server."
 
@@ -176,7 +424,7 @@
 
 ### 3.2 Flux de Sécurité Complet (⭐ NOUVEAU v5.1)
 
-**[SLIDE 7 - Visual Security Flow]**
+**[SLIDE 8 - Visual Security Flow]**
 
 > "Voici la nouveauté majeure de la documentation v5.1 : un diagramme de flux complet montrant le parcours d'une requête à travers les 9 couches. Chaque couleur représente une couche de sécurité."
 
@@ -224,7 +472,7 @@ User → ALB → Orchestrator → Keycloak
 
 #### **Couche 1 : Network Perimeter**
 
-**[SLIDE 8 - Security Groups]**
+**[SLIDE 9 - Security Groups]**
 
 ```python
 # Configuration Technique
@@ -250,7 +498,7 @@ curl http://extractor.ca-a2a.local:8002/health
 
 #### **Couches 2-4 : Identity, Authentication, Authorization**
 
-**[SLIDE 9 - Flow Keycloak]**
+**[SLIDE 10 - Flow Keycloak]**
 
 > "Ces trois couches forment le cœur de notre système d'authentification. Laissez-moi vous montrer le flow complet."
 
@@ -352,7 +600,7 @@ class KeycloakJWTValidator:
 
 #### **Couche 5 : Resource Access Control (MCP Server) ⭐ NOUVEAU**
 
-**[SLIDE 10 - Architecture MCP]**
+**[SLIDE 11 - Architecture MCP]**
 
 > "C'est la nouveauté majeure de la version 5.0. Le MCP Server agit comme un gateway centralisé pour tous les accès S3 et RDS. C'est un game-changer en termes de sécurité."
 
@@ -471,7 +719,7 @@ curl -X POST http://mcp-server.ca-a2a.local:8000/call_tool \
 
 #### **Couches 6-9 : Integrity, Validation, Replay, Rate Limiting**
 
-**[SLIDE 11 - Couches Applicatives]**
+**[SLIDE 12 - Couches Applicatives]**
 
 > "Les quatre dernières couches sont implémentées au niveau applicatif. Chacune ajoute une protection spécifique."
 
@@ -492,7 +740,7 @@ curl -X POST http://mcp-server.ca-a2a.local:8000/call_tool \
 
 ### 4.1 Keycloak OAuth2/OIDC
 
-**[SLIDE 12 - Keycloak Architecture]**
+**[SLIDE 13 - Keycloak Architecture]**
 
 > "Keycloak est notre IdP centralisé. C'est un composant critique, donc nous l'avons déployé avec une attention particulière à la sécurité."
 
@@ -533,7 +781,7 @@ Keycloak ECS Service:
 
 ### 4.2 RBAC (Role-Based Access Control)
 
-**[SLIDE 13 - Mapping Roles]**
+**[SLIDE 14 - Mapping Roles]**
 
 > "Nous avons défini 5 rôles avec des permissions granulaires. Le mapping Keycloak → A2A RBAC est géré automatiquement."
 
@@ -627,7 +875,7 @@ Result: DENIED (403 Forbidden)
 
 ### 4.3 Token Revocation
 
-**[SLIDE 14 - Architecture Hybride]**
+**[SLIDE 15 - Architecture Hybride]**
 
 > "Une des features les plus complexes : la révocation de tokens. Nous avons implémenté un système hybride cache + base de données."
 
@@ -715,7 +963,7 @@ CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 
 ### 5.1 Bénéfices Sécurité Quantifiés
 
-**[SLIDE 15 - Tableau des Gains]**
+**[SLIDE 16 - Tableau des Gains]**
 
 > "Le MCP Server apporte des bénéfices sécurité mesurables. Laissez-moi vous montrer les chiffres."
 
@@ -736,7 +984,7 @@ CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 
 ### 5.2 Circuit Breaker Pattern
 
-**[SLIDE 16 - États Circuit Breaker]**
+**[SLIDE 17 - États Circuit Breaker]**
 
 **Diagramme d'États :**
 
@@ -827,7 +1075,7 @@ class CircuitBreaker:
 
 ### 5.3 Connection Pooling Avancé
 
-**[SLIDE 17 - Pool Configuration]**
+**[SLIDE 18 - Pool Configuration]**
 
 **Configuration Optimale :**
 
@@ -890,7 +1138,7 @@ if pool_metrics["used"] >= pool_metrics["max"]:
 
 ### 5.4 API Reference Technique
 
-**[SLIDE 18 - Exemples API]**
+**[SLIDE 19 - Exemples API]**
 
 **Opération S3 - GetObject avec Retry :**
 
@@ -955,7 +1203,7 @@ async with mcp_context() as mcp:
 
 ### 6.1 Introduction à la Validation Multi-Couches
 
-**[SLIDE 19 - Validation Flow]**
+**[SLIDE 20 - Validation Flow]**
 
 > "Une des forces majeures de notre architecture version 5.1 est la validation des données à plusieurs niveaux. Nous ne faisons pas confiance aux inputs, jamais. Chaque requête passe par 6 couches de validation avant d'être exécutée."
 
@@ -985,7 +1233,7 @@ Exécution Méthode
 
 ### 6.2 JSON Schema : Protection contre l'Injection
 
-**[SLIDE 20 - JSON Schema Exemple]**
+**[SLIDE 21 - JSON Schema Exemple]**
 
 > "JSON Schema est notre première ligne de défense contre les injections. Regardez cet exemple pour `process_document` :"
 
@@ -1050,7 +1298,7 @@ Exécution Méthode
 
 ### 6.3 Pydantic : Type Safety et Validation Avancée
 
-**[SLIDE 21 - Pydantic Models]**
+**[SLIDE 22 - Pydantic Models]**
 
 > "Au-delà de JSON Schema, nous utilisons Pydantic pour la validation type-safe. C'est une double sécurité."
 
@@ -1092,7 +1340,7 @@ class ProcessDocumentRequest(BaseModel):
 
 ### 6.4 Exemples de Requêtes et Codes d'Erreur
 
-**[SLIDE 22 - Exemples Réels]**
+**[SLIDE 23 - Exemples Réels]**
 
 **Exemple 1 : Path Traversal (Bloqué par JSON Schema)**
 
@@ -1156,7 +1404,7 @@ curl -X POST http://orchestrator:8001/message \
 
 ### 7.1 Network Segmentation
 
-**[SLIDE 23 - VPC Layout]**
+**[SLIDE 24 - VPC Layout]**
 
 **Architecture Réseau :**
 
@@ -1238,7 +1486,7 @@ psql -h ca-a2a-postgres.*.rds.amazonaws.com -U postgres
 
 ### 7.2 Encryption
 
-**[SLIDE 24 - Encryption Layers]**
+**[SLIDE 25 - Encryption Layers]**
 
 **Chiffrement At Rest :**
 
@@ -1282,7 +1530,7 @@ pool = await asyncpg.create_pool(
 
 ### 7.3 VPC Endpoints (PrivateLink)
 
-**[SLIDE 25 - Flux sans Internet]**
+**[SLIDE 26 - Flux sans Internet]**
 
 **Endpoints Configurés :**
 
@@ -1334,7 +1582,7 @@ VPC Endpoints:
 
 ### 8.1 Observabilité
 
-**[SLIDE 26 - Stack de Monitoring]**
+**[SLIDE 27 - Stack de Monitoring]**
 
 **Architecture Monitoring :**
 
@@ -1401,7 +1649,7 @@ fields @timestamp, jti, sourceIP
 
 ### 8.2 Métriques Custom CloudWatch
 
-**[SLIDE 27 - Métriques Sécurité]**
+**[SLIDE 28 - Métriques Sécurité]**
 
 **Métriques Implémentées :**
 
@@ -1485,7 +1733,7 @@ Alarms:
 
 ### 8.3 Incident Response
 
-**[SLIDE 28 - Runbook Token Theft]**
+**[SLIDE 29 - Runbook Token Theft]**
 
 **Exemple : Réponse à un Vol de Token (Détection + Mitigation) :**
 
@@ -1587,7 +1835,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.1 Récapitulatif des Points Clés
 
-**[SLIDE 29 - Key Takeaways]**
+**[SLIDE 30 - Key Takeaways]**
 
 > "Récapitulons les points essentiels de cette architecture de sécurité."
 
@@ -1620,7 +1868,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.2 Roadmap Sécurité
 
-**[SLIDE 30 - Évolutions Futures]**
+**[SLIDE 31 - Évolutions Futures]**
 
 **Court Terme (Q1 2026) :**
 
@@ -1665,7 +1913,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.3 Métriques de Succès
 
-**[SLIDE 31 - KPIs Sécurité]**
+**[SLIDE 32 - KPIs Sécurité]**
 
 **Métriques à Suivre :**
 
@@ -1681,7 +1929,7 @@ echo "✅ Incident Response Complete"
 
 ### 9.4 Resources et Documentation
 
-**[SLIDE 32 - Ressources]**
+**[SLIDE 33 - Ressources]**
 
 **Documentation Technique :**
 
@@ -1716,7 +1964,7 @@ Commit: f993a1d (latest)
 
 ### 9.5 Clôture
 
-**[SLIDE 33 - Questions]**
+**[SLIDE 34 - Questions]**
 
 > "Nous avons couvert beaucoup de terrain aujourd'hui : de la topologie réseau jusqu'à la réponse aux incidents, en passant par l'authentification centralisée et le MCP Server."
 
@@ -1854,7 +2102,7 @@ aws logs insights start-query \
 
 **FIN DE LA PRÉSENTATION**
 
-**Durée Totale : 65 minutes (50 min présentation + 15 min Q&A)**
+**Durée Totale : 75 minutes (60 min présentation + 15 min Q&A)**
 
 ---
 
