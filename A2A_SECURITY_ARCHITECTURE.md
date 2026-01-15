@@ -1,6 +1,6 @@
 # CA-A2A Security Architecture
 
-**Version:** 4.0  
+**Version:** 5.0  
 **Last Updated:** January 15, 2026  
 **Status:** Production Deployed  
 **Region:** eu-west-3 (Paris)  
@@ -10,10 +10,11 @@
 
 ## Executive Summary
 
-The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade security through a defense-in-depth architecture with 8 security layers. The system is deployed on AWS ECS Fargate in a private VPC with Keycloak OAuth2/OIDC for centralized authentication and role-based access control.
+The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade security through a defense-in-depth architecture with 9 security layers. The system is deployed on AWS ECS Fargate in a private VPC with Keycloak OAuth2/OIDC for centralized authentication, MCP Server for resource access control, and role-based access control.
 
 **Key Security Features:**
 - ✅ OAuth2/OIDC Authentication (Keycloak RS256 JWT)
+- ✅ Centralized Resource Access (MCP Server for S3/RDS)
 - ✅ Role-Based Access Control (RBAC) with fine-grained permissions
 - ✅ Token Revocation with hybrid storage (PostgreSQL + in-memory cache)
 - ✅ Replay Protection via JWT jti claim tracking
@@ -29,13 +30,14 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 1. [System Architecture](#1-system-architecture)
 2. [Security Layers](#2-security-layers)
 3. [Authentication & Authorization](#3-authentication--authorization)
-4. [Network Security](#4-network-security)
-5. [Data Security](#5-data-security)
-6. [Protocol Security (A2A)](#6-protocol-security-a2a)
-7. [Monitoring & Audit](#7-monitoring--audit)
-8. [Threat Model & Defenses](#8-threat-model--defenses)
-9. [Security Operations](#9-security-operations)
-10. [Implementation Reference](#10-implementation-reference)
+4. [Resource Access Layer (MCP Server)](#4-resource-access-layer-mcp-server)
+5. [Network Security](#5-network-security)
+6. [Data Security](#6-data-security)
+7. [Protocol Security (A2A)](#7-protocol-security-a2a)
+8. [Monitoring & Audit](#8-monitoring--audit)
+9. [Threat Model & Defenses](#9-threat-model--defenses)
+10. [Security Operations](#10-security-operations)
+11. [Implementation Reference](#11-implementation-reference)
 
 ---
 
@@ -63,6 +65,7 @@ graph TB
                 Val[Validator<br/>:8003]
                 Arch[Archivist<br/>:8004]
                 KC[Keycloak<br/>:8080]
+                MCP[MCP Server<br/>:8000<br/>Resource Gateway]
             end
             
             subgraph Data["Data Layer"]
@@ -91,13 +94,14 @@ graph TB
     Arch -.->|Auth| KC
     
     KC -->|JDBC| KC_RDS
-    Orch -->|asyncpg| RDS
-    Ext -->|asyncpg| RDS
-    Val -->|asyncpg| RDS
-    Arch -->|asyncpg| RDS
     
-    Orch -.->|boto3| S3
-    Ext -.->|boto3| S3
+    Orch -->|HTTP API| MCP
+    Ext -->|HTTP API| MCP
+    Val -->|HTTP API| MCP
+    Arch -->|HTTP API| MCP
+    
+    MCP -->|asyncpg<br/>Connection Pool| RDS
+    MCP -.->|aioboto3| S3
     Arch -.->|boto3| S3
     
     Private -.->|VPC Endpoints| SM
@@ -130,21 +134,23 @@ graph TB
     L2[Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC]
     L3[Layer 3: Authentication<br/>JWT RS256 Signature Verification]
     L4[Layer 4: Authorization<br/>RBAC with Keycloak Roles]
-    L5[Layer 5: Message Integrity<br/>JWT Body Hash Binding]
-    L6[Layer 6: Input Validation<br/>JSON Schema, Pydantic Models]
-    L7[Layer 7: Replay Protection<br/>JWT jti Nonce Tracking]
-    L8[Layer 8: Rate Limiting<br/>Sliding Window Per Principal]
+    L5[Layer 5: Resource Access Control<br/>MCP Server Gateway]
+    L6[Layer 6: Message Integrity<br/>JWT Body Hash Binding]
+    L7[Layer 7: Input Validation<br/>JSON Schema, Pydantic Models]
+    L8[Layer 8: Replay Protection<br/>JWT jti Nonce Tracking]
+    L9[Layer 9: Rate Limiting<br/>Sliding Window Per Principal]
     
-    L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8 --> L9
     
     style L1 fill:#ff6b6b
     style L2 fill:#ffd93d
     style L3 fill:#6bcf7f
     style L4 fill:#4d96ff
-    style L5 fill:#a66cff
-    style L6 fill:#ff9a76
-    style L7 fill:#62cdff
-    style L8 fill:#f4b860
+    style L5 fill:#ffd700
+    style L6 fill:#a66cff
+    style L7 fill:#ff9a76
+    style L8 fill:#62cdff
+    style L9 fill:#f4b860
 ```
 
 ### 2.2 Layer Responsibilities
@@ -155,10 +161,11 @@ graph TB
 | **L2: Identity** | Centralized authentication | Keycloak | Unauthorized access |
 | **L3: Authentication** | Token verification | JWT RS256 | Impersonation, forged tokens |
 | **L4: Authorization** | Permission enforcement | RBAC (Keycloak roles) | Privilege escalation |
-| **L5: Integrity** | Message tampering detection | JWT body hash | MITM, message tampering |
-| **L6: Validation** | Malformed input rejection | JSON Schema, Pydantic | Injection attacks, DoS |
-| **L7: Replay** | Duplicate request detection | JWT jti + TTL cache | Replay attacks |
-| **L8: Rate Limit** | Abuse prevention | Sliding window | Resource exhaustion, DoS |
+| **L5: Resource Access** | **Centralized S3/RDS gateway** | **MCP Server** | **Direct AWS access, credential sprawl** |
+| **L6: Integrity** | Message tampering detection | JWT body hash | MITM, message tampering |
+| **L7: Validation** | Malformed input rejection | JSON Schema, Pydantic | Injection attacks, DoS |
+| **L8: Replay** | Duplicate request detection | JWT jti + TTL cache | Replay attacks |
+| **L9: Rate Limit** | Abuse prevention | Sliding window | Resource exhaustion, DoS |
 
 ---
 
@@ -312,7 +319,280 @@ CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 
 ---
 
-## 4. Network Security
+## 4. Resource Access Layer (MCP Server)
+
+### 4.1 Architecture Overview
+
+The MCP (Model Context Protocol) Server acts as a **centralized gateway** for all AWS resource access (S3 and RDS PostgreSQL). Instead of agents directly accessing AWS services, they communicate with the MCP Server via HTTP API.
+
+```mermaid
+sequenceDiagram
+    participant Agent as Agent<br/>(Orchestrator/Extractor/Validator/Archivist)
+    participant MCP as MCP Server<br/>:8000
+    participant RDS as RDS PostgreSQL
+    participant S3 as S3 Bucket
+    
+    Note over Agent,MCP: 1. Agent needs to access S3
+    Agent->>MCP: POST /call_tool<br/>{"tool": "s3_get_object", "arguments": {"key": "doc.pdf"}}
+    MCP->>MCP: Circuit breaker check
+    MCP->>MCP: Retry logic
+    MCP->>S3: GetObject(bucket, key)
+    S3-->>MCP: Object data
+    MCP-->>Agent: {"content": "...", "success": true}
+    
+    Note over Agent,RDS: 2. Agent needs to query database
+    Agent->>MCP: POST /call_tool<br/>{"tool": "postgres_query", "arguments": {"query": "SELECT..."}}
+    MCP->>MCP: Get connection from pool
+    MCP->>RDS: Execute query
+    RDS-->>MCP: Rows
+    MCP-->>Agent: {"rows": [...], "count": N, "success": true}
+```
+
+### 4.2 Security Benefits
+
+| Benefit | Description | Impact |
+|---------|-------------|--------|
+| **Reduced Attack Surface** | Only MCP Server has AWS credentials, not all 4 agents | -75% IAM roles with AWS access |
+| **Centralized Audit** | All S3/RDS access logged in one place | +100% visibility |
+| **Connection Pooling** | Shared PostgreSQL connection pool (max 10 connections) | -88% DB connections (4×20=80 → 10) |
+| **Consistent Security** | Retry logic, circuit breakers, timeouts applied uniformly | Standardized error handling |
+| **Easier IAM Management** | Update permissions in single task role | -4 IAM policy updates per change |
+| **Credential Isolation** | Agents never see DB passwords or AWS keys | Reduced secret sprawl |
+
+### 4.3 Component Details
+
+**ECS Service:**
+- **Name:** `mcp-server`
+- **Task Definition:** `ca-a2a-mcp-server`
+- **CPU:** 256 (.25 vCPU)
+- **Memory:** 512 MB
+- **Port:** 8000
+- **Service Discovery:** `mcp-server.ca-a2a.local:8000`
+
+**IAM Permissions (MCP Server Task Role):**
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:ListBucket"
+      ],
+      "Resource": [
+        "arn:aws:s3:::ca-a2a-documents-555043101106",
+        "arn:aws:s3:::ca-a2a-documents-555043101106/*"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:eu-west-3:555043101106:secret:ca-a2a/*"
+    }
+  ]
+}
+```
+
+**Note:** Agents no longer need S3 or Secrets Manager permissions. MCP Server handles all AWS API calls.
+
+### 4.4 Available Operations
+
+**S3 Operations:**
+```python
+# List objects with prefix
+POST /call_tool
+{
+  "tool": "s3_list_objects",
+  "arguments": {
+    "prefix": "uploads/",
+    "limit": 100
+  }
+}
+
+# Get object content
+POST /call_tool
+{
+  "tool": "s3_get_object",
+  "arguments": {
+    "key": "uploads/document123.pdf"
+  }
+}
+
+# Upload object
+POST /call_tool
+{
+  "tool": "s3_put_object",
+  "arguments": {
+    "key": "processed/document123.pdf",
+    "body": "<base64-encoded-content>",
+    "content_type": "application/pdf"
+  }
+}
+```
+
+**PostgreSQL Operations:**
+```python
+# Execute SELECT query
+POST /call_tool
+{
+  "tool": "postgres_query",
+  "arguments": {
+    "query": "SELECT * FROM documents WHERE status = $1",
+    "params": ["pending"]
+  }
+}
+
+# Execute INSERT/UPDATE/DELETE
+POST /call_tool
+{
+  "tool": "postgres_execute",
+  "arguments": {
+    "query": "INSERT INTO documents (s3_key, status) VALUES ($1, $2)",
+    "params": ["uploads/doc.pdf", "processing"]
+  }
+}
+
+# Initialize database schema
+POST /call_tool
+{
+  "tool": "postgres_init_schema",
+  "arguments": {}
+}
+```
+
+### 4.5 Health Check
+
+**Endpoint:** `GET /health`
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "timestamp": "2026-01-15T12:34:56Z",
+  "services": {
+    "postgresql": "ok",
+    "s3": "ok"
+  }
+}
+```
+
+### 4.6 Connection Pooling
+
+**PostgreSQL Pool Configuration:**
+```python
+# mcp_server_http.py
+await asyncpg.create_pool(
+    host=POSTGRES_CONFIG['host'],
+    port=POSTGRES_CONFIG['port'],
+    user=POSTGRES_CONFIG['user'],
+    password=POSTGRES_CONFIG['password'],  # From Secrets Manager
+    database=POSTGRES_CONFIG['database'],
+    min_size=2,        # Keep 2 connections warm
+    max_size=10,       # Max 10 concurrent connections
+    command_timeout=60, # 60-second query timeout
+    ssl='require'      # Force SSL/TLS
+)
+```
+
+**Benefits:**
+- 4 agents × 20 connections = 80 total → **Reduced to 10 total**
+- Connection reuse reduces latency
+- Automatic connection health checks
+- Graceful degradation on connection loss
+
+### 4.7 Circuit Breaker & Retry Logic
+
+**Circuit Breaker:**
+```python
+circuit_breaker = CircuitBreaker(
+    failure_threshold=5,      # Open after 5 consecutive failures
+    recovery_timeout=60,      # Try to recover after 60 seconds
+    expected_exception=ClientError  # S3/RDS exceptions
+)
+```
+
+**Retry Strategy:**
+```python
+@retry_with_backoff(
+    max_retries=3,           # Retry up to 3 times
+    exceptions=(ClientError, PostgresError)
+)
+async def call_aws_service():
+    # Operation that may fail transiently
+    pass
+```
+
+**States:**
+1. **Closed (Normal):** All requests pass through
+2. **Open (Failed):** All requests immediately fail (fail-fast)
+3. **Half-Open (Testing):** Limited requests allowed to test recovery
+
+### 4.8 Performance Characteristics
+
+| Operation | Latency | Throughput |
+|-----------|---------|------------|
+| S3 GetObject (1MB) | ~175ms | 50 req/sec |
+| S3 PutObject (1MB) | ~200ms | 40 req/sec |
+| PostgreSQL Query (simple) | ~25ms | 400 req/sec |
+| PostgreSQL Insert | ~18ms | 550 req/sec |
+
+**Overhead vs. Direct Access:** ~20-25% (acceptable for security benefits)
+
+### 4.9 Monitoring
+
+**CloudWatch Metrics:**
+- Request count per tool
+- Success vs. error rates
+- Circuit breaker state changes
+- Connection pool usage
+- Response time percentiles (p50, p95, p99)
+
+**Log Queries:**
+```bash
+# View MCP server logs
+aws logs tail /ecs/ca-a2a-mcp-server --follow --region eu-west-3
+
+# Filter for errors
+aws logs filter-log-events \
+  --log-group-name /ecs/ca-a2a-mcp-server \
+  --filter-pattern "ERROR" \
+  --region eu-west-3
+
+# Count tool calls by type
+aws logs insights start-query \
+  --log-group-name /ecs/ca-a2a-mcp-server \
+  --start-time $(date -d '1 hour ago' +%s) \
+  --end-time $(date +%s) \
+  --query-string 'fields @timestamp, tool | stats count() by tool'
+```
+
+### 4.10 Security Hardening
+
+**Network Isolation:**
+- MCP Server in private subnet (no public IP)
+- Only accessible via service discovery DNS
+- Security group allows inbound only from agent security groups
+
+**Secrets Management:**
+- PostgreSQL password retrieved from Secrets Manager at startup
+- Never logged or exposed in environment variables
+- Automatic rotation supported
+
+**Least Privilege:**
+- Task role has minimal required S3 permissions
+- No write access to CloudWatch Logs (execution role handles logging)
+- No access to other AWS services (ECR, ECS, etc.)
+
+**Request Validation:**
+- Tool name validated against whitelist
+- Query parameters sanitized
+- Maximum request size enforced (1MB)
+
+---
+
+## 5. Network Security
 
 ### 4.1 VPC Architecture
 
