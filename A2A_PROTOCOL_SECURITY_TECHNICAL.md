@@ -448,8 +448,7 @@ Production task configuration details:
 ---
 
 ### **Security Groups: Network-Level Enforcement**
-
-This screenshot shows the actual security group rules implementing Layer 1 (Network Security):
+<img width="673" height="470" alt="image" src="https://github.com/user-attachments/assets/e938c312-f7e9-425e-82c2-ec488610f548" />
 
 **Inbound Rules Example (Orchestrator):**
 - Port 8001 from Lambda security group (for process_document calls)
@@ -536,7 +535,7 @@ The RDS cluster provides persistent storage for:
 ---
 
 ### **Authentication Flow with Token Binding**
-<img width="1374" height="598" alt="Capture d’écran 2026-01-11 223046" src="https://github.com/user-attachments/assets/f38999f7-895f-459f-8021-00d7d3483211" />
+<img width="1113" height="510" alt="image" src="https://github.com/user-attachments/assets/f713e9a1-080b-442a-bdae-4c5229f41eea" />
 
 ```mermaid
 sequenceDiagram
@@ -801,6 +800,7 @@ async def _verify_keycloak_jwt(
 ## Token Binding (RFC 8473) & Mutual TLS
 
 ### **Overview**
+<img width="1117" height="515" alt="image" src="https://github.com/user-attachments/assets/0fed7195-4acb-4c88-9ce3-39f12c1918f4" />
 
 Building on Keycloak OAuth2/OIDC, the system now implements **enterprise-grade proof-of-possession security**:
 
@@ -812,17 +812,8 @@ Building on Keycloak OAuth2/OIDC, the system now implements **enterprise-grade p
 
 **Security Upgrade**: Keycloak-only → Keycloak + Token Binding + mTLS
 
-### **Security Transformation**
-
-| Attack Vector | Before (Keycloak Only) | After (+ Token Binding + mTLS) |
-|---------------|------------------------|-------------------------------|
-| **Token Theft** | ⚠️ Token valid from any client | ✅ Token bound to certificate |
-| **Token Replay** | ⚠️ Valid for 5 minutes | ✅ Requires certificate + private key | 
-| **Man-in-the-Middle** | ⚠️ Server TLS only | ✅ Mutual TLS authentication | 
-| **Impersonation** | ⚠️ JWT signature check | ✅ JWT + Certificate verification | 
-| **Credential Stuffing** | ⚠️ Credentials → token | ✅ Credentials + certificate required | 
-
 ### **Token Binding Architecture**
+<img width="567" height="357" alt="image" src="https://github.com/user-attachments/assets/e0468375-2814-4d61-8627-2aa406b8694f" />
 
 **What is Token Binding (RFC 8473)?**
 
