@@ -535,7 +535,6 @@ The RDS cluster provides persistent storage for:
 ---
 
 ### **Authentication Flow with Token Binding**
-<img width="1113" height="510" alt="image" src="https://github.com/user-attachments/assets/f713e9a1-080b-442a-bdae-4c5229f41eea" />
 
 ```mermaid
 sequenceDiagram
