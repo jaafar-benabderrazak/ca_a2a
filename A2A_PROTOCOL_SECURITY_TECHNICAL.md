@@ -2041,83 +2041,291 @@ CREATE INDEX idx_revoked_expires ON revoked_tokens(expires_at);
 CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 ```
 
-### **Revocation Code Implementation**
+### **Token Revocation Implementation**
 
-**Revoke Token** (`a2a_security_enhanced.py:200-225`):
-```python
-class TokenRevocationList:
- def __init__(self, db_pool: Optional[asyncpg.Pool] = None):
- self.db_pool = db_pool
- self._revoked_cache: Dict[str, int] = {} # {jti: expires_at_timestamp}
- 
- async def revoke_token(
- self,
- jti: str,
- expires_at: datetime,
- reason: str = "manual",
- revoked_by: str = "system"
- ) -> bool:
- """
- Revoke a token
- 
- Stores in both database (persistent) and cache (fast lookup)
- """
- if self.db_pool:
- async with self.db_pool.acquire() as conn:
- await conn.execute(
- """
- INSERT INTO revoked_tokens (jti, expires_at, reason, revoked_by)
- VALUES ($1, $2, $3, $4)
- ON CONFLICT (jti) DO UPDATE SET
- expires_at = GREATEST(EXCLUDED.expires_at, revoked_tokens.expires_at),
- reason = EXCLUDED.reason,
- revoked_by = EXCLUDED.revoked_by,
- revoked_at = CURRENT_TIMESTAMP;
- """,
- jti, expires_at, reason, revoked_by
- )
- 
- # Add to in-memory cache for fast lookup
- self._revoked_cache[jti] = int(expires_at.timestamp())
- 
- logger.info(f"Token {jti} revoked by {revoked_by}: {reason}")
- return True
- 
- async def is_revoked(self, jti: str) -> bool:
- """
- Check if token is revoked
- 
- Checks cache first, then database
- """
- now_ts = int(time.time())
- 
- # Check in-memory cache (fast)
- if jti in self._revoked_cache:
- if self._revoked_cache[jti] > now_ts:
- return True # Still revoked
- else:
- del self._revoked_cache[jti] # Expired, clean up
- 
- # Check database (persistent)
- if self.db_pool:
- async with self.db_pool.acquire() as conn:
- record = await conn.fetchrow(
- "SELECT expires_at FROM revoked_tokens WHERE jti = $1 AND expires_at > NOW()",
- jti
- )
- if record:
- self._revoked_cache[jti] = int(record['expires_at'].timestamp())
- return True
- 
- return False
+#### **Storage Architecture: Hybrid Approach**
+
+Token revocation uses a **two-tier storage system** for optimal performance and reliability:
+
+1. **Primary Storage: PostgreSQL Database**
+   - Persistent across restarts
+   - Shared across all agent instances
+   - Source of truth for revoked tokens
+
+2. **Secondary Storage: In-Memory Cache**
+   - Ultra-fast lookups (~1μs)
+   - Reduces database load
+   - Automatic TTL-based cleanup
+
+**Storage Flow:**
+```mermaid
+graph LR
+    Admin[Admin] -->|POST /admin/revoke-token| API[Admin API]
+    API -->|1. Store| Cache[Memory Cache]
+    API -->|2. Store| DB[(PostgreSQL)]
+    
+    Request[Request] -->|Check| Cache
+    Cache -->|Miss| DB
+    DB -->|Result| Cache
+    Cache -->|Hit/Miss| Response[401 or 200]
+    
+    style Cache fill:#FFD700
+    style DB fill:#90EE90
 ```
 
-**Integration with Authentication:**
+#### **Code Implementation**
+
+**File:** `a2a_security_enhanced.py` (lines 285-437)
+
+**1. Revoke Token:**
 ```python
-# In authenticate_and_authorize()
-if self.enable_token_revocation and "jwt_jti" in auth_ctx:
- if await self.token_revocation_list.is_revoked(auth_ctx["jwt_jti"]):
- raise ForbiddenError("Token has been revoked")
+class TokenRevocationList:
+    def __init__(self, db_pool=None):
+        self.db_pool = db_pool
+        self._memory_cache: Dict[str, RevokedToken] = {}
+        self._last_cleanup = time.time()
+    
+    async def revoke_token(
+        self,
+        jti: str,
+        reason: str,
+        revoked_by: str,
+        expires_at: Optional[datetime] = None
+    ) -> bool:
+        """
+        Add token to revocation list.
+        
+        Args:
+            jti: JWT ID (jti claim from token)
+            reason: Human-readable reason ("Security breach", "Employee terminated")
+            revoked_by: Admin username who revoked it
+            expires_at: When token expires (for automatic cleanup)
+        
+        Returns:
+            True if successfully revoked
+        """
+        if expires_at is None:
+            expires_at = datetime.utcnow() + timedelta(days=30)
+        
+        revoked = RevokedToken(
+            jti=jti,
+            revoked_at=datetime.utcnow(),
+            revoked_by=revoked_by,
+            reason=reason,
+            expires_at=expires_at
+        )
+        
+        # Step 1: Store in memory cache (fast)
+        self._memory_cache[jti] = revoked
+        
+        # Step 2: Store in database (persistent)
+        if self.db_pool:
+            async with self.db_pool.acquire() as conn:
+                await conn.execute('''
+                    INSERT INTO revoked_tokens (jti, revoked_at, revoked_by, reason, expires_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (jti) DO UPDATE
+                    SET revoked_at = EXCLUDED.revoked_at,
+                        reason = EXCLUDED.reason
+                ''', jti, revoked.revoked_at, revoked_by, reason, expires_at)
+                logger.info(f"Token {jti} revoked in database: {reason}")
+        
+        logger.info(f"Token {jti} revoked by {revoked_by}: {reason}")
+        return True
+```
+
+**2. Check if Revoked:**
+```python
+async def is_revoked(self, jti: str) -> bool:
+    """
+    Check if token is revoked.
+    
+    Performance optimizations:
+    - Memory cache checked first (~1μs lookup)
+    - Database checked on cache miss (~10ms query)
+    - Results cached for future requests
+    - Expired tokens automatically removed
+    """
+    # Check 1: Memory cache (fast path)
+    if jti in self._memory_cache:
+        revoked = self._memory_cache[jti]
+        if revoked.expires_at > datetime.utcnow():
+            return True  # Token is revoked
+        else:
+            # Token expired, remove from cache
+            del self._memory_cache[jti]
+    
+    # Check 2: Database (persistent, slow path)
+    if self.db_pool:
+        async with self.db_pool.acquire() as conn:
+            result = await conn.fetchrow('''
+                SELECT jti, expires_at FROM revoked_tokens
+                WHERE jti = $1 AND expires_at > NOW()
+            ''', jti)
+            
+            if result:
+                # Cache for future checks
+                self._memory_cache[jti] = RevokedToken(
+                    jti=result['jti'],
+                    revoked_at=datetime.utcnow(),
+                    revoked_by="db",
+                    reason="cached from db",
+                    expires_at=result['expires_at']
+                )
+                return True  # Token is revoked
+    
+    # Periodic cleanup of expired tokens
+    self._cleanup_expired()
+    
+    return False  # Token not revoked
+```
+
+**3. Integration with Authentication:**
+```python
+# In A2ASecurityManager.authenticate_and_authorize()
+async def authenticate_and_authorize(self, headers, message_method, message_dict):
+    # ... JWT verification ...
+    
+    # Check token revocation
+    if self.enable_token_revocation:
+        jti = claims.get("jti")
+        if jti and await self.token_revocation_list.is_revoked(jti):
+            raise ForbiddenError("Token has been revoked")
+    
+    return principal, auth_context
+```
+
+#### **Admin API for Token Revocation**
+
+**File:** `admin_api.py`
+
+**Revoke Token Endpoint:**
+```bash
+POST /admin/revoke-token
+Authorization: Bearer <admin-jwt>
+Content-Type: application/json
+
+{
+  "jti": "abc123-token-id",
+  "reason": "Security breach - employee terminated",
+  "revoked_by": "admin@example.com"
+}
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "message": "Token revoked successfully",
+  "jti": "abc123-token-id",
+  "revoked_at": "2026-01-15T10:30:00Z"
+}
+```
+
+**List Revoked Tokens:**
+```bash
+GET /admin/revoked-tokens?limit=100
+Authorization: Bearer <admin-jwt>
+```
+
+**Response:**
+```json
+{
+  "tokens": [
+    {
+      "jti": "abc123",
+      "revoked_at": "2026-01-15T10:30:00Z",
+      "revoked_by": "admin@example.com",
+      "reason": "Security breach",
+      "expires_at": "2026-02-15T10:30:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 100
+}
+```
+
+#### **Database Migration**
+
+**File:** `migrations/001_create_revoked_tokens_table.sql`
+
+Run migration:
+```bash
+# Option 1: Using script
+./migrations/run_migration.sh
+
+# Option 2: Manual (from AWS CloudShell)
+aws rds execute-statement \
+  --resource-arn <cluster-arn> \
+  --secret-arn <secret-arn> \
+  --database documents \
+  --sql "$(cat migrations/001_create_revoked_tokens_table.sql)"
+```
+
+#### **Performance Characteristics**
+
+| Operation | Latency | Notes |
+|-----------|---------|-------|
+| **Revoke token** | ~10ms | DB write + memory store |
+| **Check revoked (cached)** | ~1μs | Memory lookup only |
+| **Check revoked (miss)** | ~10ms | DB query + cache store |
+| **Cleanup expired** | ~100ms | Every 5 minutes, async |
+
+**Storage Estimates:**
+- Per token: ~300 bytes
+- 1M revoked tokens: ~300 MB in database
+- Memory cache: 1,000-10,000 tokens = 300KB-3MB per agent
+
+#### **Common Use Cases**
+
+1. **Employee Termination:**
+```python
+await revocation_list.revoke_token(
+    jti="employee-token-123",
+    reason="Employee terminated",
+    revoked_by="hr-admin"
+)
+```
+
+2. **Security Breach:**
+```python
+# Revoke all tokens for compromised agent
+for jti in compromised_agent_tokens:
+    await revocation_list.revoke_token(
+        jti=jti,
+        reason="Security breach - agent compromised",
+        revoked_by="security-team"
+    )
+```
+
+3. **Token Rotation:**
+```python
+# Revoke old token after issuing new one
+await revocation_list.revoke_token(
+    jti=old_token_jti,
+    reason="Token rotation - new token issued",
+    revoked_by="system"
+)
+```
+
+#### **Automatic Cleanup**
+
+Expired tokens are automatically cleaned up:
+
+**Memory Cache:** Every 5 minutes
+```python
+def _cleanup_expired(self):
+    now_dt = datetime.utcnow()
+    expired = [jti for jti, rev in self._memory_cache.items() 
+               if rev.expires_at <= now_dt]
+    for jti in expired:
+        del self._memory_cache[jti]
+```
+
+**Database:** Scheduled job (recommended: daily)
+```sql
+-- Run as cron job or AWS EventBridge rule
+DELETE FROM revoked_tokens WHERE expires_at < NOW() - INTERVAL '7 days';
 ```
 
 ---
