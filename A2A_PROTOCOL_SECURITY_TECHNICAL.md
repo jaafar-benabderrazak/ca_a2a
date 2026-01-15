@@ -16,7 +16,7 @@
 4. [Security Layers Deep Dive](#security-layers-deep-dive)
 5. [Authentication Mechanisms](#authentication-mechanisms)
 6. [Authorization & RBAC](#authorization--rbac)
-7. [Message Integrity (HMAC)](#message-integrity-hmac)
+7. [Message Integrity](#message-integrity)
 8. [Input Validation (JSON Schema)](#input-validation-json-schema)
 9. [Replay Protection](#replay-protection)
 10. [Rate Limiting](#rate-limiting)
@@ -335,19 +335,19 @@ graph TB
  L1_Check -->|No| Reject1[ Connection Refused<br/>TCP RST]
  L1_Check -->|Yes| L2
  
- L2[Layer 2: Transport Security<br/>TLS Encryption] --> L2_Check{TLS Valid?}
+ L2[Layer 2: Transport Security<br/>mTLS (TLS 1.2+)] --> L2_Check{TLS Valid?}
  L2_Check -->|No| Reject2[ SSL Handshake Failed]
  L2_Check -->|Yes| L3
  
- L3[Layer 3: Message Integrity<br/>HMAC Signature] --> L3_Check{Signature Valid?}
- L3_Check -->|No| Reject3[ 401 Tampered Request]
+ L3[Layer 3: Authentication<br/>Keycloak JWT + mTLS] --> L3_Check{Auth Valid?}
+ L3_Check -->|No| Reject3[ 401 Unauthorized]
  L3_Check -->|Yes| L4
  
- L4[Layer 4: Authentication<br/>API Key / JWT] --> L4_Check{Auth Valid?}
- L4_Check -->|No| Reject4[ 401 Unauthorized]
+ L4[Layer 4: Token Binding<br/>RFC 8473] --> L4_Check{Cert Matches?}
+ L4_Check -->|No| Reject4[ 401 Token Not Bound]
  L4_Check -->|Yes| L5
  
- L5[Layer 5: Authorization<br/>RBAC Policy] --> L5_Check{Principal Allowed?}
+ L5[Layer 5: Authorization<br/>Dynamic RBAC] --> L5_Check{Principal Allowed?}
  L5_Check -->|No| Reject5[ 403 Forbidden]
  L5_Check -->|Yes| L6
  
@@ -359,7 +359,7 @@ graph TB
  L7_Check -->|No| Reject7[ 429 Rate Exceeded]
  L7_Check -->|Yes| L8
  
- L8[Layer 8: Replay Protection<br/>Nonce + Timestamp] --> L8_Check{Fresh Request?}
+ L8[Layer 8: Replay Protection<br/>JWT Expiration (5 min)] --> L8_Check{Token Fresh?}
  L8_Check -->|No| Reject8[ 401 Replay Detected]
  L8_Check -->|Yes| Handler
  
@@ -403,7 +403,9 @@ graph TB
 | **6. Authorization** | Dynamic RBAC (Keycloak roles) | Privilege escalation |
 | **7. Validation** | JSON Schema | Injection, XSS, path traversal | 
 | **8. Rate Limiting** | Token bucket | DoS, abuse | 
-| **9. Replay Protection** | Token expiration + Nonce | Replay attacks | 
+| **9. Replay Protection** | JWT expiration (5 min) | Replay attacks |
+
+**Note:** HMAC request signing is available as an optional additional layer but is **not enabled by default** in production. 
 
 ###  **Production Deployment: ECS Fargate Cluster**
 
@@ -541,10 +543,10 @@ sequenceDiagram
     participant Client as Lambda (Client)
     participant Keycloak
     participant Agent as Orchestrator (Server)
-    participant Security as A2ASecurityManager
+ participant Security as A2ASecurityManager
     participant JWKS as JWKS Endpoint
-    participant Handler as Method Handler
-    
+ participant Handler as Method Handler
+ 
     Note over Client: 1. Obtain Certificate-Bound Token
     Client->>Keycloak: POST /token (mTLS connection)<br/>+ client certificate<br/>+ client_credentials grant
     Keycloak->>Keycloak: Verify client certificate
@@ -580,8 +582,8 @@ sequenceDiagram
         
         Note over Agent: 7. Execute Method
         Agent->>Handler: Execute method with principal context
-        Handler-->>Agent: Result
-        Agent-->>Client: 200 OK + Result
+ Handler-->>Agent: Result
+ Agent-->>Client: 200 OK + Result
     else Token Binding Invalid
         Security-->>Client: 401 Unauthorized<br/>(Token not bound to certificate)
     else Certificate Invalid
@@ -594,7 +596,7 @@ sequenceDiagram
 **Configuration** (`a2a_security.py`):
 ```python
 class A2ASecurityManager:
-    def __init__(self, agent_id: str):
+ def __init__(self, agent_id: str):
         self.agent_id = _normalize_agent_id(agent_id)
         self.require_auth = os.getenv("A2A_REQUIRE_AUTH", "true").lower() == "true"
         self.enable_rate_limit = os.getenv("A2A_ENABLE_RATE_LIMIT", "true").lower() == "true"
@@ -649,8 +651,8 @@ async def authenticate_and_authorize(
 ) -> Dict[str, Any]:
     """
     Authenticate and authorize request using Keycloak JWT + mTLS + Token Binding
-    
-    Security Features:
+ 
+ Security Features:
     1. RS256 signature verification (asymmetric cryptography)
     2. Token expiration validation
     3. Issuer verification (prevents token substitution)
@@ -709,8 +711,8 @@ async def _verify_keycloak_jwt(
         "token_binding_verified": client_cert_pem is not None,
         "mtls_verified": client_cert_pem is not None,
         "token_claims": claims,
-        "authenticated_at": time.time()
-    }
+ "authenticated_at": time.time()
+ }
     
     logger.info(
         f"Authentication successful: username={username}, principal={principal}, "
@@ -723,7 +725,7 @@ async def _verify_keycloak_jwt(
 **Security Considerations:**
 
 1. **Asymmetric Cryptography (RS256):**
-   ```python
+ ```python
    # Keycloak signs with PRIVATE key (secret)
    signature = RSA_sign(private_key, token_payload)
    
@@ -737,7 +739,7 @@ async def _verify_keycloak_jwt(
    ```
 
 2. **JWKS Public Key Caching:**
-   ```python
+ ```python
    # Public key cached for 1 hour (reduces Keycloak load)
    jwks_cache = {
        "keys": [...],
@@ -750,7 +752,7 @@ async def _verify_keycloak_jwt(
    ```
 
 3. **Token Expiration:**
-   ```python
+ ```python
    # Short-lived access tokens (5 minutes)
    exp_claim = claims["exp"] # 1736900100
    now = int(time.time()) # 1736899900
@@ -1589,10 +1591,77 @@ A2A_RBAC_POLICY_JSON='{
 
 ---
 
-## ️ Message Integrity (HMAC)
+## ️ Message Integrity
 
-### **HMAC Signing & Verification Flow**
-<img width="1386" height="578" alt="Capture d’écran 2026-01-11 223027" src="https://github.com/user-attachments/assets/dc82f3c4-0070-47e2-9a11-87b86571d6ba" />
+### **Primary Mechanism: JWT Signature Verification (RS256)**
+
+**Production Configuration:**
+- ✅ **JWT Signatures (RS256)** - Default and recommended
+- ⚠️ **HMAC Request Signing** - Optional, not enabled by default
+
+In production, message integrity is ensured through **Keycloak JWT signatures (RS256)**. Every access token is cryptographically signed by Keycloak, and agents verify the signature using public keys from the JWKS endpoint. This provides:
+
+- ✅ **Message Integrity** - Any modification to JWT claims breaks the signature
+- ✅ **Non-repudiation** - Only Keycloak can sign tokens (private key)
+- ✅ **Token Binding** - Combined with RFC 8473 for certificate-bound tokens
+- ✅ **Zero Configuration** - No shared secrets between agents
+- ✅ **Key Rotation** - Keycloak manages key lifecycle automatically
+
+**JWT Signature Flow:**
+```mermaid
+sequenceDiagram
+    participant Keycloak
+    participant Agent
+    participant JWKS
+    
+    Note over Keycloak: Sign Token
+    Keycloak->>Keycloak: Create JWT claims
+    Keycloak->>Keycloak: Sign with RSA private key (RS256)
+    Keycloak->>Agent: Access Token (signed JWT)
+    
+    Note over Agent: Verify Signature
+    Agent->>JWKS: GET /certs (fetch public keys)
+    JWKS-->>Agent: RSA public key
+    Agent->>Agent: Verify signature with public key
+    
+    alt Signature Valid
+        Agent->>Agent: Extract claims, proceed
+    else Signature Invalid
+        Agent-->>Agent: 401 Unauthorized (tampered token)
+    end
+```
+
+**Why JWT Signatures Replace HMAC:**
+| Feature | JWT Signature (RS256) | HMAC Request Signing |
+|---------|----------------------|---------------------|
+| **Key Distribution** | Public keys via JWKS | Shared secrets required |
+| **Key Rotation** | Automatic (Keycloak) | Manual coordination |
+| **Token Binding** | ✅ Supported (RFC 8473) | ❌ No token binding |
+| **Overhead** | ~2ms (cached keys) | ~0.3ms per request |
+| **Configuration** | Zero (default) | Requires secrets |
+| **Production Status** | ✅ **Active** | ⚠️ Optional |
+
+---
+
+### **Optional: HMAC Request Signing (Not Used by Default)**
+
+**Status:** Available as an additional security layer but **disabled by default** in production.
+
+**Configuration:**
+```bash
+# To enable HMAC (optional, not recommended with JWT signatures):
+A2A_ENABLE_HMAC_SIGNING=true
+A2A_HMAC_SECRET_KEY=<64-char-secret>
+A2A_HMAC_MAX_AGE_SECONDS=300
+```
+
+**Note:** HMAC request signing adds redundancy when JWT signatures are already in use. It may be useful for:
+- Legacy systems without OAuth2/OIDC support
+- Additional defense-in-depth for highly sensitive operations
+- Debugging and testing scenarios
+
+### **HMAC Signing & Verification Flow (Optional)**
+<img width="1386" height="578" alt="Capture d'écran 2026-01-11 223027" src="https://github.com/user-attachments/assets/dc82f3c4-0070-47e2-9a11-87b86571d6ba" />
 
 ```mermaid
 sequenceDiagram
@@ -1756,13 +1825,27 @@ if age > max_age_seconds (300): # Rejected
  return "Signature expired"
 ```
 
-**3. Authentication:**
+**3. Authentication (JWT):**
 ```python
-# Only agents with secret_key can generate valid signatures
-secret_key = "shared_secret_64_chars_minimum"
+# Only Keycloak with private key can sign tokens
+# Agents verify with public key (from JWKS)
 
-# Attacker without secret_key cannot forge signatures
-attacker_signature = hmac(attacker_guess, body) # Wrong key
+# Attacker cannot forge tokens without Keycloak's private key
+# RS256 uses 2048-bit RSA key pair (computationally infeasible to break)
+```
+
+**HMAC vs JWT Signature:**
+```python
+# Production: JWT Signature (RS256) - Default
+# - Keycloak signs with private key
+# - Agents verify with public key
+# - No shared secrets required
+# - Automatic key rotation via JWKS
+
+# Optional: HMAC Request Signing (disabled by default)
+# - Requires shared secret between agents
+# - Manual secret distribution
+# - Adds redundancy with JWT signatures
 ```
 
 ---
@@ -2555,12 +2638,12 @@ sequenceDiagram
  Note over Server: Layer 2: TLS (if enabled)
  Server->>Server: TLS handshake validation
  
- Note over Server: Layer 3: HMAC Integrity
- Server->>Security: Verify HMAC signature
- Security->>Security: Check timestamp freshness
- Security->>Security: Recompute signature
+ Note over Server: Layer 3: JWT Integrity
+ Server->>Security: Verify JWT signature (RS256)
+ Security->>Security: Fetch public key from JWKS
+ Security->>Security: Verify signature with public key
  alt Signature Invalid
- Security-->>Client: 401 Tampered Request
+ Security-->>Client: 401 Invalid Token Signature
  end
  
  Note over Server: Layer 4: Authentication
@@ -2610,14 +2693,15 @@ sequenceDiagram
 
 **Total Request Processing Time:**
 - Network: ~1ms
-- TLS: ~2-5ms (handshake, first request only)
-- HMAC: ~0.3ms
-- Authentication: ~0.1ms
-- Authorization: ~0.1ms
+- mTLS Handshake: ~10ms (first request only, then session resumption)
+- JWT Signature Verification: ~2ms (JWKS cached)
+- Token Binding Verification: ~0.3ms
+- Authorization (RBAC): ~0.1ms
 - Schema Validation: ~1.5ms
 - Rate Limiting: ~0.1ms
 - Method Execution: Variable (180ms for PDF extraction)
-- **Total Overhead:** ~4-7ms (~1% of pipeline)
+- **Total Security Overhead:** ~2-5ms (~1% of pipeline)
+- **Note:** HMAC not included (disabled by default)
 
 ---
 
@@ -2628,9 +2712,9 @@ sequenceDiagram
 | Attack Type | Attack Vector | Defense Layer | Mitigation |
 |-------------|---------------|---------------|------------|
 | **DDoS** | Flood with requests | Rate Limiting | Token bucket (300 req/min) |
-| **Man-in-the-Middle** | Intercept traffic | mTLS + JWT signature | Mutual certificate authentication + RS256 |
+| **Man-in-the-Middle** | Intercept traffic | mTLS + JWT signature | Mutual certificate authentication + RS256 signature |
 | **Replay Attack** | Reuse captured request | Token Binding + Expiration | Certificate-bound tokens + 5-min lifespan |
-| **Message Tampering** | Modify request body | JWT integrity | RS256 signature verification |
+| **Message Tampering** | Modify JWT claims | JWT Signature (RS256) | RS256 signature verification |
 | **SQL Injection** | `'; DROP TABLE--` | JSON Schema | Pattern validation |
 | **Path Traversal** | `../../etc/passwd` | JSON Schema | Negative lookahead regex |
 | **Buffer Overflow** | 10MB string | JSON Schema | maxLength: 1024 |
@@ -2880,10 +2964,10 @@ async def handle_http_message(self, request: web.Request) -> web.Response:
 
 | Metric | Value |
 |--------|-------|
-| **Security Layers** | 8 (network → audit) + Token Binding + mTLS |
+| **Security Layers** | 9 (network → audit) + Token Binding + mTLS |
 | **Authentication Methods** | Keycloak JWT (RS256) + mTLS Client Certificates |
 | **Authorization Model** | Dynamic RBAC (Keycloak roles) |
-| **Message Integrity** | HMAC-SHA256 (optional) + JWT signature |
+| **Message Integrity** | JWT Signature (RS256) - Default |
 | **Input Validation** | JSON Schema v7 |
 | **Rate Limiting** | Token bucket (300 req/min) |
 | **Replay Window** | 2 minutes |
@@ -2892,7 +2976,7 @@ async def handle_http_message(self, request: web.Request) -> web.Response:
 | **Token Binding** | RFC 8473 (cnf.x5t#S256 claim) |
 | **mTLS Configuration** | CERT_REQUIRED + TLS 1.2+ |
 | **Certificate Chain** | Internal CA + Agent Certificates (365 days) |
-| **Total Overhead** | ~2-7ms (~0.35% including mTLS handshake) |
+| **Total Overhead** | ~2-5ms (~0.3% including mTLS handshake, JWT verification) |
 | **Test Coverage** | 72+ tests (100% pass rate) |
 | **Compliance Score** | 10/10 (OAuth2/OIDC + RFC 8473 + RFC 8705 + NIST 800-63B AAL3) |
 
@@ -2900,7 +2984,7 @@ async def handle_http_message(self, request: web.Request) -> web.Response:
 
 **Document Version:** 3.0  
 **Last Updated:** January 14, 2026  
-**Authors:** Security Team  
+**Authors:** Security Team 
 **Status:** Production Ready - Enterprise-Grade Security (Keycloak + Token Binding + mTLS)
 
 **Features:**
