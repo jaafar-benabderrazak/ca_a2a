@@ -811,14 +811,13 @@ Building on Keycloak OAuth2/OIDC, the system now implements **enterprise-grade p
 
 ### **Security Transformation**
 
-| Attack Vector | Before (Keycloak Only) | After (+ Token Binding + mTLS) | Improvement |
-|---------------|------------------------|-------------------------------|-------------|
-| **Token Theft** | ⚠️ Token valid from any client | ✅ Token bound to certificate | **100%** |
-| **Token Replay** | ⚠️ Valid for 5 minutes | ✅ Requires certificate + private key | **99%** |
-| **Man-in-the-Middle** | ⚠️ Server TLS only | ✅ Mutual TLS authentication | **100%** |
-| **Impersonation** | ⚠️ JWT signature check | ✅ JWT + Certificate verification | **100%** |
-| **Credential Stuffing** | ⚠️ Credentials → token | ✅ Credentials + certificate required | **90%** |
-| **Overall Security** | High | **Enterprise Grade** ⭐⭐⭐⭐⭐ | **+200%** |
+| Attack Vector | Before (Keycloak Only) | After (+ Token Binding + mTLS) |
+|---------------|------------------------|-------------------------------|
+| **Token Theft** | ⚠️ Token valid from any client | ✅ Token bound to certificate |
+| **Token Replay** | ⚠️ Valid for 5 minutes | ✅ Requires certificate + private key | 
+| **Man-in-the-Middle** | ⚠️ Server TLS only | ✅ Mutual TLS authentication | 
+| **Impersonation** | ⚠️ JWT signature check | ✅ JWT + Certificate verification | 
+| **Credential Stuffing** | ⚠️ Credentials → token | ✅ Credentials + certificate required | 
 
 ### **Token Binding Architecture**
 
