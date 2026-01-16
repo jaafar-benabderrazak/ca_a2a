@@ -10,8 +10,18 @@ Tests 18 attack scenarios with real exploit attempts to validate security contro
 **IMPORTANT**: This file contains REAL attack code. Use only in controlled testing environments.
 
 Author: CA-A2A Security Team
-Version: 1.0
+Version: 2.0
 Last Updated: 2026-01-16
+
+Usage:
+    # Run with local environment
+    TEST_ENV=local pytest test_attack_scenarios.py -v
+    
+    # Run with AWS environment
+    TEST_ENV=aws ALB_DNS=your-alb.elb.amazonaws.com pytest test_attack_scenarios.py -v
+    
+    # Run with pre-configured token
+    TEST_JWT_TOKEN=your-token pytest test_attack_scenarios.py -v
 """
 
 import pytest
@@ -29,6 +39,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import secrets
 import string
 
+# Import test configuration
+from test_config import get_test_config, print_test_config
+from test_helpers import KeycloakTokenHelper, ServiceHealthChecker
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,28 +52,58 @@ logger = logging.getLogger(__name__)
 # Test Fixtures and Utilities
 # ============================================================================
 
-@pytest.fixture
-def orchestrator_url():
+@pytest.fixture(scope="session")
+def test_config():
+    """Load test configuration"""
+    config = get_test_config()
+    if config.verbose:
+        print_test_config(config)
+    return config
+
+
+@pytest.fixture(scope="session")
+def orchestrator_url(test_config):
     """Base URL for orchestrator service"""
-    return "http://localhost:8001"  # Update for actual deployment
+    return test_config.orchestrator_url
 
 
-@pytest.fixture
-def valid_jwt_token(orchestrator_url):
+@pytest.fixture(scope="session")
+def valid_jwt_token(test_config):
     """Obtain a valid JWT token for testing"""
-    # This should authenticate with Keycloak and get a real token
-    # For testing, you may need to configure test credentials
-    return "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."  # Replace with real token
+    token_helper = KeycloakTokenHelper()
+    token = token_helper.get_valid_token()
+    
+    if not token:
+        pytest.skip("No valid JWT token available. Set TEST_JWT_TOKEN or TEST_PASSWORD")
+    
+    return token
+
+
+@pytest.fixture(scope="session")
+def service_health_checker():
+    """Service health checker"""
+    return ServiceHealthChecker()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def check_services_before_tests(service_health_checker, test_config):
+    """Check service health before running tests"""
+    if test_config.skip_on_connection_error:
+        orchestrator_healthy, message = service_health_checker.check_orchestrator_health()
+        if not orchestrator_healthy:
+            pytest.skip(f"Orchestrator unavailable: {message}")
 
 
 @pytest.fixture
-def attacker_client():
+def attacker_client(test_config):
     """HTTP client configured for attack scenarios"""
     session = requests.Session()
     session.headers.update({
         "User-Agent": "AttackBot/1.0",
         "Accept": "application/json"
     })
+    # Set timeout from config
+    session.timeout = test_config.timeout_seconds
     return session
 
 

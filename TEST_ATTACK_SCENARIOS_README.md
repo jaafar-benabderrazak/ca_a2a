@@ -10,6 +10,24 @@ This test suite validates security controls against real-world attack patterns u
 
 ---
 
+## Quick Start
+
+**For complete setup and execution instructions, see:** [`ATTACK_TEST_EXECUTION_GUIDE.md`](ATTACK_TEST_EXECUTION_GUIDE.md)
+
+**Quick test run:**
+```bash
+# Setup environment
+python setup_test_environment.py
+
+# Run tests (AWS)
+./run_attack_tests_aws.sh --token "your-jwt-token"
+
+# Or (Windows)
+.\Run-AttackTests-AWS.ps1 -Token "your-jwt-token"
+```
+
+---
+
 ## Attack Scenarios Covered
 
 ### Authentication & Authorization (Scenarios 1-3)
