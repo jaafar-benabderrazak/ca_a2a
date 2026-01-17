@@ -1,7 +1,7 @@
 # CA-A2A Security Architecture
 
-**Version:** 5.1  
-**Last Updated:** January 15, 2026  
+**Version:** 6.0  
+**Last Updated:** January 17, 2026  
 **Status:** Production Deployed  
 **Region:** eu-west-3 (Paris)  
 **Environment:** AWS ECS Fargate
@@ -10,25 +10,27 @@
 
 ## Executive Summary
 
-The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade security through a defense-in-depth architecture with 9 security layers. The system is deployed on AWS ECS Fargate in a private VPC with Keycloak OAuth2/OIDC for centralized authentication, MCP Server for resource access control, and role-based access control.
+The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade security through a defense-in-depth architecture with 10 independent security layers. The system is deployed on AWS ECS Fargate in a private VPC with Keycloak OAuth2/OIDC for centralized authentication, MCP Server for resource access control, and role-based access control.
 
 **Key Security Features:**
 - ✅ OAuth2/OIDC Authentication (Keycloak RS256 JWT)
+- ✅ Token Binding (RFC 8473) - Cryptographic binding to TLS layer
 - ✅ Centralized Resource Access (MCP Server for S3/RDS)
 - ✅ Role-Based Access Control (RBAC) with fine-grained permissions
 - ✅ Token Revocation with hybrid storage (PostgreSQL + in-memory cache)
 - ✅ Replay Protection via JWT jti claim tracking
 - ✅ Rate Limiting (300 req/min per principal)
 - ✅ Network Isolation (Private VPC, Security Groups)
-- ✅ Encryption at Rest & In Transit
+- ✅ Encryption at Rest & In Transit (TLS 1.2+, AES-256)
 - ✅ Comprehensive Audit Logging (CloudWatch)
+- ✅ Constant-Time Comparison (Timing attack prevention)
 
 ---
 
 ## Table of Contents
 
 1. [System Architecture](#1-system-architecture)
-2. [Security Layers](#2-security-layers)
+2. [Security Layers (Defense-in-Depth)](#2-security-layers)
 3. [Authentication & Authorization](#3-authentication--authorization)
 4. [Resource Access Layer (MCP Server)](#4-resource-access-layer-mcp-server)
 5. [Network Security](#5-network-security)
@@ -124,7 +126,7 @@ graph TB
 
 ---
 
-## 2. Security Layers
+## 2. Security Layers (Defense-in-Depth)
 
 ### 2.1 Defense-in-Depth Architecture
 
@@ -794,9 +796,9 @@ graph TB
 
 ---
 
-## 5. Data Security
+## 6. Data Security
 
-### 5.1 Encryption at Rest
+### 6.1 Encryption at Rest
 
 | Resource | Encryption | Key Management |
 |----------|-----------|----------------|
@@ -807,7 +809,7 @@ graph TB
 | **Secrets Manager** | AES-256 | AWS KMS (dedicated key) |
 | **CloudWatch Logs** | AES-256 | AWS-managed keys |
 
-### 5.2 Encryption in Transit
+### 6.2 Encryption in Transit
 
 ```mermaid
 graph LR
@@ -833,7 +835,7 @@ graph LR
 
 **Recommendation:** Enable TLS between ALB and agents for defense-in-depth.
 
-### 5.3 Secrets Management
+### 6.3 Secrets Management
 
 **AWS Secrets Manager:**
 
@@ -3419,19 +3421,6 @@ done
 | **RBAC** | Role-Based Access Control: Access control based on roles |
 | **RS256** | RSA Signature with SHA-256: JWT signing algorithm |
 | **VPC** | Virtual Private Cloud: Isolated network in AWS |
-
----
-
-## Document Version History
-
-| Version | Date | Author | Changes |
-|---------|------|--------|---------|
-| 5.1 | 2026-01-15 | Jaafar Benabderrazak | Added comprehensive JSON schema documentation, HTTP headers schema, Pydantic models, content validation rules, error code reference, and request/response examples |
-| 5.0 | 2026-01-15 | Jaafar Benabderrazak | Added MCP Server (Layer 5), updated architecture diagrams, increased layers from 8 to 9 |
-| 4.0 | 2026-01-15 | Jaafar Benabderrazak | Complete rewrite based on production architecture |
-| 3.0 | 2026-01-14 | - | Added Keycloak OAuth2, token revocation |
-| 2.0 | 2026-01-12 | - | Added mTLS, token binding |
-| 1.0 | 2025-12-18 | - | Initial security documentation |
 
 ---
 
