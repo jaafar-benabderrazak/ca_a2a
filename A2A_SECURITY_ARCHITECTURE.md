@@ -2,8 +2,7 @@
 
 **Version:** 6.0  
 **Last Updated:** January 17, 2026  
-**Status:** Production Deployed  
-**Region:** eu-west-3 (Paris)  
+**Aythor:** Jaafar BENABDERRAZAK
 **Environment:** AWS ECS Fargate
 
 ---
