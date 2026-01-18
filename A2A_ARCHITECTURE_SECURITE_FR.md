@@ -284,38 +284,121 @@ sequenceDiagram
 
 ### 3.1 Flux OAuth2/OIDC Keycloak
 
+![Flux Keycloak OAuth2](https://github.com/user-attachments/assets/928e0379-e52e-453b-ac0c-182beb7dd97d)
+
 ```mermaid
 sequenceDiagram
     participant Client
     participant Keycloak
     participant Orchestrateur
+    participant Agent
 
-    Note over Client,Orchestrateur: 1. Authentification Initiale
-    Client->>Keycloak: POST /token<br/>{client_id, client_secret}
-    Keycloak-->>Client: {access_token (JWT), expires_in: 900}
+    Note over Client,Agent: 1. Authentification Initiale
+    Client->>Keycloak: POST /realms/ca-a2a/protocol/openid-connect/token<br/>{client_id, client_secret, grant_type}
+    Keycloak->>Keycloak: Vérifier credentials<br/>Vérifier rôles
+    Keycloak-->>Client: 200 OK<br/>{access_token (JWT), refresh_token, expires_in: 900}
     
-    Note over Client,Orchestrateur: 2. Requête API avec JWT
-    Client->>Orchestrateur: POST /message<br/>Authorization: Bearer JWT
-    Orchestrateur->>Keycloak: GET /certs (caché 1h)
-    Keycloak-->>Orchestrateur: JWKS (clés publiques)
-    Orchestrateur->>Orchestrateur: Vérifier signature RS256<br/>Extraire rôles, vérifier RBAC
+    Note over Client,Agent: 2. Requête API avec JWT
+    Client->>Orchestrateur: POST /message<br/>Authorization: Bearer <JWT>
+    Orchestrateur->>Orchestrateur: Extraire JWT de l'en-tête
+    Orchestrateur->>Keycloak: GET /realms/ca-a2a/protocol/openid-connect/certs
+    Keycloak-->>Orchestrateur: JWKS (clés publiques, cachées 1h)
+    Orchestrateur->>Orchestrateur: Vérifier signature JWT (RS256)<br/>Vérifier expiration, audience, émetteur
+    Orchestrateur->>Orchestrateur: Extraire rôles Keycloak<br/>Mapper vers permissions RBAC
+    Orchestrateur->>Orchestrateur: Vérifier si rôle permet méthode
     
     alt Autorisé
-        Orchestrateur-->>Client: 200 OK
+        Orchestrateur->>Agent: Transmettre requête avec JWT
+        Agent->>Keycloak: Vérifier JWT (même processus)
+        Agent->>Orchestrateur: Réponse
+        Orchestrateur-->>Client: 200 OK {result}
     else Non Autorisé
-        Orchestrateur-->>Client: 403 Forbidden
+        Orchestrateur-->>Client: 403 Forbidden<br/>{error: "Permissions insuffisantes"}
     end
+    
+    Note over Client,Agent: 3. Rafraîchissement Token (avant expiration)
+    Client->>Keycloak: POST /realms/ca-a2a/protocol/openid-connect/token<br/>{grant_type: "refresh_token", refresh_token}
+    Keycloak-->>Client: 200 OK<br/>{nouveau access_token, nouveau refresh_token}
 ```
+
+### 3.2 Structure Token JWT
+
+**Token d'Accès (signé RS256 par Keycloak) :**
+
+![Structure JWT](https://github.com/user-attachments/assets/6715706c-3587-4b1f-b794-557823b6a4f8)
+
+```json
+{
+  "header": {
+    "alg": "RS256",
+    "typ": "JWT",
+    "kid": "keycloak-key-id"
+  },
+  "payload": {
+    "exp": 1737845500,
+    "iat": 1737845200,
+    "jti": "abc123-token-id",
+    "iss": "http://keycloak.ca-a2a.local:8080/realms/ca-a2a",
+    "aud": "ca-a2a-agents",
+    "sub": "user-uuid-1234",
+    "typ": "Bearer",
+    "azp": "ca-a2a-agents",
+    "realm_access": {
+      "roles": ["admin", "orchestrator", "document-processor"]
+    },
+    "resource_access": {
+      "ca-a2a-agents": {
+        "roles": ["admin"]
+      }
+    },
+    "preferred_username": "john.doe@example.com",
+    "email": "john.doe@example.com",
+    "cnf": {
+      "x5t#S256": "bDlkZGM4YTEyZGM..."
+    }
+  },
+  "signature": "..."
+}
+```
+
+**Claims Importants :**
+- `exp` : Date d'expiration (15 minutes)
+- `jti` : ID unique du token (pour protection rejeu)
+- `iss` : Émetteur (URL Keycloak)
+- `aud` : Audience (ca-a2a-agents)
+- `realm_access.roles` : Rôles Keycloak
+- `cnf.x5t#S256` : Empreinte certificat (Token Binding)
 
 ### 3.2 Hiérarchie RBAC
 
-| Rôle Keycloak | Principal A2A | Méthodes Autorisées |
-|---------------|---------------|---------------------|
-| `admin` | `admin` | `*` (toutes les méthodes) |
-| `orchestrator` | `orchestrator` | `extract_document`, `validate_document`, `archive_document` |
-| `lambda` | `lambda` | `upload_document`, `process_document` |
-| `document-processor` | `document-processor` | `process_document`, `list_pending_documents`, `check_status` |
-| `viewer` | `viewer` | `list_documents`, `get_document`, `check_status` (lecture seule) |
+**Mapping Rôles Keycloak → Principal RBAC A2A :**
+
+| Rôle Keycloak | Principal A2A | Méthodes Autorisées | Cas d'Usage |
+|---------------|---------------|---------------------|-------------|
+| `admin` | `admin` | `*` (toutes les méthodes) | Accès système complet |
+| `lambda` | `lambda` | `upload_document`, `process_document` | Déclencheurs externes (événements S3) |
+| `orchestrator` | `orchestrator` | `extract_document`, `validate_document`, `archive_document` | Coordination agent-à-agent |
+| `document-processor` | `document-processor` | `process_document`, `list_pending_documents`, `check_status` | Workflows de traitement de documents |
+| `viewer` | `viewer` | `list_documents`, `get_document`, `check_status` (lecture seule) | Accès lecture seule |
+
+**Implémentation (`keycloak_auth.py`) :**
+```python
+class KeycloakRBACMapper:
+    def map_roles_to_principal(self, keycloak_roles: List[str]) -> Tuple[str, List[str]]:
+        # Priorité: admin > lambda > orchestrator > document-processor > viewer
+        if "admin" in keycloak_roles:
+            return "admin", ["*"]
+        elif "lambda" in keycloak_roles:
+            return "lambda", ["upload_document", "process_document"]
+        elif "orchestrator" in keycloak_roles:
+            return "orchestrator", ["extract_document", "validate_document", "archive_document"]
+        elif "document-processor" in keycloak_roles:
+            return "document-processor", ["process_document", "list_pending_documents", "check_status"]
+        elif "viewer" in keycloak_roles:
+            return "viewer", ["list_documents", "get_document", "check_status"]
+        else:
+            return "anonymous", []
+```
 
 ### 3.3 Liaison de Token (RFC 8473)
 
@@ -342,6 +425,48 @@ if not secrets.compare_digest(expected_thumbprint, presented_thumbprint):
 ```
 
 ### 3.4 Révocation de Token
+
+**Architecture Hybride de Stockage :**
+
+```mermaid
+graph LR
+    Admin[API Admin] -->|1. Révoquer| Cache[Cache Mémoire<br/>Ultra-rapide: ~1μs]
+    Admin -->|2. Persister| DB[(PostgreSQL<br/>revoked_tokens)]
+    
+    Request[Requête] -->|3. Vérifier| Cache
+    Cache -->|Cache Miss| DB
+    DB -->|4. Charger| Cache
+    Cache -->|Hit/Miss| Response[Accepter/Rejeter]
+    
+    style Cache fill:#ffd93d
+    style DB fill:#4d96ff
+```
+
+**Schéma Table Révocation :**
+```sql
+CREATE TABLE revoked_tokens (
+    jti VARCHAR(255) PRIMARY KEY,
+    revoked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_by VARCHAR(100) NOT NULL,
+    reason TEXT,
+    expires_at TIMESTAMP NOT NULL
+);
+
+CREATE INDEX idx_revoked_expires ON revoked_tokens(expires_at);
+CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
+```
+
+**Points de Terminaison API Admin :**
+- `POST /admin/revoke-token` - Révoquer JWT par jti
+- `GET /admin/revoked-tokens` - Lister tokens révoqués
+- `GET /admin/security-stats` - Métriques de sécurité
+- `DELETE /admin/cleanup-expired-tokens` - Nettoyage manuel
+
+**Performance :**
+- Opération révocation : ~10ms (écriture BD + stockage cache)
+- Vérification (cachée) : ~1μs
+- Vérification (cache miss) : ~10ms (requête BD + chargement cache)
+- Nettoyage automatique : Toutes les 5 minutes
 
 **Pourquoi Pas Keycloak pour la Révocation ?**
 
@@ -444,18 +569,148 @@ if not secrets.compare_digest(expected_thumbprint, presented_thumbprint):
 ✅ **Sécurisé** : Validation déterministe, pas d'ambiguïté  
 ✅ **Comparaison temps Constant** : `hmac.compare_digest()`, `secrets.compare_digest()`
 
-### 7.2 Codes d'Erreur
+**Comparaison avec REST :**
 
-| Code | Signification | Cas d'Usage |
-|------|---------------|-------------|
-| `-32700` | Erreur analyse | JSON invalide |
-| `-32600` | Requête invalide | Champs requis manquants |
-| `-32602` | Paramètres invalides | Validation schema échouée |
-| `-32001` | Non autorisé | JWT invalide |
-| `-32002` | Interdit | Permissions insuffisantes |
-| `-32003` | Limite débit dépassée | Trop de requêtes |
-| `-32004` | Rejeu détecté | jti dupliqué |
-| `-32005` | Token révoqué | Token révoqué utilisé |
+| Caractéristique | JSON-RPC 2.0 | REST |
+|-----------------|--------------|------|
+| **Standardisation** | Spécification stricte | Conventions variables |
+| **Sémantique HTTP** | POST uniquement | GET/POST/PUT/DELETE |
+| **Gestion Erreurs** | Codes erreur standardisés | Codes HTTP personnalisés |
+| **Surcharge** | Minimale (~100 octets) | Headers supplémentaires |
+| **Batch Requests** | Supporté nativement | Nécessite extension |
+| **Validation** | Déterministe | Dépend de l'implémentation |
+
+### 7.2 Encapsulation Protocole
+
+![Encapsulation Protocole](https://github.com/user-attachments/assets/68ddc83a-e0cc-43a9-821f-9c379b28f348)
+
+**Couches d'Encapsulation :**
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Couche 1: Transport HTTPS (TLS 1.2+)                   │
+│  ├─ Chiffrement bout-en-bout                            │
+│  └─ Authentification serveur via certificat             │
+└─────────────────────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────────────────────┐
+│  Couche 2: En-têtes HTTP                                │
+│  ├─ Authorization: Bearer <JWT>                         │
+│  ├─ Content-Type: application/json                      │
+│  └─ X-Request-ID: <correlation-id>                      │
+└─────────────────────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────────────────────┐
+│  Couche 3: Message JSON-RPC 2.0                         │
+│  ├─ jsonrpc: "2.0"                                      │
+│  ├─ method: "process_document"                          │
+│  ├─ params: {...}                                       │
+│  └─ id: "req-123"                                       │
+└─────────────────────────────────────────────────────────┘
+           ↓
+┌─────────────────────────────────────────────────────────┐
+│  Couche 4: Validation & Sécurité                        │
+│  ├─ JSON Schema validation                              │
+│  ├─ Vérification JWT (signature, expiration, RBAC)      │
+│  ├─ Protection rejeu (jti tracking)                     │
+│  ├─ Limitation débit (300 req/min)                      │
+│  └─ Intégrité message (body hash binding)               │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 7.3 Structure & Format des Messages
+
+![Anatomie Message JSON-RPC](https://github.com/user-attachments/assets/a5b9212a-df1e-49b4-93eb-e83bb6f1b18f)
+
+**Anatomie Requête JSON-RPC 2.0 :**
+
+```json
+{
+  "jsonrpc": "2.0",           // Version protocole (OBLIGATOIRE)
+  "id": "req-abc123",         // ID corrélation (OBLIGATOIRE)
+  "method": "process_document", // Nom méthode (OBLIGATOIRE)
+  "params": {                 // Paramètres (OPTIONNEL)
+    "s3_key": "uploads/facture.pdf",
+    "priority": "high",
+    "metadata": {
+      "customer_id": "CUST-001",
+      "invoice_date": "2026-01-17"
+    }
+  }
+}
+```
+
+**Anatomie Réponse Succès :**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-abc123",
+  "result": {
+    "status": "success",
+    "document_id": "doc-789",
+    "processing_time_ms": 245
+  }
+}
+```
+
+**Anatomie Réponse Erreur :**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-abc123",
+  "error": {
+    "code": -32602,
+    "message": "Paramètres invalides",
+    "data": {
+      "detail": "Champ 's3_key' requis",
+      "field": "s3_key"
+    }
+  }
+}
+```
+
+### 7.4 Codes d'Erreur
+
+**Codes Standard JSON-RPC 2.0 :**
+
+| Code | Signification | Cas d'Usage | Exemple |
+|------|---------------|-------------|---------|
+| `-32700` | Erreur analyse | JSON invalide | `{invalid json}` |
+| `-32600` | Requête invalide | Champs requis manquants | `{"method": null}` |
+| `-32601` | Méthode introuvable | Méthode inconnue | `{"method": "unknown"}` |
+| `-32602` | Paramètres invalides | Validation schema échouée | `{"params": {"key": null}}` |
+| `-32603` | Erreur interne | Erreur serveur | Exception non gérée |
+
+**Codes Personnalisés A2A :**
+
+| Code | Signification | Cas d'Usage | Action Recommandée |
+|------|---------------|-------------|--------------------|
+| `-32001` | Non autorisé | JWT invalide/expiré | Renouveler token |
+| `-32002` | Interdit | Permissions insuffisantes | Vérifier rôles |
+| `-32003` | Limite débit dépassée | Trop de requêtes | Attendre + retry |
+| `-32004` | Rejeu détecté | jti dupliqué | Générer nouveau jti |
+| `-32005` | Token révoqué | Token révoqué utilisé | Obtenir nouveau token |
+
+**Exemple Réponse Erreur Détaillée :**
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-123",
+  "error": {
+    "code": -32602,
+    "message": "Validation des paramètres échouée",
+    "data": {
+      "field": "s3_key",
+      "constraint": "required",
+      "provided": null,
+      "hint": "Le champ 's3_key' est obligatoire et ne peut pas être nul"
+    }
+  }
+}
+```
 
 ---
 
