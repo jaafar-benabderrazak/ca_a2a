@@ -168,17 +168,17 @@ graph TB
 
 ![Couches de Sécurité](https://github.com/user-attachments/assets/12587382-31da-4bf5-a5f3-cbeb4179bb7a)
 
-| Couche | Objectif | Technologie | Menace Atténuée | Difficulté Contournement |
-|--------|----------|-------------|-----------------|--------------------------|
-| **C1: Réseau** | Isolation, segmentation | VPC, SG, NACL | Attaques réseau, DDoS | ⭐⭐⭐⭐⭐ Très Difficile |
-| **C2: Identité** | Authentification centralisée | Keycloak | Accès non autorisé | ⭐⭐⭐⭐ Difficile |
-| **C3: Authentification** | Vérification token | JWT RS256 + Token Binding | Usurpation, tokens forgés, vol | ⭐⭐⭐⭐ Difficile |
-| **C4: Autorisation** | Application permissions | RBAC (rôles Keycloak) | Élévation privilèges | ⭐⭐⭐⭐ Difficile |
-| **C5: Accès Ressources** | Passerelle S3/RDS centralisée | Serveur MCP | Accès AWS direct, prolifération credentials | ⭐⭐⭐⭐ Difficile |
-| **C6: Intégrité** | Détection falsification messages | Hash corps JWT | MITM, falsification messages | ⭐⭐⭐ Moyen |
-| **C7: Validation** | Rejet entrées malformées | JSON Schema, Pydantic | Attaques injection, DoS | ⭐⭐⭐ Moyen |
-| **C8: Rejeu** | Détection requêtes dupliquées | JWT jti + Cache TTL | Attaques par rejeu | ⭐⭐ Facile |
-| **C9: Limitation Débit** | Prévention abus | Fenêtre glissante | Épuisement ressources, DoS | ⭐⭐ Facile |
+| Couche | Objectif | Technologie | Menace Atténuée |
+|--------|----------|-------------|-----------------|
+| **C1: Réseau** | Isolation, segmentation | VPC, SG, NACL | Attaques réseau, DDoS |
+| **C2: Identité** | Authentification centralisée | Keycloak | Accès non autorisé |
+| **C3: Authentification** | Vérification token | JWT RS256 + Token Binding | Usurpation, tokens forgés, vol |
+| **C4: Autorisation** | Application permissions | RBAC (rôles Keycloak) | Élévation privilèges |
+| **C5: Accès Ressources** | Passerelle S3/RDS centralisée | Serveur MCP | Accès AWS direct, prolifération credentials |
+| **C6: Intégrité** | Détection falsification messages | Hash corps JWT | MITM, falsification messages |
+| **C7: Validation** | Rejet entrées malformées | JSON Schema, Pydantic | Attaques injection, DoS |
+| **C8: Rejeu** | Détection requêtes dupliquées | JWT jti + Cache TTL | Attaques par rejeu |
+| **C9: Limitation Débit** | Prévention abus | Fenêtre glissante | Épuisement ressources, DoS |
 
 ### 2.3 Flux de Sécurité Complet d'une Requête
 

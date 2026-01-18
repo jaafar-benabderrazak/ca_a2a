@@ -24,8 +24,7 @@ Le système CA-A2A implémente une **architecture de sécurité en 10 couches**.
 - Security Groups (filtrage au niveau des ports)
 - NAT Gateway (internet sortant uniquement)
 
-**Menaces Atténuées :** Attaques réseau, scan de ports, accès direct, DDoS  
-**Difficulté de Contournement :** ⭐⭐⭐⭐⭐ Très Difficile
+**Menaces Atténuées :** Attaques réseau, scan de ports, accès direct, DDoS
 
 ---
 
@@ -38,8 +37,7 @@ Le système CA-A2A implémente une **architecture de sécurité en 10 couches**.
 - Flux client credentials (client_id + client_secret)
 - Émission de tokens avec rôles utilisateur
 
-**Menaces Atténuées :** Tentatives d'authentification non autorisées, usurpation d'identité  
-**Difficulté de Contournement :** ⭐⭐⭐⭐ Difficile
+**Menaces Atténuées :** Tentatives d'authentification non autorisées, usurpation d'identité
 
 ---
 
@@ -53,8 +51,7 @@ Le système CA-A2A implémente une **architecture de sécurité en 10 couches**.
 - Validation émetteur (claim iss) et audience (claim aud)
 - Liaison token au certificat TLS
 
-**Menaces Atténuées :** Tokens forgés, tokens expirés, vol de token  
-**Difficulté de Contournement :** ⭐⭐⭐⭐ Difficile
+**Menaces Atténuées :** Tokens forgés, tokens expirés, vol de token
 
 ---
 
@@ -71,8 +68,7 @@ document-processor → process_document, list_pending_documents
 viewer → list_documents, get_document (lecture seule)
 ```
 
-**Menaces Atténuées :** Élévation de privilèges, invocation de méthodes non autorisées  
-**Difficulté de Contournement :** ⭐⭐⭐⭐ Difficile
+**Menaces Atténuées :** Élévation de privilèges, invocation de méthodes non autorisées
 
 ---
 
@@ -86,8 +82,7 @@ viewer → list_documents, get_document (lecture seule)
 - Pooling de connexions
 - Aucun credential AWS direct dans les agents
 
-**Menaces Atténuées :** Prolifération credentials, accès AWS direct, abus API AWS  
-**Difficulté de Contournement :** ⭐⭐⭐⭐ Difficile
+**Menaces Atténuées :** Prolifération credentials, accès AWS direct, abus API AWS
 
 ---
 
@@ -100,8 +95,7 @@ viewer → list_documents, get_document (lecture seule)
 - Hash stocké dans le claim JWT `body_hash`
 - Vérification côté agent
 
-**Menaces Atténuées :** Falsification MITM, modification corps requête  
-**Difficulté de Contournement :** ⭐⭐⭐ Moyen
+**Menaces Atténuées :** Falsification MITM, modification corps requête
 
 ---
 
@@ -115,8 +109,7 @@ viewer → list_documents, get_document (lecture seule)
 - Protection traversée de chemins (`../` détecté)
 - Limites de longueur (max 1024 caractères)
 
-**Menaces Atténuées :** Injection SQL, traversée de chemins, XSS, débordement buffer  
-**Difficulté de Contournement :** ⭐⭐⭐ Moyen
+**Menaces Atténuées :** Injection SQL, traversée de chemins, XSS, débordement buffer
 
 ---
 
@@ -129,8 +122,7 @@ viewer → list_documents, get_document (lecture seule)
 - Expiration basée sur TTL (120 secondes)
 - Rejet `jti` dupliqués
 
-**Menaces Atténuées :** Attaques par rejeu, duplication requêtes  
-**Difficulté de Contournement :** ⭐⭐ Facile (si rejeu dans fenêtre TTL)
+**Menaces Atténuées :** Attaques par rejeu, duplication requêtes
 
 ---
 
@@ -143,8 +135,7 @@ viewer → list_documents, get_document (lecture seule)
 - Fenêtre glissante (pas fixe)
 - Suivi par instance d'agent
 
-**Menaces Atténuées :** Déni de service (DoS), force brute, abus API  
-**Difficulté de Contournement :** ⭐⭐ Facile (attaque distribuée)
+**Menaces Atténuées :** Déni de service (DoS), force brute, abus API
 
 ---
 
@@ -157,8 +148,7 @@ viewer → list_documents, get_document (lecture seule)
 - Vérifications d'état du workflow
 - Application des règles métier
 
-**Menaces Atténuées :** Attaques spécifiques à l'application  
-**Difficulté de Contournement :** ⭐ Très Facile (dépend de l'application)
+**Menaces Atténuées :** Attaques spécifiques à l'application
 
 ---
 
