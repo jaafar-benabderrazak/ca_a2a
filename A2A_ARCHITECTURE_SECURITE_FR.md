@@ -620,8 +620,6 @@ CREATE INDEX idx_revoked_by ON revoked_tokens(revoked_by);
 
 ### 7.3 Structure & Format des Messages
 
-![Anatomie Message JSON-RPC](https://github.com/user-attachments/assets/a5b9212a-df1e-49b4-93eb-e83bb6f1b18f)
-
 **Anatomie Requête JSON-RPC 2.0 :**
 
 ```json
