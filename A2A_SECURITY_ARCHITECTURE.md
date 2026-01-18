@@ -112,6 +112,7 @@ graph TB
 ```
 
 ### 1.2 Component Overview
+<img width="2319" height="951" alt="Capture d’écran 2026-01-17 072308" src="https://github.com/user-attachments/assets/8776d817-a274-418f-83c6-2a2f0879b063" />
 
 | Component | Type | Port | Purpose | Instances |
 |-----------|------|------|---------|-----------|
@@ -156,6 +157,7 @@ graph TB
 ```
 
 ### 2.2 Layer Responsibilities
+<img width="1596" height="1101" alt="Capture d’écran 2026-01-18 110628" src="https://github.com/user-attachments/assets/12587382-31da-4bf5-a5f3-cbeb4179bb7a" />
 
 | Layer | Purpose | Technology | Threat Mitigated |
 |-------|---------|------------|------------------|
@@ -247,6 +249,7 @@ sequenceDiagram
 ```
 
 **Layer-by-Layer Security Checkpoints:**
+![Uploading Capture d’écran 2026-01-17 072348.png…]()
 
 | Layer | Checkpoint | Pass Criteria | Failure Response |
 |-------|-----------|---------------|------------------|
@@ -266,7 +269,6 @@ sequenceDiagram
 - 🛡️ **Defense-in-Depth**: Each layer provides independent protection
 - 🔒 **Fail-Secure**: All checks must pass; any failure rejects request
 - 📊 **Observable**: Each layer logs decisions to CloudWatch
-- ⚡ **Performance**: Total security overhead ~53ms (21% of total request)
 - 🔄 **No Single Point of Failure**: Compromising one layer doesn't bypass others
 
 ---
@@ -274,6 +276,7 @@ sequenceDiagram
 ## 3. Authentication & Authorization
 
 ### 3.1 Keycloak OAuth2/OIDC Flow
+<img width="2042" height="851" alt="Capture d’écran 2026-01-17 072928" src="https://github.com/user-attachments/assets/928e0379-e52e-453b-ac0c-182beb7dd97d" />
 
 ```mermaid
 sequenceDiagram
@@ -313,6 +316,8 @@ sequenceDiagram
 ### 3.2 JWT Token Structure
 
 **Access Token (RS256 signed by Keycloak):**
+<img width="1137" height="948" alt="Capture d’écran 2026-01-17 083921" src="https://github.com/user-attachments/assets/6715706c-3587-4b1f-b794-557823b6a4f8" />
+
 ```json
 {
   "header": {
@@ -452,14 +457,14 @@ sequenceDiagram
 
 ### 4.2 Security Benefits
 
-| Benefit | Description | Impact |
-|---------|-------------|--------|
-| **Reduced Attack Surface** | Only MCP Server has AWS credentials, not all 4 agents | -75% IAM roles with AWS access |
-| **Centralized Audit** | All S3/RDS access logged in one place | +100% visibility |
-| **Connection Pooling** | Shared PostgreSQL connection pool (max 10 connections) | -88% DB connections (4×20=80 → 10) |
-| **Consistent Security** | Retry logic, circuit breakers, timeouts applied uniformly | Standardized error handling |
-| **Easier IAM Management** | Update permissions in single task role | -4 IAM policy updates per change |
-| **Credential Isolation** | Agents never see DB passwords or AWS keys | Reduced secret sprawl |
+| Benefit | Description | 
+|---------|-------------|
+| **Reduced Attack Surface** | Only MCP Server has AWS credentials, not all 4 agents |
+| **Centralized Audit** | All S3/RDS access logged in one place | 
+| **Connection Pooling** | Shared PostgreSQL connection pool (max 10 connections) | 
+| **Consistent Security** | Retry logic, circuit breakers, timeouts applied uniformly | 
+| **Easier IAM Management** | Update permissions in single task role | 
+| **Credential Isolation** | Agents never see DB passwords or AWS keys | 
 
 ### 4.3 Component Details
 
@@ -932,6 +937,7 @@ The `id` field enables:
 ### 7.2 Protocol Encapsulation
 
 The A2A protocol uses a **layered encapsulation model** where each layer adds security controls:
+<img width="1107" height="1002" alt="Capture d’écran 2026-01-18 110709" src="https://github.com/user-attachments/assets/68ddc83a-e0cc-43a9-821f-9c379b28f348" />
 
 ```mermaid
 graph TB
@@ -1040,6 +1046,7 @@ if not s3_client.object_exists(params_model.s3_key):
 ### 7.3 Message Structure & Format
 
 #### 7.3.1 JSON-RPC 2.0 Message Anatomy
+<img width="1137" height="948" alt="Capture d’écran 2026-01-17 083921" src="https://github.com/user-attachments/assets/a5b9212a-df1e-49b4-93eb-e83bb6f1b18f" />
 
 **Complete Request Breakdown:**
 
@@ -1917,18 +1924,18 @@ graph TB
 
 #### 7.11.2 Layer-by-Layer Threat Mitigation
 
-| Layer | Security Control | Threats Mitigated | Implementation | Bypass Difficulty |
-|-------|-----------------|-------------------|----------------|-------------------|
-| **L1: Network Perimeter** | AWS ALB, TLS 1.2+ | Network eavesdropping, DDoS | AWS managed service | ⭐⭐⭐⭐⭐ Very Hard |
-| **L2: VPC Isolation** | Security Groups, Private Subnets | Unauthorized network access | AWS VPC, SG rules | ⭐⭐⭐⭐⭐ Very Hard |
-| **L3: Identity** | Keycloak OAuth2/OIDC | Unauthorized authentication | Keycloak ECS service | ⭐⭐⭐⭐ Hard |
-| **L4: Authentication** | JWT RS256 + Token Binding | Forged tokens, token theft | `keycloak_auth.py`, `token_binding.py` | ⭐⭐⭐⭐ Hard |
-| **L5: Authorization** | RBAC with Keycloak roles | Privilege escalation | `KeycloakRBACMapper` | ⭐⭐⭐⭐ Hard |
-| **L6: Resource Gateway** | MCP Server centralized access | Direct AWS access, credential sprawl | `mcp_server.py` | ⭐⭐⭐⭐ Hard |
-| **L7: Message Integrity** | JWT body hash binding | MITM tampering | `a2a_security.py` | ⭐⭐⭐ Medium |
-| **L8: Input Validation** | JSON Schema + Pydantic | Injection attacks, DoS | `JSONSchemaValidator`, Pydantic models | ⭐⭐⭐ Medium |
-| **L9: Abuse Prevention** | Replay protection, Rate limiting | Replay attacks, DoS | `ReplayProtector`, `SlidingWindowRateLimiter` | ⭐⭐ Easy |
-| **L10: Business Logic** | Custom validations | Application-specific attacks | Agent-specific code | ⭐ Very Easy |
+| Layer | Security Control | Threats Mitigated | Implementation |
+|-------|-----------------|-------------------|----------------|
+| **L1: Network Perimeter** | AWS ALB, TLS 1.2+ | Network eavesdropping, DDoS | AWS managed service |
+| **L2: VPC Isolation** | Security Groups, Private Subnets | Unauthorized network access | AWS VPC, SG rules |
+| **L3: Identity** | Keycloak OAuth2/OIDC | Unauthorized authentication | Keycloak ECS service |
+| **L4: Authentication** | JWT RS256 + Token Binding | Forged tokens, token theft | `keycloak_auth.py`, `token_binding.py` |
+| **L5: Authorization** | RBAC with Keycloak roles | Privilege escalation | `KeycloakRBACMapper` |
+| **L6: Resource Gateway** | MCP Server centralized access | Direct AWS access, credential sprawl | `mcp_server.py` |
+| **L7: Message Integrity** | JWT body hash binding | MITM tampering | `a2a_security.py` |
+| **L8: Input Validation** | JSON Schema + Pydantic | Injection attacks, DoS | `JSONSchemaValidator`, Pydantic models |
+| **L9: Abuse Prevention** | Replay protection, Rate limiting | Replay attacks, DoS | `ReplayProtector`, `SlidingWindowRateLimiter` |
+| **L10: Business Logic** | Custom validations | Application-specific attacks | Agent-specific code |
 
 **Key Insight:** An attacker must successfully bypass **ALL 10 LAYERS** to execute unauthorized operations. Each layer provides independent protection.
 
@@ -2367,11 +2374,11 @@ def verify_token_binding(self, jwt_claims: Dict[str, Any], client_cert_pem: str)
 
 #### 7.14.3 Constant-Time Comparison Libraries
 
-| Library | Function | Use Case | Security Level |
-|---------|----------|----------|----------------|
-| `hmac` | `hmac.compare_digest()` | General-purpose constant-time comparison | ⭐⭐⭐⭐⭐ Best |
-| `secrets` | `secrets.compare_digest()` | Cryptographic secrets comparison | ⭐⭐⭐⭐⭐ Best |
-| Python `==` | Standard equality | **NOT SECURE** (timing-vulnerable) | ⚠️ Avoid |
+| Library | Function | Use Case | 
+|---------|----------|----------|
+| `hmac` | `hmac.compare_digest()` | General-purpose constant-time comparison |
+| `secrets` | `secrets.compare_digest()` | Cryptographic secrets comparison |
+| Python `==` | Standard equality | **NOT SECURE** (timing-vulnerable) |
 
 **Both `hmac.compare_digest()` and `secrets.compare_digest()` are:**
 - **Constant-time:** Always compares all bytes (no early exit)
