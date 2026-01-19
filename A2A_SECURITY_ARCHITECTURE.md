@@ -49,30 +49,30 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 
 ```mermaid
 graph TB
-    subgraph Internet
+    subgraph Internet[Internet]
         User[External User]
     end
     
     subgraph AWS["AWS Cloud - eu-west-3"]
         subgraph VPC["VPC: 10.0.0.0/16"]
             subgraph Public["Public Subnets"]
-                ALB[Application Load Balancer<br/>HTTPS/HTTP]
+                ALB["Application Load Balancer<br/>HTTPS/HTTP"]
                 NAT[NAT Gateway]
             end
             
             subgraph Private["Private Subnets - ECS Cluster"]
                 direction TB
-                Orch[Orchestrator<br/>:8001]
-                Ext[Extractor<br/>:8002]
-                Val[Validator<br/>:8003]
-                Arch[Archivist<br/>:8004]
-                KC[Keycloak<br/>:8080]
-                MCP[MCP Server<br/>:8000<br/>Resource Gateway]
+                Orch["Orchestrator<br/>:8001"]
+                Ext["Extractor<br/>:8002"]
+                Val["Validator<br/>:8003"]
+                Arch["Archivist<br/>:8004"]
+                KC["Keycloak<br/>:8080"]
+                MCP["MCP Server<br/>:8000<br/>Resource Gateway"]
             end
             
             subgraph Data["Data Layer"]
-                RDS[RDS Aurora PostgreSQL<br/>documents DB]
-                KC_RDS[RDS PostgreSQL<br/>keycloak DB]
+                RDS["RDS Aurora PostgreSQL<br/>documents DB"]
+                KC_RDS["RDS PostgreSQL<br/>keycloak DB"]
             end
         end
         
@@ -102,7 +102,7 @@ graph TB
     Val -->|HTTP API| MCP
     Arch -->|HTTP API| MCP
     
-    MCP -->|asyncpg<br/>Connection Pool| RDS
+    MCP --> |"asyncpg<br/>Connection Pool"| RDS
     MCP -.->|aioboto3| S3
     Arch -.->|boto3| S3
     
@@ -133,15 +133,15 @@ graph TB
 
 ```mermaid
 graph TB
-    L1[Layer 1: Network Isolation<br/>VPC, Security Groups, NACLs]
-    L2[Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC]
-    L3[Layer 3: Authentication<br/>JWT RS256 Signature Verification]
-    L4[Layer 4: Authorization<br/>RBAC with Keycloak Roles]
-    L5[Layer 5: Resource Access Control<br/>MCP Server Gateway]
-    L6[Layer 6: Message Integrity<br/>JWT Body Hash Binding]
-    L7[Layer 7: Input Validation<br/>JSON Schema, Pydantic Models]
-    L8[Layer 8: Replay Protection<br/>JWT jti Nonce Tracking]
-    L9[Layer 9: Rate Limiting<br/>Sliding Window Per Principal]
+    L1["Layer 1: Network Isolation<br/>VPC, Security Groups, NACLs"]
+    L2["Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC"]
+    L3["Layer 3: Authentication<br/>JWT RS256 Signature Verification"]
+    L4["Layer 4: Authorization<br/>RBAC with Keycloak Roles"]
+    L5["Layer 5: Resource Access Control<br/>MCP Server Gateway"]
+    L6["Layer 6: Message Integrity<br/>JWT Body Hash Binding"]
+    L7["Layer 7: Input Validation<br/>JSON Schema, Pydantic Models"]
+    L8["Layer 8: Replay Protection<br/>JWT jti Nonce Tracking"]
+    L9["Layer 9: Rate Limiting<br/>Sliding Window Per Principal"]
     
     L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8 --> L9
     
@@ -190,30 +190,30 @@ sequenceDiagram
     User->>ALB: 1. HTTPS Request + JWT
     
     rect rgb(255, 107, 107)
-    Note over ALB: L1: Network Isolation<br/>✓ VPC Security Groups<br/>✓ TLS Termination
+    Note over ALB: L1: Network Isolation<br/>[OK] VPC Security Groups<br/>[OK] TLS Termination
     end
     
     ALB->>Orch: 2. Forward to Orchestrator
     
     rect rgb(255, 217, 61)
-    Note over Orch: L2: Identity Check<br/>✓ JWT Present in Header?<br/>✓ Valid Format?
+    Note over Orch: L2: Identity Check<br/>[OK] JWT Present in Header?<br/>[OK] Valid Format?
     end
     
     Orch->>KC: 3. Fetch JWKS Public Keys
     KC-->>Orch: Public Keys (cached 1h)
     
     rect rgb(107, 207, 127)
-    Note over Orch: L3: Authentication<br/>✓ Verify JWT RS256 Signature<br/>✓ Check Expiration (exp)<br/>✓ Validate Issuer/Audience
+    Note over Orch: L3: Authentication<br/>[OK] Verify JWT RS256 Signature<br/>[OK] Check Expiration (exp)<br/>[OK] Validate Issuer/Audience
     end
     
     rect rgb(77, 150, 255)
-    Note over Orch: L4: Authorization<br/>✓ Extract Keycloak Roles<br/>✓ Map to RBAC Principal<br/>✓ Check Method Permission
+    Note over Orch: L4: Authorization<br/>[OK] Extract Keycloak Roles<br/>[OK] Map to RBAC Principal<br/>[OK] Check Method Permission
     end
     
     Orch->>MCP: 4. Call MCP Server API
     
     rect rgb(255, 215, 0)
-    Note over MCP: L5: Resource Access Control<br/>✓ Centralized Gateway<br/>✓ Circuit Breaker Check<br/>✓ Connection Pool Management
+    Note over MCP: L5: Resource Access Control<br/>[OK] Centralized Gateway<br/>[OK] Circuit Breaker Check<br/>[OK] Connection Pool Management
     end
     
     MCP->>RDS: 5. Query Database
@@ -225,22 +225,22 @@ sequenceDiagram
     MCP-->>Orch: 7. Return Results
     
     rect rgb(166, 108, 255)
-    Note over Orch: L6: Message Integrity<br/>✓ Verify JWT Body Hash<br/>✓ Detect Tampering
+    Note over Orch: L6: Message Integrity<br/>[OK] Verify JWT Body Hash<br/>[OK] Detect Tampering
     end
     
     rect rgb(255, 154, 118)
-    Note over Orch: L7: Input Validation<br/>✓ JSON Schema Check<br/>✓ Pydantic Type Safety<br/>✓ Path Traversal Protection
+    Note over Orch: L7: Input Validation<br/>[OK] JSON Schema Check<br/>[OK] Pydantic Type Safety<br/>[OK] Path Traversal Protection
     end
     
     rect rgb(98, 205, 255)
-    Note over Orch: L8: Replay Protection<br/>✓ Check JWT jti in Cache<br/>✓ Mark as Used (TTL 120s)<br/>✓ Reject Duplicates
+    Note over Orch: L8: Replay Protection<br/>[OK] Check JWT jti in Cache<br/>[OK] Mark as Used (TTL 120s)<br/>[OK] Reject Duplicates
     end
     
     rect rgb(244, 184, 96)
-    Note over Orch: L9: Rate Limiting<br/>✓ Check Request Count<br/>✓ 300 req/min per Principal<br/>✓ Sliding Window Algorithm
+    Note over Orch: L9: Rate Limiting<br/>[OK] Check Request Count<br/>[OK] 300 req/min per Principal<br/>[OK] Sliding Window Algorithm
     end
     
-    Note over Orch: ✅ All Checks Passed<br/>Execute Business Logic
+    Note over Orch: [OK] All Checks Passed<br/>Execute Business Logic
     
     Orch-->>ALB: 8. JSON-RPC Response
     ALB-->>User: 9. HTTPS Response
@@ -267,7 +267,7 @@ sequenceDiagram
 **Security Guarantees:**
 
 - 🛡️ **Defense-in-Depth**: Each layer provides independent protection
-- 🔒 **Fail-Secure**: All checks must pass; any failure rejects request
+- [SECURE] **Fail-Secure**: All checks must pass; any failure rejects request
 - 📊 **Observable**: Each layer logs decisions to CloudWatch
 - 🔄 **No Single Point of Failure**: Compromising one layer doesn't bypass others
 
@@ -351,7 +351,7 @@ sequenceDiagram
 
 ### 3.3 Role-Based Access Control (RBAC)
 
-**Keycloak Realm Roles → A2A RBAC Mapping:**
+**Keycloak Realm Roles -> A2A RBAC Mapping:**
 
 | Keycloak Role | A2A Principal | Allowed Methods | Use Case |
 |---------------|---------------|-----------------|----------|
@@ -386,8 +386,8 @@ class KeycloakRBACMapper:
 
 ```mermaid
 graph LR
-    Admin[Admin API] -->|1. Revoke| Cache[In-Memory Cache<br/>Ultra-fast: ~1μs]
-    Admin -->|2. Persist| DB[(PostgreSQL<br/>revoked_tokens)]
+    Admin[Admin API] -->|1. Revoke| Cache["In-Memory Cache<br/>Ultra-fast: ~1us"]
+    Admin -->|2. Persist| DB["(PostgreSQL<br/>revoked_tokens)"]
     
     Request[Request] -->|3. Check| Cache
     Cache -->|Cache Miss| DB
@@ -604,7 +604,7 @@ await asyncpg.create_pool(
 ```
 
 **Benefits:**
-- 4 agents × 20 connections = 80 total → **Reduced to 10 total**
+- 4 agents × 20 connections = 80 total -> **Reduced to 10 total**
 - Connection reuse reduces latency
 - Automatic connection health checks
 - Graceful degradation on connection loss
@@ -724,7 +724,7 @@ VPC: 10.0.0.0/16 (65,536 IPs)
 
 ```mermaid
 graph TB
-    subgraph Internet
+    subgraph Internet[Internet]
         User[User]
     end
     
@@ -750,22 +750,22 @@ graph TB
         RDS[(PostgreSQL:5432)]
     end
     
-    User -->|"Inbound: 80/443<br/>from 0.0.0.0/0"| ALB
-    ALB -->|"Inbound: 8001<br/>from ALB-SG"| Orch
-    Orch -->|"Inbound: 8002<br/>from Orch-SG"| Ext
-    Orch -->|"Inbound: 8003<br/>from Orch-SG"| Val
-    Orch -->|"Inbound: 8004<br/>from Orch-SG"| Arch
+    User --> |""""""Inbound: 80/443<br/>from 0.0.0.0/0""""""| ALB
+    ALB --> |""""""Inbound: 8001<br/>from ALB-SG""""""| Orch
+    Orch --> |""""""Inbound: 8002<br/>from Orch-SG""""""| Ext
+    Orch --> |""""""Inbound: 8003<br/>from Orch-SG""""""| Val
+    Orch --> |""""""Inbound: 8004<br/>from Orch-SG""""""| Arch
     
-    Orch -.->|"Inbound: 8080<br/>from Agent-SGs"| KC
-    Ext -.->|"Inbound: 8080<br/>from Agent-SGs"| KC
-    Val -.->|"Inbound: 8080<br/>from Agent-SGs"| KC
-    Arch -.->|"Inbound: 8080<br/>from Agent-SGs"| KC
+    Orch -.-> |""""""Inbound: 8080<br/>from Agent-SGs""""""| KC
+    Ext -.-> |""""""Inbound: 8080<br/>from Agent-SGs""""""| KC
+    Val -.-> |""""""Inbound: 8080<br/>from Agent-SGs""""""| KC
+    Arch -.-> |""""""Inbound: 8080<br/>from Agent-SGs""""""| KC
     
-    Orch -.->|"Inbound: 5432<br/>from Agent-SGs"| RDS
-    Ext -.->|"Inbound: 5432<br/>from Agent-SGs"| RDS
-    Val -.->|"Inbound: 5432<br/>from Agent-SGs"| RDS
-    Arch -.->|"Inbound: 5432<br/>from Agent-SGs"| RDS
-    KC -.->|"Inbound: 5432<br/>from KC-SG"| RDS
+    Orch -.-> |""""""Inbound: 5432<br/>from Agent-SGs""""""| RDS
+    Ext -.-> |""""""Inbound: 5432<br/>from Agent-SGs""""""| RDS
+    Val -.-> |""""""Inbound: 5432<br/>from Agent-SGs""""""| RDS
+    Arch -.-> |""""""Inbound: 5432<br/>from Agent-SGs""""""| RDS
+    KC -.-> |""""""Inbound: 5432<br/>from KC-SG""""""| RDS
 ```
 
 **Rules Summary:**
@@ -773,11 +773,11 @@ graph TB
 | Security Group | Inbound Rules | Purpose |
 |----------------|---------------|---------|
 | **ALB-SG** | 80/tcp from 0.0.0.0/0<br/>443/tcp from 0.0.0.0/0 | Public HTTP/HTTPS access |
-| **Orchestrator-SG** | 8001/tcp from ALB-SG | ALB → Orchestrator only |
-| **Extractor-SG** | 8002/tcp from Orch-SG | Orchestrator → Extractor only |
-| **Validator-SG** | 8003/tcp from Orch-SG | Orchestrator → Validator only |
-| **Archivist-SG** | 8004/tcp from Orch-SG | Orchestrator → Archivist only |
-| **Keycloak-SG** | 8080/tcp from Agent-SGs | All agents → Keycloak auth |
+| **Orchestrator-SG** | 8001/tcp from ALB-SG | ALB -> Orchestrator only |
+| **Extractor-SG** | 8002/tcp from Orch-SG | Orchestrator -> Extractor only |
+| **Validator-SG** | 8003/tcp from Orch-SG | Orchestrator -> Validator only |
+| **Archivist-SG** | 8004/tcp from Orch-SG | Orchestrator -> Archivist only |
+| **Keycloak-SG** | 8080/tcp from Agent-SGs | All agents -> Keycloak auth |
 | **RDS-SG** | 5432/tcp from Agent-SGs + KC-SG | Database access |
 
 **Default Deny:** All security groups have implicit deny-all rules. Only explicitly allowed traffic is permitted.
@@ -818,7 +818,7 @@ graph TB
 
 ```mermaid
 graph LR
-    User[User] -->|"1. HTTPS (TLS 1.2+)"| ALB[ALB]
+    User[User] --> |""""""1. HTTPS (TLS 1.2+)""""""| ALB[ALB]
     ALB -->|"2. HTTP"| Orch[Orchestrator]
     Orch -->|"3. HTTP + JWT"| Agents[Other Agents]
     Agents -->|"4. TLS 1.2"| RDS[RDS PostgreSQL]
@@ -832,11 +832,11 @@ graph LR
 ```
 
 **Current State:**
-- ✅ User → ALB: HTTPS (TLS 1.2+) - Can be enabled via ACM certificate
-- ⚠️ ALB → Orchestrator: HTTP (within VPC) - Low risk due to VPC isolation
-- ⚠️ Agent-to-Agent: HTTP (within VPC) - Protected by JWT signature
-- ✅ Agents → RDS: TLS 1.2 (asyncpg with SSL)
-- ✅ Agents → AWS Services: HTTPS (boto3 default)
+- ✅ User -> ALB: HTTPS (TLS 1.2+) - Can be enabled via ACM certificate
+- [WARNING]️ ALB -> Orchestrator: HTTP (within VPC) - Low risk due to VPC isolation
+- [WARNING]️ Agent-to-Agent: HTTP (within VPC) - Protected by JWT signature
+- ✅ Agents -> RDS: TLS 1.2 (asyncpg with SSL)
+- ✅ Agents -> AWS Services: HTTPS (boto3 default)
 
 **Recommendation:** Enable TLS between ALB and agents for defense-in-depth.
 
@@ -942,19 +942,19 @@ The A2A protocol uses a **layered encapsulation model** where each layer adds se
 ```mermaid
 graph TB
     subgraph Layer_1["Layer 1: Transport (HTTPS)"]
-        TLS[TLS 1.2/1.3<br/>✓ Encryption<br/>✓ Server Authentication<br/>✓ Optional mTLS]
+        TLS["TLS 1.2/1.3<br/>[OK] Encryption<br/>[OK] Server Authentication<br/>[OK] Optional mTLS"]
     end
     
     subgraph Layer_2["Layer 2: HTTP"]
-        Headers[HTTP Headers<br/>✓ Authorization Bearer JWT<br/>✓ Content-Type application/json<br/>✓ X-Correlation-ID]
+        Headers["HTTP Headers<br/>[OK] Authorization Bearer JWT<br/>[OK] Content-Type application/json<br/>[OK] X-Correlation-ID"]
     end
     
     subgraph Layer_3["Layer 3: JSON-RPC 2.0"]
-        JSONRPC[JSON-RPC Envelope<br/>✓ jsonrpc: 2.0<br/>✓ method<br/>✓ params<br/>✓ id]
+        JSONRPC["JSON-RPC Envelope<br/>[OK] jsonrpc: 2.0<br/>[OK] method<br/>[OK] params<br/>[OK] id"]
     end
     
     subgraph Layer_4["Layer 4: Business Logic"]
-        Params[Method Parameters<br/>✓ Schema Validated<br/>✓ Type Checked<br/>✓ Sanitized]
+        Params["Method Parameters<br/>[OK] Schema Validated<br/>[OK] Type Checked<br/>[OK] Sanitized"]
     end
     
     TLS --> Headers
@@ -1052,10 +1052,10 @@ if not s3_client.object_exists(params_model.s3_key):
 
 ```json
 {
-  "jsonrpc": "2.0",           // ← Protocol version (REQUIRED, must be "2.0")
-  "id": "req-abc123",          // ← Request ID for correlation (REQUIRED for requests)
-  "method": "process_document", // ← Method to invoke (REQUIRED)
-  "params": {                  // ← Method parameters (OPTIONAL, dict or array)
+  "jsonrpc": "2.0",           // <- Protocol version (REQUIRED, must be "2.0")
+  "id": "req-abc123",          // <- Request ID for correlation (REQUIRED for requests)
+  "method": "process_document", // <- Method to invoke (REQUIRED)
+  "params": {                  // <- Method parameters (OPTIONAL, dict or array)
     "s3_key": "uploads/invoice-2026-01-15.pdf",
     "priority": "high",
     "correlation_id": "order-12345"
@@ -1070,15 +1070,15 @@ if not s3_client.object_exists(params_model.s3_key):
 | `jsonrpc` | String | ✅ Yes | Must be `"2.0"` exactly | Version validation, prevents protocol confusion |
 | `id` | String/Number | ✅ Yes (requests) | Max 128 chars, alphanumeric + `-_` | Request correlation, replay detection |
 | `method` | String | ✅ Yes | Must match `^[a-z_][a-z0-9_]*$` | Method allowlisting, prevents arbitrary calls |
-| `params` | Object/Array | ⚠️ Optional | Max depth 5, max size 1MB | Prevents DoS via deeply nested JSON |
+| `params` | Object/Array | [WARNING]️ Optional | Max depth 5, max size 1MB | Prevents DoS via deeply nested JSON |
 
 **Complete Response Breakdown:**
 
 ```json
 {
-  "jsonrpc": "2.0",           // ← Protocol version (REQUIRED)
-  "id": "req-abc123",          // ← MUST match request ID (REQUIRED)
-  "result": {                  // ← Success result (XOR with "error")
+  "jsonrpc": "2.0",           // <- Protocol version (REQUIRED)
+  "id": "req-abc123",          // <- MUST match request ID (REQUIRED)
+  "result": {                  // <- Success result (XOR with "error")
     "status": "success",
     "document_id": "doc-789",
     "extracted_text": "Invoice #12345...",
@@ -1088,7 +1088,7 @@ if not s3_client.object_exists(params_model.s3_key):
       "processed_at": "2026-01-15T10:30:00Z"
     }
   },
-  "_meta": {                   // ← Optional metadata (not part of JSON-RPC spec)
+  "_meta": {                   // <- Optional metadata (not part of JSON-RPC spec)
     "correlation_id": "order-12345",
     "duration_ms": 250,
     "agent_id": "orchestrator-1"
@@ -1102,10 +1102,10 @@ if not s3_client.object_exists(params_model.s3_key):
 {
   "jsonrpc": "2.0",
   "id": "req-abc123",
-  "error": {                   // ← Error object (XOR with "result")
-    "code": -32602,            // ← Standard error code (see table below)
-    "message": "Invalid params", // ← Human-readable message
-    "data": {                  // ← Optional error details
+  "error": {                   // <- Error object (XOR with "result")
+    "code": -32602,            // <- Standard error code (see table below)
+    "message": "Invalid params", // <- Human-readable message
+    "data": {                  // <- Optional error details
       "detail": "Field 's3_key' is required",
       "field": "s3_key",
       "provided": null
@@ -1478,17 +1478,17 @@ async def handle_process_document(self, params: dict) -> dict:
 ```mermaid
 graph TD
     A[Incoming Request] --> B{1. HTTP Headers Valid?}
-    B -->|No| E1[401 Unauthorized]
+    B -->|No| E1["401 Unauthorized"]
     B -->|Yes| C{2. JSON Parseable?}
-    C -->|No| E2[-32700 Parse Error]
+    C -->|No| E2["-32700 Parse Error"]
     C -->|Yes| D{3. JSON-RPC 2.0 Format?}
-    D -->|No| E3[-32600 Invalid Request]
+    D -->|No| E3["-32600 Invalid Request"]
     D -->|Yes| F{4. JSON Schema Valid?}
-    F -->|No| E4[-32602 Invalid Params]
+    F -->|No| E4["-32602 Invalid Params"]
     F -->|Yes| G{5. Pydantic Model Valid?}
-    G -->|No| E5[-32602 Type Error]
+    G -->|No| E5["-32602 Type Error"]
     G -->|Yes| H{6. Business Rules Valid?}
-    H -->|No| E6[-32000 Business Error]
+    H -->|No| E6["-32000 Business Error"]
     H -->|Yes| I[Execute Method]
     
     style A fill:#90EE90
@@ -1756,7 +1756,7 @@ graph TD
     Q -->|Yes| R[10. Validate JSON Schema]
     
     R --> S{Valid Schema?}
-    S -->|No| E8[Return -32602 Invalid Params]
+    S -->|No| E8["Return -32602 Invalid Params"]
     S -->|Yes| T[11. Check Replay jti]
     
     T --> U{Duplicate?}
@@ -1852,47 +1852,47 @@ graph TB
     end
     
     subgraph Layer1["Layer 1: Network Perimeter"]
-        ALB[AWS ALB<br/>TLS Termination<br/>DDoS Protection]
+        ALB["AWS ALB<br/>TLS Termination<br/>DDoS Protection"]
         NACL[Network ACLs]
     end
     
     subgraph Layer2["Layer 2: VPC Isolation"]
-        SG[Security Groups<br/>Port-Level Filtering]
-        PrivateSubnets[Private Subnets<br/>10.0.0.0/16]
+        SG["Security Groups<br/>Port-Level Filtering"]
+        PrivateSubnets["Private Subnets<br/>10.0.0.0/16"]
     end
     
     subgraph Layer3["Layer 3: Identity"]
-        Keycloak[Keycloak OAuth2/OIDC<br/>Centralized Authentication]
+        Keycloak["Keycloak OAuth2/OIDC<br/>Centralized Authentication"]
     end
     
     subgraph Layer4["Layer 4: Authentication"]
-        JWT[JWT RS256 Verification<br/>Signature + Expiration]
-        TokenBinding[Token Binding RFC 8473<br/>Certificate Binding]
+        JWT["JWT RS256 Verification<br/>Signature + Expiration"]
+        TokenBinding["Token Binding RFC 8473<br/>Certificate Binding"]
     end
     
     subgraph Layer5["Layer 5: Authorization"]
-        RBAC[Role-Based Access Control<br/>Method Permissions]
+        RBAC["Role-Based Access Control<br/>Method Permissions"]
     end
     
     subgraph Layer6["Layer 6: Resource Gateway"]
-        MCP[MCP Server<br/>Centralized S3/RDS Access]
+        MCP["MCP Server<br/>Centralized S3/RDS Access"]
     end
     
     subgraph Layer7["Layer 7: Message Integrity"]
-        BodyHash[JWT Body Hash Binding<br/>Tampering Detection]
+        BodyHash["JWT Body Hash Binding<br/>Tampering Detection"]
     end
     
     subgraph Layer8["Layer 8: Input Validation"]
-        Schema[JSON Schema + Pydantic<br/>Type Safety]
+        Schema["JSON Schema + Pydantic<br/>Type Safety"]
     end
     
     subgraph Layer9["Layer 9: Abuse Prevention"]
-        Replay[Replay Protection<br/>JWT jti Tracking]
-        RateLimit[Rate Limiting<br/>300 req/min]
+        Replay["Replay Protection<br/>JWT jti Tracking"]
+        RateLimit["Rate Limiting<br/>300 req/min"]
     end
     
     subgraph Layer10["Layer 10: Application Logic"]
-        Business[Business Logic<br/>Custom Validations]
+        Business["Business Logic<br/>Custom Validations"]
     end
     
     Attacker --> ALB
@@ -1995,18 +1995,18 @@ graph TB
     end
     
     subgraph PublicSubnet["Public Subnet"]
-        ALB[ALB<br/>Security Group: ca-a2a-alb-sg]
+        ALB["ALB<br/>Security Group: ca-a2a-alb-sg"]
     end
     
     subgraph PrivateSubnet["Private Subnet"]
-        Orch[Orchestrator<br/>Security Group: ca-a2a-orchestrator-sg]
-        Ext[Extractor<br/>Security Group: ca-a2a-extractor-sg]
-        KC[Keycloak<br/>Security Group: ca-a2a-keycloak-sg]
-        MCP[MCP Server<br/>Security Group: ca-a2a-mcp-sg]
+        Orch["Orchestrator<br/>Security Group: ca-a2a-orchestrator-sg"]
+        Ext["Extractor<br/>Security Group: ca-a2a-extractor-sg"]
+        KC["Keycloak<br/>Security Group: ca-a2a-keycloak-sg"]
+        MCP["MCP Server<br/>Security Group: ca-a2a-mcp-sg"]
     end
     
     subgraph DataLayer["Data Layer"]
-        RDS[RDS PostgreSQL<br/>Security Group: ca-a2a-rds-sg]
+        RDS["RDS PostgreSQL<br/>Security Group: ca-a2a-rds-sg"]
     end
     
     User -->|HTTPS 443| ALB
@@ -2150,10 +2150,10 @@ sequenceDiagram
     Orchestrator->>Orchestrator: Compare with cnf.x5t#S256 claim
     
     alt Thumbprints Match
-        Orchestrator->>Orchestrator: ✅ Token Binding Valid
+        Orchestrator->>Orchestrator: [OK] Token Binding Valid
         Orchestrator-->>Client: 200 OK (process request)
     else Thumbprints Mismatch
-        Orchestrator->>Orchestrator: ❌ Token Binding Failed
+        Orchestrator->>Orchestrator: [FAIL] Token Binding Failed
         Orchestrator-->>Client: 403 Forbidden<br/>"Token binding verification failed"
     end
 ```
@@ -2310,7 +2310,7 @@ class KeycloakJWTValidator:
 **Vulnerable Code (DO NOT USE):**
 ```python
 def verify_api_key(api_key: str, expected: str) -> bool:
-    # ⚠️ VULNERABLE: Early exit on first mismatch
+    # [WARNING]️ VULNERABLE: Early exit on first mismatch
     if api_key == expected:
         return True
     return False
@@ -2322,9 +2322,9 @@ def verify_api_key(api_key: str, expected: str) -> bool:
 - Example: `"admin123"` vs `"admin456"` takes longer than `"admin123"` vs `"xdmin123"`
 
 **Attack Process:**
-1. Attacker tries `"a..."` → fast failure (wrong first char)
-2. Attacker tries `"b..."` → fast failure
-3. Attacker tries `"admin..."` → **slower failure** (matched 5 chars)
+1. Attacker tries `"a..."` -> fast failure (wrong first char)
+2. Attacker tries `"b..."` -> fast failure
+3. Attacker tries `"admin..."` -> **slower failure** (matched 5 chars)
 4. Repeat for each character until full key discovered
 
 #### 7.14.2 Constant-Time Comparison
@@ -3239,9 +3239,9 @@ echo "=== End of Report ==="
 | **Data Encryption** | ✅ AES-256 at rest, TLS in transit |
 | **Access Control** | ✅ RBAC with Keycloak roles |
 | **Audit Trail** | ✅ CloudWatch Logs with 7-day retention |
-| **Right to be Forgotten** | ⚠️ Manual deletion via SQL (implement API endpoint) |
+| **Right to be Forgotten** | [WARNING]️ Manual deletion via SQL (implement API endpoint) |
 | **Data Minimization** | ✅ Only essential fields stored |
-| **Pseudonymization** | ⚠️ User emails stored in Keycloak (consider hashing) |
+| **Pseudonymization** | [WARNING]️ User emails stored in Keycloak (consider hashing) |
 
 **PCI-DSS Considerations (if processing payment data):**
 
@@ -3251,7 +3251,7 @@ echo "=== End of Report ==="
 | **Strong Access Control** | ✅ Multi-factor via Keycloak (optional) |
 | **Encryption** | ✅ At rest and in transit |
 | **Logging & Monitoring** | ✅ CloudWatch Logs + audit trail |
-| **Vulnerability Management** | ⚠️ Regular container image updates (automate) |
+| **Vulnerability Management** | [WARNING]️ Regular container image updates (automate) |
 
 ---
 
