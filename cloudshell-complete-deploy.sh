@@ -690,7 +690,7 @@ log_step "Creating RDS Aurora PostgreSQL cluster (Multi-AZ, this takes 8-10 minu
 aws rds create-db-cluster \
     --db-cluster-identifier ${PROJECT_NAME}-documents-db \
     --engine aurora-postgresql \
-    --engine-version 15.5 \
+    --engine-version 14.9 \
     --master-username postgres \
     --master-user-password "${DB_PASSWORD}" \
     --vpc-security-group-ids ${RDS_SG} \
@@ -733,7 +733,7 @@ aws rds create-db-instance \
     --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
     --db-instance-class db.t3.small \
     --engine postgres \
-    --engine-version 15.5 \
+    --engine-version 14.9 \
     --master-username postgres \
     --master-user-password "${KEYCLOAK_DB_PASSWORD}" \
     --allocated-storage 20 \
