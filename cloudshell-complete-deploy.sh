@@ -202,19 +202,19 @@ fi
 create_tag_specs() {
     local resource_type="${1:-generic}"
     local resource_name="${2:-resource}"
-    echo "ResourceType=${resource_type},Tags=[{Key=Name,Value=${PROJECT_NAME}-${resource_name}},{Key=Project,Value=${TAG_PROJECT}},{Key=Environment,Value=${TAG_ENV}},{Key=ManagedBy,Value=${TAG_MANAGED_BY}},{Key=Version,Value=${TAG_VERSION}},{Key=Security,Value=${TAG_SECURITY}},{Key=Owner,Value=${TAG_OWNER}}]"
+    echo "ResourceType=${resource_type},Tags=[{Key=Name,Value=${PROJECT_NAME}-${resource_name}},{Key=Project,Value=${TAG_PROJECT}},{Key=Environment,Value=${TAG_ENV}},{Key=ManagedBy,Value=${TAG_MANAGED_BY}},{Key=Version,Value=${TAG_VERSION}},{Key=Security,Value=${TAG_SECURITY}},{Key=Owner,Value=Jaafar-Benabderrazak}]"
 }
 
 # Function to create tags for --tags (most other AWS services)
 create_tags() {
     local resource_name="${1:-resource}"
-    echo "Key=Name,Value=${PROJECT_NAME}-${resource_name} Key=Project,Value=${TAG_PROJECT} Key=Environment,Value=${TAG_ENV} Key=ManagedBy,Value=${TAG_MANAGED_BY} Key=Version,Value=${TAG_VERSION} Key=Security,Value=${TAG_SECURITY} Key=Owner,Value=${TAG_OWNER}"
+    echo "Key=Name,Value=${PROJECT_NAME}-${resource_name} Key=Project,Value=${TAG_PROJECT} Key=Environment,Value=${TAG_ENV} Key=ManagedBy,Value=${TAG_MANAGED_BY} Key=Version,Value=${TAG_VERSION} Key=Security,Value=${TAG_SECURITY} Key=Owner,Value=Jaafar-Benabderrazak"
 }
 
 # Function to create tags for S3 --tagging parameter (needs TagSet array format)
 create_s3_tags() {
     local resource_name="${1:-resource}"
-    echo "[{Key=Name,Value=${PROJECT_NAME}-${resource_name}},{Key=Project,Value=${TAG_PROJECT}},{Key=Environment,Value=${TAG_ENV}},{Key=ManagedBy,Value=${TAG_MANAGED_BY}},{Key=Version,Value=${TAG_VERSION}},{Key=Security,Value=${TAG_SECURITY}},{Key=Owner,Value=${TAG_OWNER}}]"
+    echo "[{Key=Name,Value=${PROJECT_NAME}-${resource_name}},{Key=Project,Value=${TAG_PROJECT}},{Key=Environment,Value=${TAG_ENV}},{Key=ManagedBy,Value=${TAG_MANAGED_BY}},{Key=Version,Value=${TAG_VERSION}},{Key=Security,Value=${TAG_SECURITY}},{Key=Owner,Value=Jaafar-Benabderrazak}]"
 }
 
 # Function to add tags to a resource (simplified)
@@ -233,7 +233,7 @@ tag_resource() {
             "Key=Environment,Value=${TAG_ENV}" \
             "Key=ManagedBy,Value=${TAG_MANAGED_BY}" \
             "Key=Version,Value=${TAG_VERSION}" \
-            "Key=Owner,Value=${TAG_OWNER}" \
+            "Key=Owner,Value=Jaafar-Benabderrazak" \
         --region ${AWS_REGION} 2>/dev/null || true
 }
 
