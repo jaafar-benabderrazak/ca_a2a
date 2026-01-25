@@ -307,31 +307,31 @@ log_substep "Creating subnets..."
 
 PUBLIC_SUBNET_1=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.1.0/24 --availability-zone ${AZ1} \
-    --tag-specifications "$(create_tag_specs "subnet" "public-subnet-1")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-subnet-1" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
+tag_resource "${PUBLIC_SUBNET_1}" "public-subnet-1"
 
 PUBLIC_SUBNET_2=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.2.0/24 --availability-zone ${AZ2} \
-    --tag-specifications "$(create_tag_specs "subnet" "public-subnet-2")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-subnet-2" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
+tag_resource "${PUBLIC_SUBNET_2}" "public-subnet-2"
 
 PRIVATE_SUBNET_1=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.10.0/24 --availability-zone ${AZ1} \
-    --tag-specifications "$(create_tag_specs "subnet" "private-subnet-1")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-subnet-1" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
+tag_resource "${PRIVATE_SUBNET_1}" "private-subnet-1"
 
 PRIVATE_SUBNET_2=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.20.0/24 --availability-zone ${AZ2} \
-    --tag-specifications "$(create_tag_specs "subnet" "private-subnet-2")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-subnet-2" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
+tag_resource "${PRIVATE_SUBNET_2}" "private-subnet-2"
 
 log_info "Subnets created"
 log_substep "  Public: ${PUBLIC_SUBNET_1}, ${PUBLIC_SUBNET_2}"
@@ -343,10 +343,10 @@ EIP_ID=$(aws ec2 allocate-address --domain vpc --region ${AWS_REGION} --query 'A
 
 NAT_GW=$(aws ec2 create-nat-gateway \
     --subnet-id ${PUBLIC_SUBNET_1} --allocation-id ${EIP_ID} \
-    --tag-specifications "$(create_tag_specs "natgateway" "nat-gateway")" \
     --region ${AWS_REGION} --query 'NatGateway.NatGatewayId' --output text 2>/dev/null || \
     aws ec2 describe-nat-gateways --filter "Name=tag:Name,Values=${PROJECT_NAME}-nat-gateway" "Name=state,Values=available" \
         --region ${AWS_REGION} --query 'NatGateways[0].NatGatewayId' --output text)
+tag_resource "${NAT_GW}" "nat-gateway"
 
 if [ "$NAT_GW" != "None" ] && [ ! -z "$NAT_GW" ]; then
     aws ec2 wait nat-gateway-available --nat-gateway-ids ${NAT_GW} --region ${AWS_REGION} &
@@ -358,20 +358,20 @@ log_info "NAT Gateway created: ${NAT_GW}"
 log_substep "Configuring route tables..."
 
 PUBLIC_RT=$(aws ec2 create-route-table --vpc-id ${VPC_ID} \
-    --tag-specifications "$(create_tag_specs "route-table" "public-rt")" \
     --region ${AWS_REGION} --query 'RouteTable.RouteTableId' --output text 2>/dev/null || \
     aws ec2 describe-route-tables --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-rt" \
         --region ${AWS_REGION} --query 'RouteTables[0].RouteTableId' --output text)
+tag_resource "${PUBLIC_RT}" "public-rt"
 
 aws ec2 create-route --route-table-id ${PUBLIC_RT} --destination-cidr-block 0.0.0.0/0 --gateway-id ${IGW_ID} --region ${AWS_REGION} 2>/dev/null || true
 aws ec2 associate-route-table --subnet-id ${PUBLIC_SUBNET_1} --route-table-id ${PUBLIC_RT} --region ${AWS_REGION} 2>/dev/null || true
 aws ec2 associate-route-table --subnet-id ${PUBLIC_SUBNET_2} --route-table-id ${PUBLIC_RT} --region ${AWS_REGION} 2>/dev/null || true
 
 PRIVATE_RT=$(aws ec2 create-route-table --vpc-id ${VPC_ID} \
-    --tag-specifications "$(create_tag_specs "route-table" "private-rt")" \
     --region ${AWS_REGION} --query 'RouteTable.RouteTableId' --output text 2>/dev/null || \
     aws ec2 describe-route-tables --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-rt" \
         --region ${AWS_REGION} --query 'RouteTables[0].RouteTableId' --output text)
+tag_resource "${PRIVATE_RT}" "private-rt"
 
 if [ "$NAT_GW" != "None" ] && [ ! -z "$NAT_GW" ]; then
     aws ec2 create-route --route-table-id ${PRIVATE_RT} --destination-cidr-block 0.0.0.0/0 --nat-gateway-id ${NAT_GW} --region ${AWS_REGION} 2>/dev/null || true
