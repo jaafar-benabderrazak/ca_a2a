@@ -643,6 +643,9 @@ LIFECYCLE_CONFIG=$(cat <<'EOF'
     "Rules": [{
         "ID": "archive-old-documents",
         "Status": "Enabled",
+        "Filter": {
+            "Prefix": ""
+        },
         "Transitions": [{
             "Days": 90,
             "StorageClass": "GLACIER"
