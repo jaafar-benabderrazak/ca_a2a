@@ -517,7 +517,9 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/db-password \
     --secret-string "${DB_PASSWORD}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
+
+log_info "Database credentials stored securely."
 
 aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/keycloak-db-password \
@@ -527,7 +529,7 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/keycloak-db-password \
     --secret-string "${KEYCLOAK_DB_PASSWORD}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
 
 aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/keycloak-admin-password \
@@ -537,11 +539,8 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/keycloak-admin-password \
     --secret-string "${KEYCLOAK_ADMIN_PASSWORD}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
 
-log_info "Database credentials stored"
-
-# Generate JWT RSA keys (for A2A protocol authentication)
 log_substep "Generating RSA-2048 JWT keys..."
 PRIVATE_KEY_FILE="/tmp/${PROJECT_NAME}-jwt-private.pem"
 PUBLIC_KEY_FILE="/tmp/${PROJECT_NAME}-jwt-public.pem"
@@ -551,6 +550,7 @@ openssl rsa -in "${PRIVATE_KEY_FILE}" -pubout -out "${PUBLIC_KEY_FILE}" 2>/dev/n
 PRIVATE_KEY_PEM="$(cat "${PRIVATE_KEY_FILE}")"
 PUBLIC_KEY_PEM="$(cat "${PUBLIC_KEY_FILE}")"
 
+log_substep "Storing A2A JWT private key..."
 aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/a2a-jwt-private-key-pem \
     --secret-string "${PRIVATE_KEY_PEM}" \
@@ -559,8 +559,9 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/a2a-jwt-private-key-pem \
     --secret-string "${PRIVATE_KEY_PEM}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
 
+log_substep "Storing A2A JWT public key..."
 aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/a2a-jwt-public-key-pem \
     --secret-string "${PUBLIC_KEY_PEM}" \
@@ -569,9 +570,9 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/a2a-jwt-public-key-pem \
     --secret-string "${PUBLIC_KEY_PEM}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
 
-log_info "JWT RSA-2048 keys generated and stored"
+log_info "JWT RSA-2048 keys generated and stored securely."
 
 # Generate client API key (for external clients)
 log_substep "Generating client API key..."
@@ -586,9 +587,9 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/a2a-client-api-keys-json \
     --secret-string "${CLIENT_API_KEYS_JSON}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
 
-log_info "Client API key generated"
+log_info "Client API key generated and stored."
 
 # Generate Keycloak client secret
 log_substep "Generating Keycloak client secret..."
@@ -602,9 +603,9 @@ aws secretsmanager create-secret \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/keycloak-client-secret \
     --secret-string "${KEYCLOAK_CLIENT_SECRET}" \
-    --region ${AWS_REGION}
+    --region ${AWS_REGION} >/dev/null
 
-log_info "Keycloak client secret generated"
+log_info "All secrets generated and stored securely."
 
 ###############################################################################
 # Phase 4: Data Storage (S3 & RDS with Encryption)
