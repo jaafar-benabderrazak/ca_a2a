@@ -198,21 +198,24 @@ fi
 # Helper Functions
 ###############################################################################
 
-# Function to create tags in JSON format
-create_tags() {
-    local resource_name="${1:-unknown}"
-    cat <<EOF
-[
-    {"Key":"Name","Value":"${PROJECT_NAME}-${resource_name}"},
-    {"Key":"Project","Value":"${TAG_PROJECT}"},
-    {"Key":"Environment","Value":"${TAG_ENV}"},
-    {"Key":"ManagedBy","Value":"${TAG_MANAGED_BY}"},
-    {"Key":"Version","Value":"${TAG_VERSION}"},
-    {"Key":"Security","Value":"${TAG_SECURITY}"},
-    {"Key":"Owner","Value":"${TAG_OWNER}"},
-    {"Key":"DeploymentDate","Value":"${DEPLOYMENT_DATE}"}
-]
-EOF
+# Function to add tags to a resource (simplified)
+tag_resource() {
+    local resource_id=$1
+    local resource_name=$2
+    
+    if [ -z "$resource_id" ] || [ "$resource_id" = "None" ]; then
+        return 0
+    fi
+    
+    aws ec2 create-tags --resources ${resource_id} \
+        --tags \
+            "Key=Name,Value=${PROJECT_NAME}-${resource_name}" \
+            "Key=Project,Value=${TAG_PROJECT}" \
+            "Key=Environment,Value=${TAG_ENV}" \
+            "Key=ManagedBy,Value=${TAG_MANAGED_BY}" \
+            "Key=Version,Value=${TAG_VERSION}" \
+            "Key=Owner,Value=${TAG_OWNER}" \
+        --region ${AWS_REGION} 2>/dev/null || true
 }
 
 # Function to wait with spinner
@@ -247,13 +250,14 @@ log_step "Creating VPC and networking components..."
 log_substep "Creating VPC (10.0.0.0/16)..."
 VPC_ID=$(aws ec2 create-vpc \
     --cidr-block 10.0.0.0/16 \
-    --tag-specifications "ResourceType=vpc,Tags=$(create_tags "vpc")" \
     --region ${AWS_REGION} \
     --query 'Vpc.VpcId' --output text 2>/dev/null || \
     aws ec2 describe-vpcs \
         --filters "Name=tag:Name,Values=${PROJECT_NAME}-vpc" \
         --region ${AWS_REGION} \
         --query 'Vpcs[0].VpcId' --output text)
+
+tag_resource "${VPC_ID}" "vpc"
 
 aws ec2 modify-vpc-attribute --vpc-id ${VPC_ID} --enable-dns-support --region ${AWS_REGION}
 aws ec2 modify-vpc-attribute --vpc-id ${VPC_ID} --enable-dns-hostnames --region ${AWS_REGION}
@@ -262,13 +266,14 @@ log_info "VPC created: ${VPC_ID}"
 # Create Internet Gateway
 log_substep "Creating Internet Gateway..."
 IGW_ID=$(aws ec2 create-internet-gateway \
-    --tag-specifications "ResourceType=internet-gateway,Tags=$(create_tags "igw")" \
     --region ${AWS_REGION} \
     --query 'InternetGateway.InternetGatewayId' --output text 2>/dev/null || \
     aws ec2 describe-internet-gateways \
         --filters "Name=tag:Name,Values=${PROJECT_NAME}-igw" \
         --region ${AWS_REGION} \
         --query 'InternetGateways[0].InternetGatewayId' --output text)
+
+tag_resource "${IGW_ID}" "igw"
 
 aws ec2 attach-internet-gateway --vpc-id ${VPC_ID} --internet-gateway-id ${IGW_ID} --region ${AWS_REGION} 2>/dev/null || true
 log_info "Internet Gateway attached: ${IGW_ID}"
@@ -375,7 +380,11 @@ ALB_SG=$(aws ec2 create-security-group \
     aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-alb-sg" \
         --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
 
-aws ec2 create-tags --resources ${ALB_SG} --tags $(create_tags "alb-sg") --region ${AWS_REGION}
+if [ ! -z "$ALB_SG" ] && [ "$ALB_SG" != "None" ]; then
+    aws ec2 create-tags --resources ${ALB_SG} \
+        --tags "Key=Name,Value=${PROJECT_NAME}-alb-sg" "Key=Project,Value=${TAG_PROJECT}" "Key=Environment,Value=${TAG_ENV}" \
+        --region ${AWS_REGION} 2>/dev/null || true
+fi
 aws ec2 authorize-security-group-ingress --group-id ${ALB_SG} --protocol tcp --port 80 --cidr 0.0.0.0/0 --region ${AWS_REGION} 2>/dev/null || true
 aws ec2 authorize-security-group-ingress --group-id ${ALB_SG} --protocol tcp --port 443 --cidr 0.0.0.0/0 --region ${AWS_REGION} 2>/dev/null || true
 log_info "ALB SG: ${ALB_SG}"
@@ -394,7 +403,11 @@ for agent in orchestrator extractor validator archivist keycloak mcp-server; do
         aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-${agent}-sg" \
             --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
     
-    aws ec2 create-tags --resources ${SG} --tags $(create_tags "${agent}-sg") --region ${AWS_REGION}
+    if [ ! -z "$SG" ] && [ "$SG" != "None" ]; then
+        aws ec2 create-tags --resources ${SG} \
+            --tags "Key=Name,Value=${PROJECT_NAME}-${agent}-sg" "Key=Project,Value=${TAG_PROJECT}" \
+            --region ${AWS_REGION} 2>/dev/null || true
+    fi
     AGENT_SGS[$agent]=$SG
 done
 
@@ -426,7 +439,11 @@ RDS_SG=$(aws ec2 create-security-group \
     aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-rds-sg" \
         --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
 
-aws ec2 create-tags --resources ${RDS_SG} --tags $(create_tags "rds-sg") --region ${AWS_REGION}
+if [ ! -z "$RDS_SG" ] && [ "$RDS_SG" != "None" ]; then
+    aws ec2 create-tags --resources ${RDS_SG} \
+        --tags "Key=Name,Value=${PROJECT_NAME}-rds-sg" "Key=Project,Value=${TAG_PROJECT}" \
+        --region ${AWS_REGION} 2>/dev/null || true
+fi
 
 # Allow MCP Server to access RDS (Layer 5 - centralized resource access)
 aws ec2 authorize-security-group-ingress --group-id ${RDS_SG} --protocol tcp --port 5432 --source-group ${AGENT_SGS[mcp-server]} --region ${AWS_REGION} 2>/dev/null || true
