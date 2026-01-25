@@ -513,11 +513,11 @@ aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/db-password \
     --secret-string "${DB_PASSWORD}" \
     --tags $(create_tags "db-password") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/db-password \
     --secret-string "${DB_PASSWORD}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 log_info "Database credentials stored securely."
 
@@ -525,21 +525,21 @@ aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/keycloak-db-password \
     --secret-string "${KEYCLOAK_DB_PASSWORD}" \
     --tags $(create_tags "keycloak-db-password") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/keycloak-db-password \
     --secret-string "${KEYCLOAK_DB_PASSWORD}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/keycloak-admin-password \
     --secret-string "${KEYCLOAK_ADMIN_PASSWORD}" \
     --tags $(create_tags "keycloak-admin-password") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/keycloak-admin-password \
     --secret-string "${KEYCLOAK_ADMIN_PASSWORD}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 log_substep "Generating RSA-2048 JWT keys..."
 PRIVATE_KEY_FILE="/tmp/${PROJECT_NAME}-jwt-private.pem"
@@ -555,22 +555,22 @@ aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/a2a-jwt-private-key-pem \
     --secret-string "${PRIVATE_KEY_PEM}" \
     --tags $(create_tags "a2a-jwt-private-key") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/a2a-jwt-private-key-pem \
     --secret-string "${PRIVATE_KEY_PEM}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 log_substep "Storing A2A JWT public key..."
 aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/a2a-jwt-public-key-pem \
     --secret-string "${PUBLIC_KEY_PEM}" \
     --tags $(create_tags "a2a-jwt-public-key") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/a2a-jwt-public-key-pem \
     --secret-string "${PUBLIC_KEY_PEM}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 log_info "JWT RSA-2048 keys generated and stored securely."
 
@@ -583,11 +583,11 @@ aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/a2a-client-api-keys-json \
     --secret-string "${CLIENT_API_KEYS_JSON}" \
     --tags $(create_tags "a2a-client-api-keys") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/a2a-client-api-keys-json \
     --secret-string "${CLIENT_API_KEYS_JSON}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 log_info "Client API key generated and stored."
 
@@ -599,11 +599,11 @@ aws secretsmanager create-secret \
     --name ${PROJECT_NAME}/keycloak-client-secret \
     --secret-string "${KEYCLOAK_CLIENT_SECRET}" \
     --tags $(create_tags "keycloak-client-secret") \
-    --region ${AWS_REGION} 2>/dev/null || \
+    --region ${AWS_REGION} >/dev/null 2>&1 || \
 aws secretsmanager update-secret \
     --secret-id ${PROJECT_NAME}/keycloak-client-secret \
     --secret-string "${KEYCLOAK_CLIENT_SECRET}" \
-    --region ${AWS_REGION} >/dev/null
+    --region ${AWS_REGION} >/dev/null 2>&1
 
 log_info "All secrets generated and stored securely."
 
