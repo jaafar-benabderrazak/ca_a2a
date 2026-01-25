@@ -25,7 +25,7 @@ CaA2aStack(
         account=app.account
     ),
     project_name=project_name,
-    environment=environment,
+    env_name=environment,
     tags={
         "Project": project_name,
         "Environment": environment,

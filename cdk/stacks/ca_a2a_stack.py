@@ -30,13 +30,13 @@ class CaA2aStack(Stack):
         scope: Construct,
         construct_id: str,
         project_name: str,
-        environment: str,
+        env_name: str,
         **kwargs
     ) -> None:
         super().__init__(scope, construct_id, **kwargs)
 
         self.project_name = project_name
-        self.environment = environment
+        self.env_name = env_name
 
         # ═══════════════════════════════════════════════════════════
         # PHASE 1: NETWORK INFRASTRUCTURE
