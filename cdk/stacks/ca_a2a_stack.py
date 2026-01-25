@@ -170,7 +170,8 @@ class CaA2aStack(Stack):
         self.documents_bucket = s3.Bucket(
             self,
             "DocumentsBucket",
-            bucket_name=f"{project_name}-documents-{self.account}",
+            # Let CDK auto-generate unique bucket name to avoid conflicts
+            bucket_name=None,  # Auto-generated
             encryption=s3.BucketEncryption.S3_MANAGED,
             versioned=True,
             block_public_access=s3.BlockPublicAccess.BLOCK_ALL,

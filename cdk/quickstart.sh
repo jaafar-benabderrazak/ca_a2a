@@ -75,31 +75,22 @@ echo "  3. Destroy stack:    cdk destroy"
 echo ""
 echo "═══════════════════════════════════════════════════════════════════════"
 echo ""
+echo "▸ Starting deployment..."
+echo "  (This will take 15-20 minutes)"
+echo ""
 
-read -p "Deploy now? (yes/no): " DEPLOY
-if [ "$DEPLOY" == "yes" ]; then
-    echo ""
-    echo "▸ Starting deployment..."
-    echo "  (This will take 15-20 minutes)"
-    echo ""
-    cdk deploy --require-approval never
-    
-    echo ""
-    echo "╔═══════════════════════════════════════════════════════════════════════╗"
-    echo "║                                                                        ║"
-    echo "║                    ✅ Deployment Complete!                            ║"
-    echo "║                                                                        ║"
-    echo "╚═══════════════════════════════════════════════════════════════════════╝"
-    echo ""
-    echo "Next steps:"
-    echo "  1. Check stack outputs: cdk deploy --outputs-file outputs.json"
-    echo "  2. View resources: aws cloudformation describe-stack-resources --stack-name ca-a2a-prod"
-    echo "  3. Deploy ECS services (Docker containers)"
-    echo ""
-else
-    echo ""
-    echo "To deploy later, run:"
-    echo "  cd cdk && cdk deploy"
-    echo ""
-fi
+cdk deploy --require-approval never
+
+echo ""
+echo "╔═══════════════════════════════════════════════════════════════════════╗"
+echo "║                                                                        ║"
+echo "║                    ✅ Deployment Complete!                            ║"
+echo "║                                                                        ║"
+echo "╚═══════════════════════════════════════════════════════════════════════╝"
+echo ""
+echo "Next steps:"
+echo "  1. Check stack outputs: cdk deploy --outputs-file outputs.json"
+echo "  2. View resources: aws cloudformation describe-stack-resources --stack-name ca-a2a-prod"
+echo "  3. Deploy ECS services (Docker containers)"
+echo ""
 
