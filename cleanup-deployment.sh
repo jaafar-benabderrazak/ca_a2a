@@ -153,13 +153,25 @@ LAMBDA_FUNCTIONS=$(aws lambda list-functions --region ${AWS_REGION} --query "Fun
 
 if [ ! -z "$LAMBDA_FUNCTIONS" ]; then
     for func in $LAMBDA_FUNCTIONS; do
-        log_substep "Deleting Lambda function: $func"
+        log_substep "Force deleting Lambda function: $func"
         aws lambda delete-function --function-name $func --region ${AWS_REGION} 2>/dev/null || log_warn "  Function not found or already deleted"
     done
     log_info "Lambda functions deleted"
 else
     log_warn "No Lambda functions found, skipping"
 fi
+
+# Also check for any Lambda functions that might not have the exact prefix
+log_substep "Checking for related Lambda functions..."
+OTHER_LAMBDAS=$(aws lambda list-functions --region ${AWS_REGION} --query "Functions[?contains(FunctionName, '${PROJECT_NAME}')].FunctionName" --output text 2>/dev/null || echo "")
+for func in $OTHER_LAMBDAS; do
+    if ! echo "$LAMBDA_FUNCTIONS" | grep -q "$func"; then
+        log_substep "Deleting related Lambda: $func"
+        aws lambda delete-function --function-name $func --region ${AWS_REGION} 2>/dev/null || true
+    fi
+done
+
+log_info "Lambda cleanup complete"
 
 ###############################################################################
 # Phase 4: RDS Databases
@@ -168,34 +180,59 @@ fi
 log_step "Phase 4: Deleting RDS databases..."
 
 # Delete Aurora cluster instances first
-log_substep "Finding Aurora cluster instances..."
+log_substep "Finding and deleting Aurora cluster instances..."
 CLUSTER_NAME="${PROJECT_NAME}-documents-db"
 CLUSTER_INSTANCES=$(aws rds describe-db-instances --region ${AWS_REGION} --query "DBInstances[?DBClusterIdentifier=='${CLUSTER_NAME}'].DBInstanceIdentifier" --output text 2>/dev/null || echo "")
 
 for instance in $CLUSTER_INSTANCES; do
-    log_substep "Deleting Aurora instance: $instance"
-    aws rds delete-db-instance --db-instance-identifier $instance --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "  Instance not found"
+    log_substep "Force deleting Aurora instance: $instance"
+    aws rds delete-db-instance \
+        --db-instance-identifier $instance \
+        --skip-final-snapshot \
+        --delete-automated-backups \
+        --region ${AWS_REGION} 2>/dev/null || log_warn "  Instance not found"
 done
 
 if [ ! -z "$CLUSTER_INSTANCES" ]; then
-    log_substep "Waiting 30 seconds for instances to start deleting..."
+    log_substep "Waiting 30 seconds for cluster instances to start deleting..."
     sleep 30
 fi
 
-log_substep "Deleting Aurora cluster..."
-aws rds delete-db-cluster --db-cluster-identifier ${CLUSTER_NAME} --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "Aurora cluster not found"
+# Delete Aurora cluster
+log_substep "Force deleting Aurora cluster..."
+aws rds delete-db-cluster \
+    --db-cluster-identifier ${CLUSTER_NAME} \
+    --skip-final-snapshot \
+    --region ${AWS_REGION} 2>/dev/null || log_warn "Aurora cluster not found"
 
-log_substep "Deleting Keycloak database..."
-aws rds delete-db-instance --db-instance-identifier ${PROJECT_NAME}-keycloak-db --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "Keycloak DB not found"
+# Delete Keycloak database
+log_substep "Force deleting Keycloak database..."
+aws rds delete-db-instance \
+    --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
+    --skip-final-snapshot \
+    --delete-automated-backups \
+    --region ${AWS_REGION} 2>/dev/null || log_warn "Keycloak DB not found"
 
-log_substep "Waiting 60 seconds for databases to start deleting..."
-log_warn "RDS deletion takes 2-5 minutes. Network interfaces will auto-delete when RDS is gone."
-sleep 60
+# Check for any other RDS instances with our project name
+log_substep "Checking for other RDS instances..."
+OTHER_INSTANCES=$(aws rds describe-db-instances --region ${AWS_REGION} --query "DBInstances[?contains(DBInstanceIdentifier, '${PROJECT_NAME}') && DBClusterIdentifier==null].DBInstanceIdentifier" --output text 2>/dev/null || echo "")
+for instance in $OTHER_INSTANCES; do
+    log_substep "Deleting RDS instance: $instance"
+    aws rds delete-db-instance \
+        --db-instance-identifier $instance \
+        --skip-final-snapshot \
+        --delete-automated-backups \
+        --region ${AWS_REGION} 2>/dev/null || true
+done
+
+log_substep "Waiting 90 seconds for RDS to release network interfaces..."
+log_warn "RDS deletion takes 3-5 minutes total. ENIs will auto-delete when RDS completes."
+sleep 90
 
 log_substep "Deleting DB subnet group..."
 aws rds delete-db-subnet-group --db-subnet-group-name ${PROJECT_NAME}-db-subnet-group --region ${AWS_REGION} 2>/dev/null || log_warn "DB subnet group not found"
 
-log_info "RDS resources deletion initiated"
+log_info "RDS resources deletion initiated (will complete in background)"
 
 ###############################################################################
 # Phase 5: S3 Bucket
@@ -268,22 +305,55 @@ else
     if [ ! -z "$ENI_IDS" ]; then
         ENI_COUNT=$(echo $ENI_IDS | wc -w)
         log_warn "Found $ENI_COUNT network interface(s) - likely RDS/Lambda ENIs"
-        log_warn "These will auto-delete when RDS/Lambda finish deleting"
-        log_substep "Waiting 90 seconds for RDS/Lambda to release ENIs..."
-        sleep 90
+        log_warn "Showing ENI details:"
+        aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${VPC_ID}" --query 'NetworkInterfaces[*].[NetworkInterfaceId,Status,Description]' --output table --region ${AWS_REGION} 2>/dev/null || true
         
-        # Try to delete ENIs that are now available
-        for eni in $ENI_IDS; do
-            aws ec2 delete-network-interface --network-interface-id $eni --region ${AWS_REGION} 2>/dev/null || log_warn "  ENI $eni still in use (will auto-delete)"
-        done
+        log_substep "Waiting 120 seconds for RDS/Lambda to fully release ENIs..."
+        sleep 120
+        
+        # Check again after waiting
+        ENI_IDS=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${VPC_ID}" --query 'NetworkInterfaces[*].NetworkInterfaceId' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
+        
+        if [ ! -z "$ENI_IDS" ]; then
+            log_warn "ENIs still exist after waiting. Attempting force delete..."
+            # Try to delete ENIs that are now available
+            for eni in $ENI_IDS; do
+                ENI_STATUS=$(aws ec2 describe-network-interfaces --network-interface-ids $eni --query 'NetworkInterfaces[0].Status' --output text --region ${AWS_REGION} 2>/dev/null || echo "not-found")
+                if [ "$ENI_STATUS" = "available" ]; then
+                    log_substep "Force deleting available ENI: $eni"
+                    aws ec2 delete-network-interface --network-interface-id $eni --region ${AWS_REGION} 2>/dev/null || log_warn "  Could not delete"
+                else
+                    log_warn "  ENI $eni is still $ENI_STATUS (will auto-delete when resource is fully deleted)"
+                fi
+            done
+            
+            log_substep "Final wait: 60 seconds for remaining ENIs to auto-delete..."
+            sleep 60
+        fi
     fi
     
     # Delete Subnets
     log_substep "Deleting subnets..."
     SUBNET_IDS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].SubnetId' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
+    
+    FAILED_SUBNETS=""
     for subnet in $SUBNET_IDS; do
-        aws ec2 delete-subnet --subnet-id $subnet --region ${AWS_REGION} 2>/dev/null || true
+        if aws ec2 delete-subnet --subnet-id $subnet --region ${AWS_REGION} 2>/dev/null; then
+            log_substep "  Deleted subnet: $subnet"
+        else
+            log_warn "  Subnet $subnet: still has dependencies"
+            FAILED_SUBNETS="$FAILED_SUBNETS $subnet"
+        fi
     done
+    
+    # Retry failed subnets after a short wait
+    if [ ! -z "$FAILED_SUBNETS" ]; then
+        log_substep "Retrying failed subnets after 30 seconds..."
+        sleep 30
+        for subnet in $FAILED_SUBNETS; do
+            aws ec2 delete-subnet --subnet-id $subnet --region ${AWS_REGION} 2>/dev/null && log_substep "  Retry successful: $subnet" || log_warn "  Retry failed: $subnet"
+        done
+    fi
     
     # Delete Route Tables (except main)
     log_substep "Deleting route tables..."
@@ -307,24 +377,65 @@ else
     
     # Delete Security Groups (after everything else)
     log_substep "Deleting security groups..."
-    sleep 5  # Wait a bit for dependencies to clear
+    sleep 10  # Wait a bit for dependencies to clear
     SG_IDS=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
+    
+    FAILED_SGS=""
     for sg in $SG_IDS; do
-        aws ec2 delete-security-group --group-id $sg --region ${AWS_REGION} 2>/dev/null || true
+        if aws ec2 delete-security-group --group-id $sg --region ${AWS_REGION} 2>/dev/null; then
+            log_substep "  Deleted security group: $sg"
+        else
+            log_warn "  Security group $sg: still has dependencies"
+            FAILED_SGS="$FAILED_SGS $sg"
+        fi
     done
+    
+    # Retry failed security groups
+    if [ ! -z "$FAILED_SGS" ]; then
+        log_substep "Retrying failed security groups after 20 seconds..."
+        sleep 20
+        for sg in $FAILED_SGS; do
+            aws ec2 delete-security-group --group-id $sg --region ${AWS_REGION} 2>/dev/null && log_substep "  Retry successful: $sg" || log_warn "  Retry failed: $sg"
+        done
+    fi
     
     # Final attempt to delete VPC
     log_substep "Attempting to delete VPC..."
     if aws ec2 delete-vpc --vpc-id ${VPC_ID} --region ${AWS_REGION} 2>/dev/null; then
-        log_info "VPC deleted successfully!"
+        log_info "✅ VPC deleted successfully!"
     else
-        log_error "VPC deletion failed - likely has remaining dependencies"
-        log_warn "Run this command to check what's blocking deletion:"
-        echo "    aws ec2 describe-network-interfaces --filters \"Name=vpc-id,Values=${VPC_ID}\" --region ${AWS_REGION}"
+        log_error "❌ VPC deletion failed - VPC still has dependencies"
         echo ""
-        log_warn "If RDS databases are still deleting, wait 2-3 minutes and try again:"
-        echo "    aws ec2 delete-vpc --vpc-id ${VPC_ID} --region ${AWS_REGION}"
-        echo ""
+        log_warn "Checking remaining dependencies..."
+        
+        # Show remaining ENIs
+        REMAINING_ENIS=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${VPC_ID}" --query 'NetworkInterfaces[*].[NetworkInterfaceId,Status,Description]' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
+        if [ ! -z "$REMAINING_ENIS" ]; then
+            echo ""
+            echo "${YELLOW}Remaining Network Interfaces:${NC}"
+            aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${VPC_ID}" --query 'NetworkInterfaces[*].[NetworkInterfaceId,Status,Description]' --output table --region ${AWS_REGION} 2>/dev/null || true
+            echo ""
+            log_warn "These ENIs are likely from RDS databases that are still deleting."
+            log_warn "RDS deletion can take 3-5 minutes. To complete VPC deletion:"
+            echo ""
+            echo "  1. Wait 5 minutes for RDS to fully delete"
+            echo "  2. Check RDS status: aws rds describe-db-instances --region ${AWS_REGION}"
+            echo "  3. After RDS is gone, retry VPC deletion:"
+            echo "     aws ec2 delete-vpc --vpc-id ${VPC_ID} --region ${AWS_REGION}"
+            echo ""
+        fi
+        
+        # Show remaining subnets
+        REMAINING_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=${VPC_ID}" --query 'Subnets[*].SubnetId' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
+        if [ ! -z "$REMAINING_SUBNETS" ]; then
+            log_warn "Remaining subnets: $REMAINING_SUBNETS"
+        fi
+        
+        # Show remaining security groups
+        REMAINING_SGS=$(aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" --query 'SecurityGroups[?GroupName!=`default`].GroupId' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
+        if [ ! -z "$REMAINING_SGS" ]; then
+            log_warn "Remaining security groups: $REMAINING_SGS"
+        fi
     fi
 fi
 
