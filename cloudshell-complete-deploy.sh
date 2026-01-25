@@ -442,7 +442,7 @@ ALB_SG=$(aws ec2 create-security-group \
     --description "ALB security group - public HTTP/HTTPS access" \
     --vpc-id ${VPC_ID} --region ${AWS_REGION} \
     --query 'GroupId' --output text 2>/dev/null || \
-    aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-alb-sg" \
+    aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${PROJECT_NAME}-alb-sg" \
         --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
 
 if [ ! -z "$ALB_SG" ] && [ "$ALB_SG" != "None" ]; then
@@ -465,7 +465,7 @@ for agent in orchestrator extractor validator archivist keycloak mcp-server; do
         --description "${agent} ECS security group" \
         --vpc-id ${VPC_ID} --region ${AWS_REGION} \
         --query 'GroupId' --output text 2>/dev/null || \
-        aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-${agent}-sg" \
+        aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${PROJECT_NAME}-${agent}-sg" \
             --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
     
     if [ ! -z "$SG" ] && [ "$SG" != "None" ]; then
@@ -501,7 +501,7 @@ RDS_SG=$(aws ec2 create-security-group \
     --description "RDS security group - database access" \
     --vpc-id ${VPC_ID} --region ${AWS_REGION} \
     --query 'GroupId' --output text 2>/dev/null || \
-    aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-rds-sg" \
+    aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${PROJECT_NAME}-rds-sg" \
         --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
 
 if [ ! -z "$RDS_SG" ] && [ "$RDS_SG" != "None" ]; then
@@ -920,7 +920,7 @@ VPCE_SG=$(aws ec2 create-security-group \
     --description "Security group for VPC endpoints" \
     --vpc-id ${VPC_ID} --region ${AWS_REGION} \
     --query 'GroupId' --output text 2>/dev/null || \
-    aws ec2 describe-security-groups --filters "Name=group-name,Values=${PROJECT_NAME}-vpce-sg" \
+    aws ec2 describe-security-groups --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${PROJECT_NAME}-vpce-sg" \
         --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
 
 aws ec2 create-tags --resources ${VPCE_SG} --tags $(create_tags "vpce-sg") --region ${AWS_REGION}

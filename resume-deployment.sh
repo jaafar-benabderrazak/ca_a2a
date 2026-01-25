@@ -1,100 +1,167 @@
 #!/bin/bash
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Resume CA-A2A Deployment - Wait for Aurora and Continue
+# ══════════════════════════════════════════════════════════════════════════════
+
+set -e
+
 AWS_REGION="us-east-1"
 PROJECT_NAME="ca-a2a"
 
 echo "╔═══════════════════════════════════════════════════════════════════════╗"
-echo "║          Resume Deployment - Skip to Current Phase                    ║"
+echo "║            CA-A2A Deployment Resumption Script                        ║"
 echo "╚═══════════════════════════════════════════════════════════════════════╝"
 echo ""
 
-# Check what's already deployed
-echo "Checking deployment status..."
-echo ""
+# ══════════════════════════════════════════════════════════════════════════════
+# Step 1: Check Aurora Cluster Status
+# ══════════════════════════════════════════════════════════════════════════════
 
-# Check VPC
-VPC_ID=$(aws ec2 describe-vpcs \
-    --filters "Name=tag:Project,Values=ca-a2a" "Name=cidr-block-association.cidr-block,Values=10.1.0.0/16" \
-    --region ${AWS_REGION} \
-    --query 'Vpcs[0].VpcId' \
-    --output text 2>/dev/null)
-
-if [ "$VPC_ID" != "None" ] && [ ! -z "$VPC_ID" ]; then
-    echo "✓ VPC exists: $VPC_ID"
-else
-    echo "✗ VPC not found - run full deployment"
-    exit 1
-fi
-
-# Check Security Groups
-SG_COUNT=$(aws ec2 describe-security-groups \
-    --filters "Name=vpc-id,Values=${VPC_ID}" "Name=tag:Project,Values=ca-a2a" \
-    --region ${AWS_REGION} \
-    --query 'length(SecurityGroups)' \
-    --output text)
-echo "✓ Security Groups: $SG_COUNT"
-
-# Check Secrets
-SECRET_COUNT=$(aws secretsmanager list-secrets \
-    --region ${AWS_REGION} \
-    --query 'length(SecretList[?starts_with(Name, `ca-a2a`)])' \
-    --output text)
-echo "✓ Secrets: $SECRET_COUNT"
-
-# Check S3
-S3_BUCKET="ca-a2a-documents-555043101106"
-aws s3 ls "s3://${S3_BUCKET}" >/dev/null 2>&1 && echo "✓ S3 Bucket: $S3_BUCKET" || echo "✗ S3 Bucket not found"
-
-# Check DB Subnet Group
-aws rds describe-db-subnet-groups \
-    --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
-    --region ${AWS_REGION} >/dev/null 2>&1 && echo "✓ DB Subnet Group exists" || echo "✗ DB Subnet Group not found"
-
-# Check Aurora Cluster
+echo "▸ Checking Aurora cluster status..."
 CLUSTER_STATUS=$(aws rds describe-db-clusters \
     --db-cluster-identifier ${PROJECT_NAME}-documents-db \
     --region ${AWS_REGION} \
     --query 'DBClusters[0].Status' \
-    --output text 2>/dev/null)
+    --output text 2>/dev/null || echo "not-found")
 
-if [ "$CLUSTER_STATUS" != "None" ] && [ ! -z "$CLUSTER_STATUS" ]; then
-    echo "✓ Aurora Cluster: $CLUSTER_STATUS"
-    
-    if [ "$CLUSTER_STATUS" == "creating" ]; then
-        echo ""
-        echo "⚠ Aurora cluster is still creating..."
-        echo "  Waiting for cluster to become available..."
-        aws rds wait db-cluster-available --db-cluster-identifier ${PROJECT_NAME}-documents-db --region ${AWS_REGION}
-        echo "  ✓ Cluster is now available!"
-    elif [ "$CLUSTER_STATUS" != "available" ]; then
-        echo "⚠ Cluster status is $CLUSTER_STATUS - may need intervention"
-    fi
-else
-    echo "✗ Aurora Cluster not found - deployment stopped before RDS creation"
+echo "  Cluster Status: ${CLUSTER_STATUS}"
+
+if [ "$CLUSTER_STATUS" == "creating" ]; then
     echo ""
-    echo "You can:"
-    echo "1. Rerun: ./cloudshell-complete-deploy.sh (will skip existing resources)"
-    echo "2. Manually create cluster with: ./create-rds-manually.sh"
+    echo "⏳ Aurora cluster is still creating..."
+    echo "   This typically takes 8-10 minutes."
+    echo ""
+    echo "   Monitoring status (will check every 30 seconds)..."
+    echo ""
+    
+    while [ "$CLUSTER_STATUS" == "creating" ]; do
+        sleep 30
+        CLUSTER_STATUS=$(aws rds describe-db-clusters \
+            --db-cluster-identifier ${PROJECT_NAME}-documents-db \
+            --region ${AWS_REGION} \
+            --query 'DBClusters[0].Status' \
+            --output text)
+        echo "   $(date +%H:%M:%S) - Status: ${CLUSTER_STATUS}"
+    done
+fi
+
+if [ "$CLUSTER_STATUS" != "available" ]; then
+    echo "✗ Aurora cluster is not available yet (status: ${CLUSTER_STATUS})"
+    echo "  Please wait and try again later."
     exit 1
 fi
 
-# Check Keycloak DB
-KC_DB_STATUS=$(aws rds describe-db-instances \
-    --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
+echo "✓ Aurora cluster is available!"
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Step 2: Get Configuration from Existing Resources
+# ══════════════════════════════════════════════════════════════════════════════
+
+echo "▸ Gathering configuration from existing resources..."
+
+VPC_ID=$(aws ec2 describe-vpcs \
+    --filters "Name=tag:Project,Values=${PROJECT_NAME}" \
+    --region ${AWS_REGION} \
+    --query 'Vpcs[0].VpcId' \
+    --output text)
+
+RDS_SG=$(aws ec2 describe-security-groups \
+    --filters "Name=vpc-id,Values=${VPC_ID}" "Name=group-name,Values=${PROJECT_NAME}-rds-sg" \
+    --region ${AWS_REGION} \
+    --query 'SecurityGroups[0].GroupId' \
+    --output text)
+
+DB_SUBNET_GROUP=$(aws rds describe-db-subnet-groups \
+    --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
+    --region ${AWS_REGION} \
+    --query 'DBSubnetGroups[0].DBSubnetGroupName' \
+    --output text 2>/dev/null || echo "not-found")
+
+echo "  VPC: ${VPC_ID}"
+echo "  RDS SG: ${RDS_SG}"
+echo "  DB Subnet Group: ${DB_SUBNET_GROUP}"
+echo ""
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Step 3: Create Aurora Instance
+# ══════════════════════════════════════════════════════════════════════════════
+
+echo "▸ Creating Aurora instance (db.t3.medium)..."
+INSTANCE_STATUS=$(aws rds describe-db-instances \
+    --db-instance-identifier ${PROJECT_NAME}-documents-db-instance-1 \
     --region ${AWS_REGION} \
     --query 'DBInstances[0].DBInstanceStatus' \
-    --output text 2>/dev/null)
+    --output text 2>/dev/null || echo "not-found")
 
-if [ "$KC_DB_STATUS" != "None" ] && [ ! -z "$KC_DB_STATUS" ]; then
-    echo "✓ Keycloak DB: $KC_DB_STATUS"
+if [ "$INSTANCE_STATUS" == "not-found" ]; then
+    aws rds create-db-instance \
+        --db-instance-identifier ${PROJECT_NAME}-documents-db-instance-1 \
+        --db-instance-class db.t3.medium \
+        --engine aurora-postgresql \
+        --db-cluster-identifier ${PROJECT_NAME}-documents-db \
+        --publicly-accessible false \
+        --region ${AWS_REGION}
+    
+    echo "✓ Aurora instance creation initiated (2-3 minutes)"
 else
-    echo "✗ Keycloak DB not created yet"
+    echo "✓ Aurora instance already exists (status: ${INSTANCE_STATUS})"
 fi
 
 echo ""
-echo "╔═══════════════════════════════════════════════════════════════════════╗"
-echo "║  Recommendation:                                                      ║"
-echo "║  Run: ./cloudshell-complete-deploy.sh                                ║"
-echo "║  The script will skip already-created resources and continue         ║"
-echo "╚═══════════════════════════════════════════════════════════════════════╝"
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Step 4: Create Keycloak Database
+# ══════════════════════════════════════════════════════════════════════════════
+
+echo "▸ Creating Keycloak database (PostgreSQL 16.6)..."
+KEYCLOAK_STATUS=$(aws rds describe-db-instances \
+    --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
+    --region ${AWS_REGION} \
+    --query 'DBInstances[0].DBInstanceStatus' \
+    --output text 2>/dev/null || echo "not-found")
+
+if [ "$KEYCLOAK_STATUS" == "not-found" ]; then
+    KEYCLOAK_PASSWORD=$(aws secretsmanager get-secret-value \
+        --secret-id ${PROJECT_NAME}/keycloak-db-password \
+        --region ${AWS_REGION} \
+        --query SecretString \
+        --output text)
+    
+    aws rds create-db-instance \
+        --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
+        --db-instance-class db.t3.small \
+        --engine postgres \
+        --engine-version 16.6 \
+        --master-username postgres \
+        --master-user-password "${KEYCLOAK_PASSWORD}" \
+        --allocated-storage 20 \
+        --storage-type gp3 \
+        --vpc-security-group-ids ${RDS_SG} \
+        --db-subnet-group-name ${DB_SUBNET_GROUP} \
+        --backup-retention-period 7 \
+        --storage-encrypted \
+        --db-name keycloak \
+        --no-publicly-accessible \
+        --region ${AWS_REGION}
+    
+    echo "✓ Keycloak database creation initiated (3-5 minutes)"
+else
+    echo "✓ Keycloak database already exists (status: ${KEYCLOAK_STATUS})"
+fi
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════════════"
+echo ""
+echo "✅ Database creation in progress!"
+echo ""
+echo "Next steps:"
+echo "  1. Wait for databases to become available (~5-10 minutes total)"
+echo "  2. Run: ./cloudshell-complete-deploy.sh"
+echo "     (It will skip already-created resources and continue with ECS)"
+echo ""
+echo "To monitor status:"
+echo "  ./check-deployment-health.sh"
+echo ""
+echo "═══════════════════════════════════════════════════════════════════════"
