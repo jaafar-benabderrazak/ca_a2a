@@ -144,30 +144,64 @@ for tg in $TG_ARNS; do
 done
 
 ###############################################################################
-# Phase 3: RDS Databases
+# Phase 3: Lambda Functions
 ###############################################################################
 
-log_step "Phase 3: Deleting RDS databases..."
+log_step "Phase 3: Deleting Lambda functions..."
+
+LAMBDA_FUNCTIONS=$(aws lambda list-functions --region ${AWS_REGION} --query "Functions[?starts_with(FunctionName, '${PROJECT_NAME}')].FunctionName" --output text 2>/dev/null || echo "")
+
+if [ ! -z "$LAMBDA_FUNCTIONS" ]; then
+    for func in $LAMBDA_FUNCTIONS; do
+        log_substep "Deleting Lambda function: $func"
+        aws lambda delete-function --function-name $func --region ${AWS_REGION} 2>/dev/null || log_warn "  Function not found or already deleted"
+    done
+    log_info "Lambda functions deleted"
+else
+    log_warn "No Lambda functions found, skipping"
+fi
+
+###############################################################################
+# Phase 4: RDS Databases
+###############################################################################
+
+log_step "Phase 4: Deleting RDS databases..."
+
+# Delete Aurora cluster instances first
+log_substep "Finding Aurora cluster instances..."
+CLUSTER_NAME="${PROJECT_NAME}-documents-db"
+CLUSTER_INSTANCES=$(aws rds describe-db-instances --region ${AWS_REGION} --query "DBInstances[?DBClusterIdentifier=='${CLUSTER_NAME}'].DBInstanceIdentifier" --output text 2>/dev/null || echo "")
+
+for instance in $CLUSTER_INSTANCES; do
+    log_substep "Deleting Aurora instance: $instance"
+    aws rds delete-db-instance --db-instance-identifier $instance --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "  Instance not found"
+done
+
+if [ ! -z "$CLUSTER_INSTANCES" ]; then
+    log_substep "Waiting 30 seconds for instances to start deleting..."
+    sleep 30
+fi
 
 log_substep "Deleting Aurora cluster..."
-aws rds delete-db-cluster --db-cluster-identifier ${PROJECT_NAME}-documents-db --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "Aurora cluster not found"
+aws rds delete-db-cluster --db-cluster-identifier ${CLUSTER_NAME} --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "Aurora cluster not found"
 
 log_substep "Deleting Keycloak database..."
 aws rds delete-db-instance --db-instance-identifier ${PROJECT_NAME}-keycloak-db --skip-final-snapshot --region ${AWS_REGION} 2>/dev/null || log_warn "Keycloak DB not found"
 
-log_substep "Waiting for databases to delete (this may take a few minutes)..."
-sleep 30
+log_substep "Waiting 60 seconds for databases to start deleting..."
+log_warn "RDS deletion takes 2-5 minutes. Network interfaces will auto-delete when RDS is gone."
+sleep 60
 
 log_substep "Deleting DB subnet group..."
 aws rds delete-db-subnet-group --db-subnet-group-name ${PROJECT_NAME}-db-subnet-group --region ${AWS_REGION} 2>/dev/null || log_warn "DB subnet group not found"
 
-log_info "RDS resources deleted"
+log_info "RDS resources deletion initiated"
 
 ###############################################################################
-# Phase 4: S3 Bucket
+# Phase 5: S3 Bucket
 ###############################################################################
 
-log_step "Phase 4: Deleting S3 bucket..."
+log_step "Phase 5: Deleting S3 bucket..."
 
 S3_BUCKET="${PROJECT_NAME}-documents-${AWS_ACCOUNT_ID:-$(aws sts get-caller-identity --query Account --output text)}"
 
@@ -183,10 +217,10 @@ else
 fi
 
 ###############################################################################
-# Phase 5: VPC and Networking (Most Complex)
+# Phase 6: VPC and Networking (Most Complex)
 ###############################################################################
 
-log_step "Phase 5: Deleting VPC and networking..."
+log_step "Phase 6: Deleting VPC and networking..."
 
 # Find VPC
 VPC_ID=$(aws ec2 describe-vpcs --filters "Name=tag:Name,Values=${PROJECT_NAME}-vpc" --region ${AWS_REGION} --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "None")
@@ -227,12 +261,22 @@ else
         sleep 10
     fi
     
-    # Delete Network Interfaces
-    log_substep "Deleting network interfaces..."
+    # Check for Network Interfaces (RDS/Lambda ENIs may still be deleting)
+    log_substep "Checking for network interfaces..."
     ENI_IDS=$(aws ec2 describe-network-interfaces --filters "Name=vpc-id,Values=${VPC_ID}" --query 'NetworkInterfaces[*].NetworkInterfaceId' --output text --region ${AWS_REGION} 2>/dev/null || echo "")
-    for eni in $ENI_IDS; do
-        aws ec2 delete-network-interface --network-interface-id $eni --region ${AWS_REGION} 2>/dev/null || true
-    done
+    
+    if [ ! -z "$ENI_IDS" ]; then
+        ENI_COUNT=$(echo $ENI_IDS | wc -w)
+        log_warn "Found $ENI_COUNT network interface(s) - likely RDS/Lambda ENIs"
+        log_warn "These will auto-delete when RDS/Lambda finish deleting"
+        log_substep "Waiting 90 seconds for RDS/Lambda to release ENIs..."
+        sleep 90
+        
+        # Try to delete ENIs that are now available
+        for eni in $ENI_IDS; do
+            aws ec2 delete-network-interface --network-interface-id $eni --region ${AWS_REGION} 2>/dev/null || log_warn "  ENI $eni still in use (will auto-delete)"
+        done
+    fi
     
     # Delete Subnets
     log_substep "Deleting subnets..."
@@ -269,18 +313,26 @@ else
         aws ec2 delete-security-group --group-id $sg --region ${AWS_REGION} 2>/dev/null || true
     done
     
-    # Delete VPC
-    log_substep "Deleting VPC..."
-    aws ec2 delete-vpc --vpc-id ${VPC_ID} --region ${AWS_REGION} 2>/dev/null || log_warn "VPC deletion failed (may have remaining dependencies)"
-    
-    log_info "VPC and networking deleted"
+    # Final attempt to delete VPC
+    log_substep "Attempting to delete VPC..."
+    if aws ec2 delete-vpc --vpc-id ${VPC_ID} --region ${AWS_REGION} 2>/dev/null; then
+        log_info "VPC deleted successfully!"
+    else
+        log_error "VPC deletion failed - likely has remaining dependencies"
+        log_warn "Run this command to check what's blocking deletion:"
+        echo "    aws ec2 describe-network-interfaces --filters \"Name=vpc-id,Values=${VPC_ID}\" --region ${AWS_REGION}"
+        echo ""
+        log_warn "If RDS databases are still deleting, wait 2-3 minutes and try again:"
+        echo "    aws ec2 delete-vpc --vpc-id ${VPC_ID} --region ${AWS_REGION}"
+        echo ""
+    fi
 fi
 
 ###############################################################################
-# Phase 6: Secrets Manager
+# Phase 7: Secrets Manager
 ###############################################################################
 
-log_step "Phase 6: Deleting secrets from Secrets Manager..."
+log_step "Phase 7: Deleting secrets from Secrets Manager..."
 
 SECRETS=(
     "${PROJECT_NAME}/db-password"
@@ -300,10 +352,10 @@ done
 log_info "Secrets deleted"
 
 ###############################################################################
-# Phase 7: CloudWatch Logs
+# Phase 8: CloudWatch Logs
 ###############################################################################
 
-log_step "Phase 7: Deleting CloudWatch log groups..."
+log_step "Phase 8: Deleting CloudWatch log groups..."
 
 LOG_GROUPS=$(aws logs describe-log-groups --log-group-name-prefix "/ecs/${PROJECT_NAME}" --region ${AWS_REGION} --query 'logGroups[*].logGroupName' --output text 2>/dev/null || echo "")
 
@@ -315,10 +367,10 @@ done
 log_info "CloudWatch logs deleted"
 
 ###############################################################################
-# Phase 8: ECR Repositories
+# Phase 9: ECR Repositories
 ###############################################################################
 
-log_step "Phase 8: Deleting ECR repositories..."
+log_step "Phase 9: Deleting ECR repositories..."
 
 SERVICES="orchestrator extractor validator archivist keycloak mcp-server"
 
@@ -331,10 +383,10 @@ done
 log_info "ECR repositories deleted"
 
 ###############################################################################
-# Phase 9: IAM Roles and Policies
+# Phase 10: IAM Roles and Policies
 ###############################################################################
 
-log_step "Phase 9: Deleting IAM roles..."
+log_step "Phase 10: Deleting IAM roles..."
 
 ROLES=(
     "${PROJECT_NAME}-ecs-execution-role"
@@ -365,10 +417,10 @@ done
 log_info "IAM roles deleted"
 
 ###############################################################################
-# Phase 10: Service Discovery
+# Phase 11: Service Discovery
 ###############################################################################
 
-log_step "Phase 10: Deleting Service Discovery resources..."
+log_step "Phase 11: Deleting Service Discovery resources..."
 
 NAMESPACE_ID=$(aws servicediscovery list-namespaces --region ${AWS_REGION} --query "Namespaces[?Name=='${PROJECT_NAME}.local'].Id" --output text 2>/dev/null || echo "")
 
