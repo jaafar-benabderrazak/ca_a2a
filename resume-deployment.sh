@@ -101,7 +101,7 @@ if [ "$INSTANCE_STATUS" == "not-found" ]; then
         --db-instance-class db.t3.medium \
         --engine aurora-postgresql \
         --db-cluster-identifier ${PROJECT_NAME}-documents-db \
-        --publicly-accessible false \
+        --no-publicly-accessible \
         --region ${AWS_REGION}
     
     echo "✓ Aurora instance creation initiated (2-3 minutes)"
