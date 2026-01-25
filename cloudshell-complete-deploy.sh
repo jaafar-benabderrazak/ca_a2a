@@ -768,6 +768,8 @@ EXISTING_CLUSTER=$(aws rds describe-db-clusters \
 
 if [ "$EXISTING_CLUSTER" == "None" ] || [ -z "$EXISTING_CLUSTER" ]; then
     log_substep "  Creating Aurora cluster..."
+    
+    set +e  # Temporarily disable exit on error
     CLUSTER_OUTPUT=$(aws rds create-db-cluster \
         --db-cluster-identifier ${PROJECT_NAME}-documents-db \
         --engine aurora-postgresql \
@@ -782,10 +784,13 @@ if [ "$EXISTING_CLUSTER" == "None" ] || [ -z "$EXISTING_CLUSTER" ]; then
         --enable-cloudwatch-logs-exports '["postgresql"]' \
         --tags $(create_tags "documents-db-cluster") \
         --region ${AWS_REGION} 2>&1)
+    CLUSTER_EXIT_CODE=$?
+    set -e  # Re-enable exit on error
     
-    if [ $? -ne 0 ]; then
+    if [ $CLUSTER_EXIT_CODE -ne 0 ]; then
         log_error "Failed to create Aurora cluster"
         log_error "Error: ${CLUSTER_OUTPUT}"
+        log_error "Exit code: ${CLUSTER_EXIT_CODE}"
         exit 1
     fi
     log_substep "  ✓ Aurora cluster creation initiated"
@@ -802,6 +807,8 @@ EXISTING_INSTANCE=$(aws rds describe-db-instances \
 
 if [ "$EXISTING_INSTANCE" == "None" ] || [ -z "$EXISTING_INSTANCE" ]; then
     log_substep "  Creating Aurora instance..."
+    
+    set +e  # Temporarily disable exit on error
     INSTANCE_OUTPUT=$(aws rds create-db-instance \
         --db-instance-identifier ${PROJECT_NAME}-documents-db-instance-1 \
         --db-instance-class db.t3.medium \
@@ -810,10 +817,13 @@ if [ "$EXISTING_INSTANCE" == "None" ] || [ -z "$EXISTING_INSTANCE" ]; then
         --publicly-accessible false \
         --tags $(create_tags "documents-db-instance-1") \
         --region ${AWS_REGION} 2>&1)
+    INSTANCE_EXIT_CODE=$?
+    set -e  # Re-enable exit on error
     
-    if [ $? -ne 0 ]; then
+    if [ $INSTANCE_EXIT_CODE -ne 0 ]; then
         log_error "Failed to create Aurora instance"
         log_error "Error: ${INSTANCE_OUTPUT}"
+        log_error "Exit code: ${INSTANCE_EXIT_CODE}"
         exit 1
     fi
     log_substep "  ✓ Aurora instance creation initiated"
@@ -851,6 +861,8 @@ EXISTING_KC_DB=$(aws rds describe-db-instances \
 
 if [ "$EXISTING_KC_DB" == "None" ] || [ -z "$EXISTING_KC_DB" ]; then
     log_substep "  Creating Keycloak DB instance..."
+    
+    set +e  # Temporarily disable exit on error
     KC_DB_OUTPUT=$(aws rds create-db-instance \
         --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
         --db-instance-class db.t3.small \
@@ -869,10 +881,13 @@ if [ "$EXISTING_KC_DB" == "None" ] || [ -z "$EXISTING_KC_DB" ]; then
         --enable-cloudwatch-logs-exports '["postgresql"]' \
         --tags $(create_tags "keycloak-db") \
         --region ${AWS_REGION} 2>&1)
+    KC_DB_EXIT_CODE=$?
+    set -e  # Re-enable exit on error
     
-    if [ $? -ne 0 ]; then
+    if [ $KC_DB_EXIT_CODE -ne 0 ]; then
         log_error "Failed to create Keycloak DB"
         log_error "Error: ${KC_DB_OUTPUT}"
+        log_error "Exit code: ${KC_DB_EXIT_CODE}"
         exit 1
     fi
     log_substep "  ✓ Keycloak DB creation initiated"
