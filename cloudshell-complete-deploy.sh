@@ -198,6 +198,22 @@ fi
 # Helper Functions
 ###############################################################################
 
+# Function to create tags in JSON format for AWS CLI
+create_tags() {
+    local resource_name="${1:-resource}"
+    cat <<EOF
+[
+  {"Key":"Name","Value":"${PROJECT_NAME}-${resource_name}"},
+  {"Key":"Project","Value":"${TAG_PROJECT}"},
+  {"Key":"Environment","Value":"${TAG_ENV}"},
+  {"Key":"ManagedBy","Value":"${TAG_MANAGED_BY}"},
+  {"Key":"Version","Value":"${TAG_VERSION}"},
+  {"Key":"Security","Value":"${TAG_SECURITY}"},
+  {"Key":"Owner","Value":"${TAG_OWNER}"}
+]
+EOF
+}
+
 # Function to add tags to a resource (simplified)
 tag_resource() {
     local resource_id=$1
@@ -382,7 +398,7 @@ ALB_SG=$(aws ec2 create-security-group \
 
 if [ ! -z "$ALB_SG" ] && [ "$ALB_SG" != "None" ]; then
     aws ec2 create-tags --resources ${ALB_SG} \
-        --tags "Key=Name,Value=${PROJECT_NAME}-alb-sg" "Key=Project,Value=${TAG_PROJECT}" "Key=Environment,Value=${TAG_ENV}" \
+        --tags Key=Name,Value=${PROJECT_NAME}-alb-sg Key=Project,Value=${TAG_PROJECT} Key=Environment,Value=${TAG_ENV} Key=Owner,Value=${TAG_OWNER} \
         --region ${AWS_REGION} 2>/dev/null || true
 fi
 aws ec2 authorize-security-group-ingress --group-id ${ALB_SG} --protocol tcp --port 80 --cidr 0.0.0.0/0 --region ${AWS_REGION} 2>/dev/null || true
@@ -405,7 +421,7 @@ for agent in orchestrator extractor validator archivist keycloak mcp-server; do
     
     if [ ! -z "$SG" ] && [ "$SG" != "None" ]; then
         aws ec2 create-tags --resources ${SG} \
-            --tags "Key=Name,Value=${PROJECT_NAME}-${agent}-sg" "Key=Project,Value=${TAG_PROJECT}" \
+            --tags Key=Name,Value=${PROJECT_NAME}-${agent}-sg Key=Project,Value=${TAG_PROJECT} Key=Environment,Value=${TAG_ENV} Key=Owner,Value=${TAG_OWNER} \
             --region ${AWS_REGION} 2>/dev/null || true
     fi
     AGENT_SGS[$agent]=$SG
@@ -441,7 +457,7 @@ RDS_SG=$(aws ec2 create-security-group \
 
 if [ ! -z "$RDS_SG" ] && [ "$RDS_SG" != "None" ]; then
     aws ec2 create-tags --resources ${RDS_SG} \
-        --tags "Key=Name,Value=${PROJECT_NAME}-rds-sg" "Key=Project,Value=${TAG_PROJECT}" \
+        --tags Key=Name,Value=${PROJECT_NAME}-rds-sg Key=Project,Value=${TAG_PROJECT} Key=Environment,Value=${TAG_ENV} Key=Owner,Value=${TAG_OWNER} \
         --region ${AWS_REGION} 2>/dev/null || true
 fi
 
