@@ -28,14 +28,24 @@ echo "✓ DB Password retrieved (length: ${#DB_PASSWORD})"
 echo ""
 echo "=== Step 2: Get RDS Security Group ==="
 RDS_SG=$(aws ec2 describe-security-groups \
-    --filters "Name=tag:Name,Values=${PROJECT_NAME}-rds-sg" \
+    --filters "Name=group-name,Values=${PROJECT_NAME}-rds-sg" \
     --region ${AWS_REGION} \
     --query 'SecurityGroups[0].GroupId' \
     --output text 2>&1)
 
 if [ "$RDS_SG" == "None" ] || [ -z "$RDS_SG" ]; then
     echo "✗ RDS Security Group not found"
-    exit 1
+    echo "Trying by tag Name..."
+    RDS_SG=$(aws ec2 describe-security-groups \
+        --filters "Name=tag:Name,Values=${PROJECT_NAME}-rds-sg" \
+        --region ${AWS_REGION} \
+        --query 'SecurityGroups[0].GroupId' \
+        --output text 2>&1)
+    
+    if [ "$RDS_SG" == "None" ] || [ -z "$RDS_SG" ]; then
+        echo "✗ RDS Security Group not found by name or tag"
+        exit 1
+    fi
 fi
 echo "✓ RDS Security Group: $RDS_SG"
 
