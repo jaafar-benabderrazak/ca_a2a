@@ -208,7 +208,7 @@ class CaA2aStack(Stack):
             "AuroraCluster",
             cluster_identifier=f"{project_name}-documents-db",
             engine=rds.DatabaseClusterEngine.aurora_postgres(
-                version=rds.AuroraPostgresEngineVersion.VER_15_5
+                version=rds.AuroraPostgresEngineVersion.VER_15_4
             ),
             credentials=rds.Credentials.from_password(
                 username="postgres",
@@ -239,7 +239,7 @@ class CaA2aStack(Stack):
             "KeycloakDatabase",
             instance_identifier=f"{project_name}-keycloak-db",
             engine=rds.DatabaseInstanceEngine.postgres(
-                version=rds.PostgresEngineVersion.VER_16_6
+                version=rds.PostgresEngineVersion.VER_16_4
             ),
             credentials=rds.Credentials.from_password(
                 username="postgres",
