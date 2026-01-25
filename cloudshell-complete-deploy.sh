@@ -266,9 +266,9 @@ log_header "PHASE 1: NETWORK INFRASTRUCTURE"
 log_step "Creating VPC and networking components..."
 
 # Create VPC
-log_substep "Creating VPC (10.0.0.0/16)..."
+log_substep "Creating VPC (10.1.0.0/16)..."
 VPC_ID=$(aws ec2 create-vpc \
-    --cidr-block 10.0.0.0/16 \
+    --cidr-block 10.1.0.0/16 \
     --region ${AWS_REGION} \
     --query 'Vpc.VpcId' --output text 2>/dev/null || \
     aws ec2 describe-vpcs \
@@ -306,28 +306,28 @@ log_info "Using Availability Zones: ${AZ1}, ${AZ2}"
 log_substep "Creating subnets..."
 
 PUBLIC_SUBNET_1=$(aws ec2 create-subnet \
-    --vpc-id ${VPC_ID} --cidr-block 10.0.1.0/24 --availability-zone ${AZ1} \
+    --vpc-id ${VPC_ID} --cidr-block 10.1.1.0/24 --availability-zone ${AZ1} \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-subnet-1" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
 tag_resource "${PUBLIC_SUBNET_1}" "public-subnet-1"
 
 PUBLIC_SUBNET_2=$(aws ec2 create-subnet \
-    --vpc-id ${VPC_ID} --cidr-block 10.0.2.0/24 --availability-zone ${AZ2} \
+    --vpc-id ${VPC_ID} --cidr-block 10.1.2.0/24 --availability-zone ${AZ2} \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-subnet-2" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
 tag_resource "${PUBLIC_SUBNET_2}" "public-subnet-2"
 
 PRIVATE_SUBNET_1=$(aws ec2 create-subnet \
-    --vpc-id ${VPC_ID} --cidr-block 10.0.10.0/24 --availability-zone ${AZ1} \
+    --vpc-id ${VPC_ID} --cidr-block 10.1.10.0/24 --availability-zone ${AZ1} \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-subnet-1" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
 tag_resource "${PRIVATE_SUBNET_1}" "private-subnet-1"
 
 PRIVATE_SUBNET_2=$(aws ec2 create-subnet \
-    --vpc-id ${VPC_ID} --cidr-block 10.0.20.0/24 --availability-zone ${AZ2} \
+    --vpc-id ${VPC_ID} --cidr-block 10.1.20.0/24 --availability-zone ${AZ2} \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-subnet-2" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
@@ -479,18 +479,18 @@ for agent in orchestrator extractor validator archivist mcp-server; do
     aws ec2 revoke-security-group-egress --group-id ${sg} --ip-permissions '[{"IpProtocol":"-1","IpRanges":[{"CidrIp":"0.0.0.0/0"}],"Ipv6Ranges":[{"CidrIpv6":"::/0"}]}]' --region ${AWS_REGION} 2>/dev/null || true
     
     # Allow HTTPS to VPC (for VPC endpoints)
-    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol tcp --port 443 --cidr 10.0.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol tcp --port 443 --cidr 10.1.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
     # Allow DNS
-    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol udp --port 53 --cidr 10.0.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
-    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol tcp --port 53 --cidr 10.0.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol udp --port 53 --cidr 10.1.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol tcp --port 53 --cidr 10.1.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
     # Allow PostgreSQL to VPC
-    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol tcp --port 5432 --cidr 10.0.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress --group-id ${sg} --protocol tcp --port 5432 --cidr 10.1.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
 done
 
 # Orchestrator: Allow egress to other agents
 for agent in extractor validator archivist keycloak mcp-server; do
     port=${AGENT_PORTS[$agent]}
-    aws ec2 authorize-security-group-egress --group-id ${AGENT_SGS[orchestrator]} --protocol tcp --port ${port} --cidr 10.0.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
+    aws ec2 authorize-security-group-egress --group-id ${AGENT_SGS[orchestrator]} --protocol tcp --port ${port} --cidr 10.1.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
 done
 
 log_info "Egress rules hardened (default deny-all)"
@@ -768,7 +768,7 @@ VPCE_SG=$(aws ec2 create-security-group \
         --region ${AWS_REGION} --query 'SecurityGroups[0].GroupId' --output text)
 
 aws ec2 create-tags --resources ${VPCE_SG} --tags $(create_tags "vpce-sg") --region ${AWS_REGION}
-aws ec2 authorize-security-group-ingress --group-id ${VPCE_SG} --protocol tcp --port 443 --cidr 10.0.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
+aws ec2 authorize-security-group-ingress --group-id ${VPCE_SG} --protocol tcp --port 443 --cidr 10.1.0.0/16 --region ${AWS_REGION} 2>/dev/null || true
 
 # Interface endpoints (for ECR, Logs, Secrets Manager)
 for service in ecr.dkr ecr.api logs secretsmanager; do
