@@ -641,7 +641,7 @@ aws s3api put-public-access-block \
 LIFECYCLE_CONFIG=$(cat <<'EOF'
 {
     "Rules": [{
-        "Id": "archive-old-documents",
+        "ID": "archive-old-documents",
         "Status": "Enabled",
         "Transitions": [{
             "Days": 90,
