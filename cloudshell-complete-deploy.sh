@@ -339,20 +339,66 @@ log_substep "  Private: ${PRIVATE_SUBNET_1}, ${PRIVATE_SUBNET_2}"
 
 # Create NAT Gateway
 log_substep "Creating NAT Gateway (this takes 2-3 minutes)..."
-EIP_ID=$(aws ec2 allocate-address --domain vpc --region ${AWS_REGION} --query 'AllocationId' --output text 2>/dev/null)
 
-NAT_GW=$(aws ec2 create-nat-gateway \
-    --subnet-id ${PUBLIC_SUBNET_1} --allocation-id ${EIP_ID} \
-    --region ${AWS_REGION} --query 'NatGateway.NatGatewayId' --output text 2>/dev/null || \
-    aws ec2 describe-nat-gateways --filter "Name=tag:Name,Values=${PROJECT_NAME}-nat-gateway" "Name=state,Values=available" \
-        --region ${AWS_REGION} --query 'NatGateways[0].NatGatewayId' --output text)
-tag_resource "${NAT_GW}" "nat-gateway"
+# Check if EIP already exists
+EIP_ID=$(aws ec2 describe-addresses \
+    --filters "Name=tag:Project,Values=${PROJECT_NAME}" "Name=domain,Values=vpc" \
+    --region ${AWS_REGION} --query 'Addresses[0].AllocationId' --output text 2>/dev/null)
 
-if [ "$NAT_GW" != "None" ] && [ ! -z "$NAT_GW" ]; then
-    aws ec2 wait nat-gateway-available --nat-gateway-ids ${NAT_GW} --region ${AWS_REGION} &
-    wait_with_spinner $! "Waiting for NAT Gateway to become available"
+if [ "$EIP_ID" == "None" ] || [ -z "$EIP_ID" ]; then
+    log_substep "  Allocating Elastic IP..."
+    EIP_ID=$(aws ec2 allocate-address --domain vpc --region ${AWS_REGION} --query 'AllocationId' --output text)
+    if [ $? -ne 0 ] || [ -z "$EIP_ID" ]; then
+        log_error "Failed to allocate Elastic IP"
+        exit 1
+    fi
+    tag_resource "${EIP_ID}" "nat-eip"
+    log_substep "  ✓ EIP allocated: ${EIP_ID}"
+else
+    log_substep "  ✓ Using existing EIP: ${EIP_ID}"
 fi
-log_info "NAT Gateway created: ${NAT_GW}"
+
+# Check if NAT Gateway already exists
+NAT_GW=$(aws ec2 describe-nat-gateways \
+    --filter "Name=vpc-id,Values=${VPC_ID}" "Name=state,Values=available,pending" \
+    --region ${AWS_REGION} --query 'NatGateways[0].NatGatewayId' --output text 2>/dev/null)
+
+if [ "$NAT_GW" == "None" ] || [ -z "$NAT_GW" ]; then
+    log_substep "  Creating NAT Gateway in ${PUBLIC_SUBNET_1}..."
+    NAT_GW=$(aws ec2 create-nat-gateway \
+        --subnet-id ${PUBLIC_SUBNET_1} \
+        --allocation-id ${EIP_ID} \
+        --region ${AWS_REGION} \
+        --query 'NatGateway.NatGatewayId' \
+        --output text)
+    
+    if [ $? -ne 0 ] || [ -z "$NAT_GW" ] || [ "$NAT_GW" == "None" ]; then
+        log_error "Failed to create NAT Gateway"
+        log_error "Public Subnet 1: ${PUBLIC_SUBNET_1}"
+        log_error "EIP Allocation ID: ${EIP_ID}"
+        exit 1
+    fi
+    
+    tag_resource "${NAT_GW}" "nat-gateway"
+    log_substep "  ✓ NAT Gateway created: ${NAT_GW}"
+    
+    log_substep "  Waiting for NAT Gateway to become available..."
+    aws ec2 wait nat-gateway-available --nat-gateway-ids ${NAT_GW} --region ${AWS_REGION} &
+    wait_with_spinner $! "Waiting for NAT Gateway to become available - Complete"
+    log_info "NAT Gateway is available: ${NAT_GW}"
+else
+    NAT_STATE=$(aws ec2 describe-nat-gateways \
+        --nat-gateway-ids ${NAT_GW} \
+        --region ${AWS_REGION} --query 'NatGateways[0].State' --output text)
+    log_substep "  ✓ Using existing NAT Gateway: ${NAT_GW} (${NAT_STATE})"
+    
+    if [ "$NAT_STATE" == "pending" ]; then
+        log_substep "  Waiting for existing NAT Gateway to become available..."
+        aws ec2 wait nat-gateway-available --nat-gateway-ids ${NAT_GW} --region ${AWS_REGION} &
+        wait_with_spinner $! "Waiting for NAT Gateway to become available - Complete"
+    fi
+    log_info "NAT Gateway ready: ${NAT_GW}"
+fi
 
 # Create Route Tables
 log_substep "Configuring route tables..."
@@ -677,43 +723,108 @@ log_substep "  ✓ Lifecycle policy configured (90-day Glacier transition)"
 
 # Create RDS Subnet Group
 log_step "Creating RDS subnet group..."
-aws rds create-db-subnet-group \
+log_substep "  VPC ID: ${VPC_ID}"
+log_substep "  Private Subnet 1: ${PRIVATE_SUBNET_1}"
+log_substep "  Private Subnet 2: ${PRIVATE_SUBNET_2}"
+
+# Check if subnet group already exists
+EXISTING_SG=$(aws rds describe-db-subnet-groups \
     --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
-    --db-subnet-group-description "DB subnet group for ${PROJECT_NAME}" \
-    --subnet-ids ${PRIVATE_SUBNET_1} ${PRIVATE_SUBNET_2} \
-    --tags $(create_tags "db-subnet-group") \
-    --region ${AWS_REGION} 2>/dev/null || log_warn "Subnet group may already exist"
+    --region ${AWS_REGION} \
+    --query 'DBSubnetGroups[0].DBSubnetGroupName' \
+    --output text 2>/dev/null)
+
+if [ "$EXISTING_SG" == "None" ] || [ -z "$EXISTING_SG" ]; then
+    log_substep "  Creating new DB subnet group..."
+    CREATE_OUTPUT=$(aws rds create-db-subnet-group \
+        --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
+        --db-subnet-group-description "DB subnet group for ${PROJECT_NAME}" \
+        --subnet-ids ${PRIVATE_SUBNET_1} ${PRIVATE_SUBNET_2} \
+        --tags $(create_tags "db-subnet-group") \
+        --region ${AWS_REGION} 2>&1)
+    
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create DB subnet group"
+        log_error "Error: ${CREATE_OUTPUT}"
+        exit 1
+    fi
+    log_substep "  ✓ DB subnet group created"
+else
+    log_substep "  ✓ DB subnet group already exists: ${EXISTING_SG}"
+fi
 
 # Create RDS Aurora PostgreSQL Cluster (Multi-AZ for HA)
 log_step "Creating RDS Aurora PostgreSQL cluster (Multi-AZ, this takes 8-10 minutes)..."
+log_substep "  Engine: aurora-postgresql 15.3"
+log_substep "  DB Subnet Group: ${PROJECT_NAME}-db-subnet"
+log_substep "  RDS Security Group: ${RDS_SG}"
 
-aws rds create-db-cluster \
+# Check if cluster already exists
+EXISTING_CLUSTER=$(aws rds describe-db-clusters \
     --db-cluster-identifier ${PROJECT_NAME}-documents-db \
-    --engine aurora-postgresql \
-    --engine-version 14.9 \
-    --master-username postgres \
-    --master-user-password "${DB_PASSWORD}" \
-    --vpc-security-group-ids ${RDS_SG} \
-    --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
-    --backup-retention-period 7 \
-    --storage-encrypted \
-    --database-name documents \
-    --enable-cloudwatch-logs-exports '["postgresql"]' \
-    --tags $(create_tags "documents-db-cluster") \
-    --region ${AWS_REGION} 2>/dev/null || log_warn "Cluster may already exist"
+    --region ${AWS_REGION} \
+    --query 'DBClusters[0].DBClusterIdentifier' \
+    --output text 2>/dev/null)
 
-aws rds create-db-instance \
+if [ "$EXISTING_CLUSTER" == "None" ] || [ -z "$EXISTING_CLUSTER" ]; then
+    log_substep "  Creating Aurora cluster..."
+    CLUSTER_OUTPUT=$(aws rds create-db-cluster \
+        --db-cluster-identifier ${PROJECT_NAME}-documents-db \
+        --engine aurora-postgresql \
+        --engine-version 15.3 \
+        --master-username postgres \
+        --master-user-password "${DB_PASSWORD}" \
+        --vpc-security-group-ids ${RDS_SG} \
+        --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
+        --backup-retention-period 7 \
+        --storage-encrypted \
+        --database-name documents \
+        --enable-cloudwatch-logs-exports '["postgresql"]' \
+        --tags $(create_tags "documents-db-cluster") \
+        --region ${AWS_REGION} 2>&1)
+    
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create Aurora cluster"
+        log_error "Error: ${CLUSTER_OUTPUT}"
+        exit 1
+    fi
+    log_substep "  ✓ Aurora cluster creation initiated"
+else
+    log_substep "  ✓ Aurora cluster already exists: ${EXISTING_CLUSTER}"
+fi
+
+# Check if instance already exists
+EXISTING_INSTANCE=$(aws rds describe-db-instances \
     --db-instance-identifier ${PROJECT_NAME}-documents-db-instance-1 \
-    --db-instance-class db.t3.medium \
-    --engine aurora-postgresql \
-    --db-cluster-identifier ${PROJECT_NAME}-documents-db \
-    --publicly-accessible false \
-    --tags $(create_tags "documents-db-instance-1") \
-    --region ${AWS_REGION} 2>/dev/null || log_warn "Instance may already exist"
+    --region ${AWS_REGION} \
+    --query 'DBInstances[0].DBInstanceIdentifier' \
+    --output text 2>/dev/null)
+
+if [ "$EXISTING_INSTANCE" == "None" ] || [ -z "$EXISTING_INSTANCE" ]; then
+    log_substep "  Creating Aurora instance..."
+    INSTANCE_OUTPUT=$(aws rds create-db-instance \
+        --db-instance-identifier ${PROJECT_NAME}-documents-db-instance-1 \
+        --db-instance-class db.t3.medium \
+        --engine aurora-postgresql \
+        --db-cluster-identifier ${PROJECT_NAME}-documents-db \
+        --publicly-accessible false \
+        --tags $(create_tags "documents-db-instance-1") \
+        --region ${AWS_REGION} 2>&1)
+    
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create Aurora instance"
+        log_error "Error: ${INSTANCE_OUTPUT}"
+        exit 1
+    fi
+    log_substep "  ✓ Aurora instance creation initiated"
+else
+    log_substep "  ✓ Aurora instance already exists: ${EXISTING_INSTANCE}"
+fi
 
 # Wait for cluster to be available
+log_substep "  Waiting for cluster to become available (8-10 minutes)..."
 aws rds wait db-cluster-available --db-cluster-identifier ${PROJECT_NAME}-documents-db --region ${AWS_REGION} &
-wait_with_spinner $! "Waiting for RDS Aurora cluster to become available"
+wait_with_spinner $! "Waiting for RDS Aurora cluster to become available - Complete"
 
 RDS_ENDPOINT=$(aws rds describe-db-clusters \
     --db-cluster-identifier ${PROJECT_NAME}-documents-db \
@@ -728,28 +839,50 @@ log_substep "  ✓ CloudWatch Logs enabled"
 
 # Create Keycloak RDS Instance
 log_step "Creating Keycloak RDS PostgreSQL instance..."
+log_substep "  Engine: postgres 15.3"
+log_substep "  DB Subnet Group: ${PROJECT_NAME}-db-subnet"
 
-aws rds create-db-instance \
+# Check if Keycloak DB already exists
+EXISTING_KC_DB=$(aws rds describe-db-instances \
     --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
-    --db-instance-class db.t3.small \
-    --engine postgres \
-    --engine-version 14.9 \
-    --master-username postgres \
-    --master-user-password "${KEYCLOAK_DB_PASSWORD}" \
-    --allocated-storage 20 \
-    --storage-type gp3 \
-    --vpc-security-group-ids ${RDS_SG} \
-    --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
-    --backup-retention-period 7 \
-    --storage-encrypted \
-    --db-name keycloak \
-    --no-publicly-accessible \
-    --enable-cloudwatch-logs-exports '["postgresql"]' \
-    --tags $(create_tags "keycloak-db") \
-    --region ${AWS_REGION} 2>/dev/null || log_warn "Keycloak DB may already exist"
+    --region ${AWS_REGION} \
+    --query 'DBInstances[0].DBInstanceIdentifier' \
+    --output text 2>/dev/null)
 
+if [ "$EXISTING_KC_DB" == "None" ] || [ -z "$EXISTING_KC_DB" ]; then
+    log_substep "  Creating Keycloak DB instance..."
+    KC_DB_OUTPUT=$(aws rds create-db-instance \
+        --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
+        --db-instance-class db.t3.small \
+        --engine postgres \
+        --engine-version 15.3 \
+        --master-username postgres \
+        --master-user-password "${KEYCLOAK_DB_PASSWORD}" \
+        --allocated-storage 20 \
+        --storage-type gp3 \
+        --vpc-security-group-ids ${RDS_SG} \
+        --db-subnet-group-name ${PROJECT_NAME}-db-subnet \
+        --backup-retention-period 7 \
+        --storage-encrypted \
+        --db-name keycloak \
+        --no-publicly-accessible \
+        --enable-cloudwatch-logs-exports '["postgresql"]' \
+        --tags $(create_tags "keycloak-db") \
+        --region ${AWS_REGION} 2>&1)
+    
+    if [ $? -ne 0 ]; then
+        log_error "Failed to create Keycloak DB"
+        log_error "Error: ${KC_DB_OUTPUT}"
+        exit 1
+    fi
+    log_substep "  ✓ Keycloak DB creation initiated"
+else
+    log_substep "  ✓ Keycloak DB already exists: ${EXISTING_KC_DB}"
+fi
+
+log_substep "  Waiting for Keycloak DB to become available (5-7 minutes)..."
 aws rds wait db-instance-available --db-instance-identifier ${PROJECT_NAME}-keycloak-db --region ${AWS_REGION} &
-wait_with_spinner $! "Waiting for Keycloak RDS instance to become available"
+wait_with_spinner $! "Waiting for Keycloak RDS instance to become available - Complete"
 
 KEYCLOAK_RDS_ENDPOINT=$(aws rds describe-db-instances \
     --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
