@@ -755,7 +755,7 @@ fi
 
 # Create RDS Aurora PostgreSQL Cluster (Multi-AZ for HA)
 log_step "Creating RDS Aurora PostgreSQL cluster (Multi-AZ, this takes 8-10 minutes)..."
-log_substep "  Engine: aurora-postgresql 15.3"
+log_substep "  Engine: aurora-postgresql 15.15"
 log_substep "  DB Subnet Group: ${PROJECT_NAME}-db-subnet"
 log_substep "  RDS Security Group: ${RDS_SG}"
 
@@ -773,7 +773,7 @@ if [ "$EXISTING_CLUSTER" == "None" ] || [ -z "$EXISTING_CLUSTER" ]; then
     CLUSTER_OUTPUT=$(aws rds create-db-cluster \
         --db-cluster-identifier ${PROJECT_NAME}-documents-db \
         --engine aurora-postgresql \
-        --engine-version 15.3 \
+        --engine-version 15.15 \
         --master-username postgres \
         --master-user-password "${DB_PASSWORD}" \
         --vpc-security-group-ids ${RDS_SG} \
@@ -849,7 +849,7 @@ log_substep "  ✓ CloudWatch Logs enabled"
 
 # Create Keycloak RDS Instance
 log_step "Creating Keycloak RDS PostgreSQL instance..."
-log_substep "  Engine: postgres 15.3"
+log_substep "  Engine: postgres 16.6"
 log_substep "  DB Subnet Group: ${PROJECT_NAME}-db-subnet"
 
 # Check if Keycloak DB already exists
@@ -867,7 +867,7 @@ if [ "$EXISTING_KC_DB" == "None" ] || [ -z "$EXISTING_KC_DB" ]; then
         --db-instance-identifier ${PROJECT_NAME}-keycloak-db \
         --db-instance-class db.t3.small \
         --engine postgres \
-        --engine-version 15.3 \
+        --engine-version 16.6 \
         --master-username postgres \
         --master-user-password "${KEYCLOAK_DB_PASSWORD}" \
         --allocated-storage 20 \
