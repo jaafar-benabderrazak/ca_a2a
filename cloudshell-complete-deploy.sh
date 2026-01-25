@@ -198,20 +198,23 @@ fi
 # Helper Functions
 ###############################################################################
 
-# Function to create tags in JSON format for AWS CLI
+# Function to create tags for --tag-specifications (EC2 resources like VPC, subnets, etc.)
+create_tag_specs() {
+    local resource_type="${1:-generic}"
+    local resource_name="${2:-resource}"
+    echo "ResourceType=${resource_type},Tags=[{Key=Name,Value=${PROJECT_NAME}-${resource_name}},{Key=Project,Value=${TAG_PROJECT}},{Key=Environment,Value=${TAG_ENV}},{Key=ManagedBy,Value=${TAG_MANAGED_BY}},{Key=Version,Value=${TAG_VERSION}},{Key=Security,Value=${TAG_SECURITY}},{Key=Owner,Value=${TAG_OWNER}}]"
+}
+
+# Function to create tags for --tags (most other AWS services)
 create_tags() {
     local resource_name="${1:-resource}"
-    cat <<EOF
-[
-  {"Key":"Name","Value":"${PROJECT_NAME}-${resource_name}"},
-  {"Key":"Project","Value":"${TAG_PROJECT}"},
-  {"Key":"Environment","Value":"${TAG_ENV}"},
-  {"Key":"ManagedBy","Value":"${TAG_MANAGED_BY}"},
-  {"Key":"Version","Value":"${TAG_VERSION}"},
-  {"Key":"Security","Value":"${TAG_SECURITY}"},
-  {"Key":"Owner","Value":"${TAG_OWNER}"}
-]
-EOF
+    echo "Key=Name,Value=${PROJECT_NAME}-${resource_name} Key=Project,Value=${TAG_PROJECT} Key=Environment,Value=${TAG_ENV} Key=ManagedBy,Value=${TAG_MANAGED_BY} Key=Version,Value=${TAG_VERSION} Key=Security,Value=${TAG_SECURITY} Key=Owner,Value=${TAG_OWNER}"
+}
+
+# Function to create tags for S3 --tagging parameter (needs TagSet array format)
+create_s3_tags() {
+    local resource_name="${1:-resource}"
+    echo "[{Key=Name,Value=${PROJECT_NAME}-${resource_name}},{Key=Project,Value=${TAG_PROJECT}},{Key=Environment,Value=${TAG_ENV}},{Key=ManagedBy,Value=${TAG_MANAGED_BY}},{Key=Version,Value=${TAG_VERSION}},{Key=Security,Value=${TAG_SECURITY}},{Key=Owner,Value=${TAG_OWNER}}]"
 }
 
 # Function to add tags to a resource (simplified)
@@ -304,28 +307,28 @@ log_substep "Creating subnets..."
 
 PUBLIC_SUBNET_1=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.1.0/24 --availability-zone ${AZ1} \
-    --tag-specifications "ResourceType=subnet,Tags=$(create_tags "public-subnet-1")" \
+    --tag-specifications "$(create_tag_specs "subnet" "public-subnet-1")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-subnet-1" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
 
 PUBLIC_SUBNET_2=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.2.0/24 --availability-zone ${AZ2} \
-    --tag-specifications "ResourceType=subnet,Tags=$(create_tags "public-subnet-2")" \
+    --tag-specifications "$(create_tag_specs "subnet" "public-subnet-2")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-subnet-2" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
 
 PRIVATE_SUBNET_1=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.10.0/24 --availability-zone ${AZ1} \
-    --tag-specifications "ResourceType=subnet,Tags=$(create_tags "private-subnet-1")" \
+    --tag-specifications "$(create_tag_specs "subnet" "private-subnet-1")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-subnet-1" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
 
 PRIVATE_SUBNET_2=$(aws ec2 create-subnet \
     --vpc-id ${VPC_ID} --cidr-block 10.0.20.0/24 --availability-zone ${AZ2} \
-    --tag-specifications "ResourceType=subnet,Tags=$(create_tags "private-subnet-2")" \
+    --tag-specifications "$(create_tag_specs "subnet" "private-subnet-2")" \
     --region ${AWS_REGION} --query 'Subnet.SubnetId' --output text 2>/dev/null || \
     aws ec2 describe-subnets --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-subnet-2" \
         --region ${AWS_REGION} --query 'Subnets[0].SubnetId' --output text)
@@ -340,7 +343,7 @@ EIP_ID=$(aws ec2 allocate-address --domain vpc --region ${AWS_REGION} --query 'A
 
 NAT_GW=$(aws ec2 create-nat-gateway \
     --subnet-id ${PUBLIC_SUBNET_1} --allocation-id ${EIP_ID} \
-    --tag-specifications "ResourceType=natgateway,Tags=$(create_tags "nat-gateway")" \
+    --tag-specifications "$(create_tag_specs "natgateway" "nat-gateway")" \
     --region ${AWS_REGION} --query 'NatGateway.NatGatewayId' --output text 2>/dev/null || \
     aws ec2 describe-nat-gateways --filter "Name=tag:Name,Values=${PROJECT_NAME}-nat-gateway" "Name=state,Values=available" \
         --region ${AWS_REGION} --query 'NatGateways[0].NatGatewayId' --output text)
@@ -355,7 +358,7 @@ log_info "NAT Gateway created: ${NAT_GW}"
 log_substep "Configuring route tables..."
 
 PUBLIC_RT=$(aws ec2 create-route-table --vpc-id ${VPC_ID} \
-    --tag-specifications "ResourceType=route-table,Tags=$(create_tags "public-rt")" \
+    --tag-specifications "$(create_tag_specs "route-table" "public-rt")" \
     --region ${AWS_REGION} --query 'RouteTable.RouteTableId' --output text 2>/dev/null || \
     aws ec2 describe-route-tables --filters "Name=tag:Name,Values=${PROJECT_NAME}-public-rt" \
         --region ${AWS_REGION} --query 'RouteTables[0].RouteTableId' --output text)
@@ -365,7 +368,7 @@ aws ec2 associate-route-table --subnet-id ${PUBLIC_SUBNET_1} --route-table-id ${
 aws ec2 associate-route-table --subnet-id ${PUBLIC_SUBNET_2} --route-table-id ${PUBLIC_RT} --region ${AWS_REGION} 2>/dev/null || true
 
 PRIVATE_RT=$(aws ec2 create-route-table --vpc-id ${VPC_ID} \
-    --tag-specifications "ResourceType=route-table,Tags=$(create_tags "private-rt")" \
+    --tag-specifications "$(create_tag_specs "route-table" "private-rt")" \
     --region ${AWS_REGION} --query 'RouteTable.RouteTableId' --output text 2>/dev/null || \
     aws ec2 describe-route-tables --filters "Name=tag:Name,Values=${PROJECT_NAME}-private-rt" \
         --region ${AWS_REGION} --query 'RouteTables[0].RouteTableId' --output text)
@@ -655,7 +658,7 @@ EOF
 # Add tags
 aws s3api put-bucket-tagging \
     --bucket ${S3_BUCKET} \
-    --tagging "TagSet=$(create_tags "s3-bucket")" \
+    --tagging "TagSet=$(create_s3_tags "s3-bucket")" \
     --region ${AWS_REGION}
 
 log_info "S3 bucket created: ${S3_BUCKET}"
@@ -776,7 +779,7 @@ for service in ecr.dkr ecr.api logs secretsmanager; do
         --service-name com.amazonaws.${AWS_REGION}.${service} \
         --subnet-ids ${PRIVATE_SUBNET_1} ${PRIVATE_SUBNET_2} \
         --security-group-ids ${VPCE_SG} \
-        --tag-specifications "ResourceType=vpc-endpoint,Tags=$(create_tags "vpce-${service}")" \
+        --tag-specifications "$(create_tag_specs "vpc-endpoint" "vpce-${service}")" \
         --region ${AWS_REGION} 2>/dev/null || log_warn "Endpoint may already exist"
 done
 
@@ -786,7 +789,7 @@ aws ec2 create-vpc-endpoint \
     --vpc-id ${VPC_ID} \
     --service-name com.amazonaws.${AWS_REGION}.s3 \
     --route-table-ids ${PRIVATE_RT} \
-    --tag-specifications "ResourceType=vpc-endpoint,Tags=$(create_tags "vpce-s3")" \
+    --tag-specifications "$(create_tag_specs "vpc-endpoint" "vpce-s3")" \
     --region ${AWS_REGION} 2>/dev/null || log_warn "S3 endpoint may already exist"
 
 log_info "VPC endpoints created (private AWS service access)"
