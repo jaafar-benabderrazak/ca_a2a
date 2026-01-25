@@ -17,7 +17,8 @@
 # Date: January 25, 2026
 ###############################################################################
 
-set -euo pipefail
+set -eo pipefail
+# Note: Removed -u to allow better handling of optional parameters
 
 # Colors for output
 RED='\033[0;31m'
@@ -199,7 +200,7 @@ fi
 
 # Function to create tags in JSON format
 create_tags() {
-    local resource_name=$1
+    local resource_name="${1:-unknown}"
     cat <<EOF
 [
     {"Key":"Name","Value":"${PROJECT_NAME}-${resource_name}"},
@@ -216,11 +217,17 @@ EOF
 
 # Function to wait with spinner
 wait_with_spinner() {
-    local pid=$1
-    local message=$2
+    local pid="${1:-}"
+    local message="${2:-Waiting}"
     local spin='-\|/'
     local i=0
-    while kill -0 $pid 2>/dev/null; do
+    
+    if [ -z "$pid" ]; then
+        echo "  ${GREEN}✓${NC} ${message} - Complete"
+        return 0
+    fi
+    
+    while kill -0 "$pid" 2>/dev/null; do
         i=$(( (i+1) %4 ))
         printf "\r  ${CYAN}${message}${NC} ${spin:$i:1}"
         sleep .1
