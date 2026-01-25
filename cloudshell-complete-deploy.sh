@@ -638,9 +638,7 @@ aws s3api put-public-access-block \
     --region ${AWS_REGION}
 
 # Add lifecycle policy for cost optimization
-aws s3api put-bucket-lifecycle-configuration \
-    --bucket ${S3_BUCKET} \
-    --lifecycle-configuration file://- <<EOF
+LIFECYCLE_CONFIG=$(cat <<'EOF'
 {
     "Rules": [{
         "Id": "archive-old-documents",
@@ -655,6 +653,12 @@ aws s3api put-bucket-lifecycle-configuration \
     }]
 }
 EOF
+)
+
+aws s3api put-bucket-lifecycle-configuration \
+    --bucket ${S3_BUCKET} \
+    --lifecycle-configuration "${LIFECYCLE_CONFIG}" \
+    --region ${AWS_REGION}
 
 # Add tags
 aws s3api put-bucket-tagging \
