@@ -65,7 +65,7 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 ![AWS Infrastructure](https://github.com/user-attachments/assets/12587382-31da-4bf5-a5f3-cbeb4179bb7a)
 
 ```mermaid
-%%{init: {"theme":"neutral","flowchart":{"nodeSpacing":12,"rankSpacing":15}}}%%
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
 graph TB
     subgraph Internet[Internet]
         User[External User]
@@ -151,7 +151,7 @@ graph TB
 ### 1.3 Protocol Stack Architecture
 
 ```mermaid
-%%{init: {"theme":"neutral","flowchart":{"nodeSpacing":12,"rankSpacing":15}}}%%
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
 graph TB
     subgraph "Application Layer (L7)"
         A2A[A2A Protocol<br/>JSON-RPC 2.0]
@@ -262,7 +262,7 @@ We implement **defense in depth**: each layer can fail safely without relying on
 ![Security Layers Overview](https://github.com/user-attachments/assets/066e2291-6967-413f-b039-6f24b7be8921)
 
 ```mermaid
-%%{init: {"theme":"neutral","flowchart":{"nodeSpacing":12,"rankSpacing":15}}}%%
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
 graph TB
     L1["Layer 1: Network Isolation<br/>VPC, Security Groups, NACLs"]
     L2["Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC"]
@@ -302,7 +302,7 @@ graph TB
 ![Complete Request Security Flow](https://github.com/user-attachments/assets/928e0379-e52e-453b-ac0c-182beb7dd97d)
 
 ```mermaid
-%%{init: {"theme":"neutral"}}%%
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
 sequenceDiagram
     participant User as User/Client
     participant ALB as ALB
@@ -372,6 +372,7 @@ sequenceDiagram
 ### 4.1 Keycloak OAuth2/OIDC Flow
 
 ```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
 sequenceDiagram
     participant Client
     participant Keycloak
@@ -556,6 +557,7 @@ Token Binding extends OAuth 2.0 to create **proof-of-possession tokens**. The ac
 ### 5.2 How Token Binding Works
 
 ```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
 sequenceDiagram
     participant Client
     participant Keycloak
@@ -677,6 +679,7 @@ class MTLSConfig:
 The MCP (Model Context Protocol) Server acts as a **centralized gateway** for all AWS resource access (S3 and RDS PostgreSQL). Instead of agents directly accessing AWS services, they communicate with the MCP Server via HTTP API.
 
 ```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
 sequenceDiagram
     participant Agent as Agent<br/>(Orchestrator/Extractor/Validator/Archivist)
     participant MCP as MCP Server<br/>:8000
@@ -952,6 +955,7 @@ VPC: 10.0.0.0/16 (65,536 IPs)
 ![Security Groups Diagram](https://github.com/user-attachments/assets/e938c312-f7e9-425e-82c2-ec488610f548)
 
 ```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
 graph TB
     subgraph Internet
         User[User]
@@ -1025,6 +1029,7 @@ graph TB
 ### 9.2 Encryption in Transit
 
 ```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
 graph LR
     User[User] --> |"1. HTTPS (TLS 1.2+)"| ALB[ALB]
     ALB -->|"2. HTTP"| Orch[Orchestrator]
@@ -1160,6 +1165,7 @@ class ReplayProtector:
 ![Token Lifecycle](https://github.com/user-attachments/assets/7f44f9ef-2203-4569-b353-ef9128c26b2a)
 
 ```mermaid
+%%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
 graph LR
     Admin[Admin API] -->|1. Revoke| Cache["In-Memory Cache<br/>Ultra-fast: ~1μs"]
     Admin -->|2. Persist| DB["PostgreSQL<br/>revoked_tokens"]
