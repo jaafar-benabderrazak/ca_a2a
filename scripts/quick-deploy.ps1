@@ -1,7 +1,7 @@
 # CA A2A - Quick Deployment Script (Simplified)
 # Use this for step-by-step deployment with confirmations
 
-$region = "eu-west-3"
+$region = if ($env:AWS_REGION) { $env:AWS_REGION } else { "us-east-1" }
 $projectName = "ca-a2a"
 $accountId = "555043101106"
 
@@ -87,7 +87,7 @@ Write-Host ""
 Write-Host "[5] Creating ECR Repositories..." -ForegroundColor Green
 $continue = Read-Host "Create ECR repositories for agents? (Y/N)"
 if ($continue -eq "Y") {
-    $agents = @("orchestrator", "extractor", "classifier", "qa-agent")
+    $agents = @("orchestrator", "extractor", "validator", "archivist", "keycloak", "mcp-server")
     foreach ($agent in $agents) {
         aws ecr create-repository --repository-name "ca-a2a-$agent" --region $region --tags "Key=Project,Value=CA-A2A" "Key=AgentName,Value=$agent"
         Write-Host "  Created: ca-a2a-$agent" -ForegroundColor Green

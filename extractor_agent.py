@@ -311,22 +311,22 @@ class ExtractorAgent(BaseAgent):
                 return await self._extract_pdf_fallback(pdf_data)
             
             try:
-            extracted['total_pages'] = len(pdf_reader.pages)
+                extracted['total_pages'] = len(pdf_reader.pages)
             except Exception as e:
                 self.logger.warning(f"Could not get page count: {str(e)}")
                 extracted['total_pages'] = 0
             
             # Extract metadata safely
             try:
-            if pdf_reader.metadata:
-                extracted['metadata'] = {
-                            'title': str(pdf_reader.metadata.get('/Title', '')),
-                            'author': str(pdf_reader.metadata.get('/Author', '')),
-                            'subject': str(pdf_reader.metadata.get('/Subject', '')),
-                            'creator': str(pdf_reader.metadata.get('/Creator', '')),
-                            'producer': str(pdf_reader.metadata.get('/Producer', '')),
-                    'creation_date': str(pdf_reader.metadata.get('/CreationDate', ''))
-                }
+                if pdf_reader.metadata:
+                    extracted['metadata'] = {
+                        'title': str(pdf_reader.metadata.get('/Title', '')),
+                        'author': str(pdf_reader.metadata.get('/Author', '')),
+                        'subject': str(pdf_reader.metadata.get('/Subject', '')),
+                        'creator': str(pdf_reader.metadata.get('/Creator', '')),
+                        'producer': str(pdf_reader.metadata.get('/Producer', '')),
+                        'creation_date': str(pdf_reader.metadata.get('/CreationDate', ''))
+                    }
             except Exception as e:
                 self.logger.warning(f"Could not extract PDF metadata: {str(e)}")
                 extracted['metadata'] = {'extraction_note': 'Metadata extraction failed'}
@@ -335,12 +335,12 @@ class ExtractorAgent(BaseAgent):
             for page_num, page in enumerate(pdf_reader.pages):
                 try:
                     text = page.extract_text() or ""
-                extracted['pages'].append({
-                    'page_number': page_num + 1,
-                    'text': text,
-                    'char_count': len(text)
-                })
-                extracted['text_content'] += text + '\n'
+                    extracted['pages'].append({
+                        'page_number': page_num + 1,
+                        'text': text,
+                        'char_count': len(text)
+                    })
+                    extracted['text_content'] += text + '\n'
                 except Exception as e:
                     self.logger.warning(f"Could not extract text from page {page_num + 1}: {str(e)}")
                     extracted['pages'].append({

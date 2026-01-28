@@ -44,7 +44,7 @@ if [ -f ".env" ]; then
 fi
 
 # Default configuration
-export AWS_REGION="${AWS_REGION:-eu-west-3}"
+export AWS_REGION="${AWS_REGION:-us-east-1}"
 export PROJECT_NAME="${PROJECT_NAME:-ca-a2a}"
 export ENVIRONMENT="${ENVIRONMENT:-prod}"
 export DB_PASSWORD="${DB_PASSWORD:-$(openssl rand -base64 32 | tr -d '/+=')}"
@@ -469,7 +469,7 @@ log_info "RDS created: ${RDS_ENDPOINT}"
 log_info "Creating remaining AWS resources..."
 
 # ECR
-for agent in orchestrator extractor validator archivist; do
+for agent in orchestrator extractor validator archivist keycloak mcp-server; do
     aws ecr create-repository --repository-name ${PROJECT_NAME}/${agent} --region ${AWS_REGION} 2>/dev/null || true
 done
 
@@ -481,6 +481,15 @@ EOF
 aws iam create-role --role-name ${PROJECT_NAME}-ecs-execution-role --assume-role-policy-document file:///tmp/trust-policy.json 2>/dev/null || true
 aws iam attach-role-policy --role-name ${PROJECT_NAME}-ecs-execution-role \
     --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy 2>/dev/null || true
+
+# Add Secrets Manager permissions to execution role (required for ECS to fetch secrets)
+cat > /tmp/secrets-execution-policy.json <<EOF
+{"Version": "2012-10-17", "Statement": [
+  {"Effect": "Allow", "Action": ["secretsmanager:GetSecretValue", "kms:Decrypt"], "Resource": "arn:aws:secretsmanager:${AWS_REGION}:${AWS_ACCOUNT_ID}:secret:*"}
+]}
+EOF
+aws iam put-role-policy --role-name ${PROJECT_NAME}-ecs-execution-role --policy-name ${PROJECT_NAME}-secrets-execution-policy \
+    --policy-document file:///tmp/secrets-execution-policy.json 2>/dev/null || true
 
 aws iam create-role --role-name ${PROJECT_NAME}-ecs-task-role --assume-role-policy-document file:///tmp/trust-policy.json 2>/dev/null || true
 
@@ -531,7 +540,7 @@ aws ecs create-cluster --cluster-name ${PROJECT_NAME}-cluster --capacity-provide
 aws ecs update-cluster-settings --cluster ${PROJECT_NAME}-cluster --settings name=containerInsights,value=enabled --region ${AWS_REGION} 2>/dev/null || true
 
 # CloudWatch
-for agent in orchestrator extractor validator archivist; do
+for agent in orchestrator extractor validator archivist keycloak mcp-server; do
     aws logs create-log-group --log-group-name /ecs/${PROJECT_NAME}-$agent --region ${AWS_REGION} 2>/dev/null || true
     aws logs put-retention-policy --log-group-name /ecs/${PROJECT_NAME}-$agent --retention-in-days 7 --region ${AWS_REGION} 2>/dev/null || true
 done

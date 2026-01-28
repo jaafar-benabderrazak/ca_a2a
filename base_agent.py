@@ -58,16 +58,40 @@ class BaseAgent(ABC):
         
         # Setup routes
         self.app.router.add_post('/message', self.handle_http_message)
+        self.app.router.add_post('/a2a', self.handle_http_message)  # A2A standard endpoint
         self.app.router.add_get('/health', self.health_check)
         self.app.router.add_get('/status', self.get_status)
         self.app.router.add_get('/card', self.get_agent_card)
+        self.app.router.add_get('/.well-known/agent.json', self.get_agent_card)  # A2A standard discovery
         self.app.router.add_get('/skills', self.get_skills)
+        
+        # Security headers middleware
+        self.app.middlewares.append(self._security_headers_middleware)
         
         # Register handlers
         self._register_handlers()
         
         # Initialize agent card with skills
         self._initialize_agent_card()
+    
+    @web.middleware
+    async def _security_headers_middleware(self, request: web.Request, handler):
+        """Add security headers to all responses"""
+        response = await handler(request)
+        
+        # Security headers per OWASP recommendations
+        if os.getenv("A2A_SECURITY_HEADERS", "true").lower() == "true":
+            response.headers['X-Content-Type-Options'] = 'nosniff'
+            response.headers['X-Frame-Options'] = 'DENY'
+            response.headers['X-XSS-Protection'] = '1; mode=block'
+            response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+            response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+            response.headers['Pragma'] = 'no-cache'
+            
+            # Content-Security-Policy for API responses
+            response.headers['Content-Security-Policy'] = "default-src 'none'; frame-ancestors 'none'"
+        
+        return response
     
     @abstractmethod
     def _register_handlers(self):

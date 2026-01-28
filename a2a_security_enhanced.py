@@ -116,17 +116,17 @@ class RequestSigner:
             ]
             signing_string = '\n'.join(signing_parts)
             
-        expected_signature = hmac.new(
-            self.secret_key,
+            expected_signature = hmac.new(
+                self.secret_key,
                 signing_string.encode('utf-8'),
                 hashlib.sha256
-        ).hexdigest()
-        
-        # Constant-time comparison
+            ).hexdigest()
+            
+            # Constant-time comparison
             if not hmac.compare_digest(provided_signature, expected_signature):
                 return False, "Invalid signature"
-        
-        return True, None
+            
+            return True, None
     
         except Exception as e:
             logger.warning(f"Signature verification error: {e}")

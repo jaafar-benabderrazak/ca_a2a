@@ -1,255 +1,152 @@
-# CA-A2A AWS CDK Deployment Guide
+# CA-A2A CDK Deployment
 
-## 🚀 Quick Start (AWS Cloud Shell)
+AWS CDK infrastructure deployment for the CA-A2A Multi-Agent System.
+
+## Quick Start
 
 ### Prerequisites
-✅ All pre-installed in Cloud Shell:
+
+- AWS CLI configured with appropriate credentials
+- AWS CDK installed (`npm install -g aws-cdk`)
 - Python 3.9+
-- AWS CDK 2.110+
-- AWS CLI configured
+- Docker (for building container images)
 
-### Step 1: Setup (One Time)
+### Deploy Infrastructure
 
 ```bash
-cd ca_a2a/cdk
+# From the cdk/ directory
+cd cdk
 
-# Install Python dependencies
-python3 -m pip install -r requirements.txt --user
+# Deploy (auto-bootstraps if needed)
+./quickstart.sh deploy
 
-# Bootstrap CDK (only needed once per account/region)
+# Or manually:
+pip install -r requirements.txt
 cdk bootstrap
+cdk deploy -c region=eu-west-3
 ```
 
-### Step 2: Preview Deployment
+### Deploy Services
+
+After CDK deploys the infrastructure:
 
 ```bash
-# See what will be created
-cdk diff
+# Build and deploy Docker containers
+./deploy-services.sh
 ```
 
-### Step 3: Deploy
+## Configuration
+
+### Context Variables
+
+Pass via command line or set in `cdk.json`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `project_name` | ca-a2a | Project name prefix |
+| `environment` | prod | Environment (prod/staging/dev) |
+| `region` | eu-west-3 | AWS region |
+| `existing_vpc_id` | - | Import existing VPC |
+| `existing_cluster_name` | - | Import existing ECS cluster |
+| `skip_secrets` | false | Skip creating secrets |
+| `skip_rds` | false | Skip creating RDS databases |
+
+### Environment Variables
 
 ```bash
-# Deploy the entire stack
-cdk deploy
+export PROJECT_NAME=ca-a2a
+export ENVIRONMENT=prod
+export AWS_REGION=eu-west-3
+```
 
-# Or deploy with auto-approval (skip confirmation)
+## Commands
+
+```bash
+# Preview changes
+./quickstart.sh diff
+
+# Deploy infrastructure
+./quickstart.sh deploy
+
+# Destroy (use with caution!)
+./quickstart.sh destroy
+
+# Manual CDK commands
+cdk synth                    # Generate CloudFormation
+cdk diff                     # Show changes
 cdk deploy --require-approval never
-```
-
-**That's it!** ✅ 
-
-The deployment takes ~15-20 minutes and creates:
-- ✅ VPC with public/private subnets across 2 AZs
-- ✅ NAT Gateway for private subnet internet access
-- ✅ Security groups with least-privilege rules
-- ✅ Aurora PostgreSQL cluster (Multi-AZ)
-- ✅ Keycloak PostgreSQL database
-- ✅ S3 bucket with encryption and versioning
-- ✅ Secrets Manager for all credentials
-- ✅ ECS Cluster
-- ✅ Application Load Balancer
-- ✅ CloudWatch Log Groups
-
----
-
-## 📊 Common Commands
-
-```bash
-# List all stacks
-cdk list
-
-# Show synthesized CloudFormation template
-cdk synth
-
-# Compare deployed stack with current state
-cdk diff
-
-# Deploy with specific parameters
-cdk deploy --parameters ProjectName=ca-a2a
-
-# Destroy the stack
-cdk destroy
-
-# Watch mode (auto-redeploy on changes)
-cdk watch
-```
-
----
-
-## 🔧 Configuration
-
-Edit configuration in `cdk.json` context:
-
-```json
-{
-  "context": {
-    "project_name": "ca-a2a",
-    "environment": "prod",
-    "region": "us-east-1"
-  }
-}
-```
-
-Or pass as command-line context:
-
-```bash
-cdk deploy -c project_name=ca-a2a -c environment=prod -c region=us-east-1
-```
-
----
-
-## 📋 Stack Outputs
-
-After deployment, CDK outputs important values:
-
-```
-Outputs:
-ca-a2a-prod.VpcId = vpc-xxxx
-ca-a2a-prod.AlbDnsName = ca-a2a-alb-xxxx.us-east-1.elb.amazonaws.com
-ca-a2a-prod.AuroraClusterEndpoint = ca-a2a-documents-db.cluster-xxxx.us-east-1.rds.amazonaws.com
-ca-a2a-prod.KeycloakDbEndpoint = ca-a2a-keycloak-db.xxxx.us-east-1.rds.amazonaws.com
-ca-a2a-prod.DocumentsBucketName = ca-a2a-documents-555043101106
-ca-a2a-prod.EcsClusterName = ca-a2a-cluster
-```
-
----
-
-## 🔍 Verify Deployment
-
-```bash
-# Check stack status
-aws cloudformation describe-stacks \
-  --stack-name ca-a2a-prod \
-  --query 'Stacks[0].StackStatus' \
-  --output text
-
-# List all resources
-aws cloudformation list-stack-resources \
-  --stack-name ca-a2a-prod \
-  --query 'StackResourceSummaries[*].[ResourceType,PhysicalResourceId,ResourceStatus]' \
-  --output table
-
-# Check RDS status
-aws rds describe-db-clusters \
-  --db-cluster-identifier ca-a2a-documents-db \
-  --region us-east-1
-
-# Check ECS cluster
-aws ecs describe-clusters \
-  --clusters ca-a2a-cluster \
-  --region us-east-1
-```
-
----
-
-## 🔄 Update Infrastructure
-
-1. **Modify** the CDK code in `stacks/ca_a2a_stack.py`
-2. **Preview** changes: `cdk diff`
-3. **Apply** changes: `cdk deploy`
-
-CDK automatically:
-- ✅ Determines what needs to change
-- ✅ Updates only affected resources
-- ✅ Maintains dependencies
-- ✅ Rolls back on error
-
----
-
-## 🗑️ Cleanup
-
-```bash
-# Destroy everything
-cdk destroy
-
-# Force destroy without confirmation
 cdk destroy --force
 ```
 
-**Note**: Some resources like S3 buckets and RDS snapshots are retained for safety.
+## Infrastructure Created
 
----
+### Network
+- VPC with public/private subnets (2 AZs)
+- NAT Gateway
+- VPC Endpoints (ECR, S3, Logs, Secrets Manager)
+- Security Groups
 
-## 🆚 CDK vs Bash Script
+### Compute
+- ECS Fargate Cluster
+- ECR Repositories (per service)
+- IAM Roles (task execution, task)
 
-| Feature | Bash Script | AWS CDK |
-|---------|-------------|---------|
-| **State Management** | ❌ Manual | ✅ Automatic |
-| **Dependency Handling** | ❌ Manual | ✅ Automatic |
-| **Updates** | ❌ Complex | ✅ Simple |
-| **Rollback** | ❌ Manual | ✅ Automatic |
-| **Preview Changes** | ❌ No | ✅ Yes (`cdk diff`) |
-| **Type Safety** | ❌ No | ✅ Yes (Python) |
-| **Reusability** | ❌ Low | ✅ High |
-| **VPC Mismatches** | ❌ Possible | ✅ Impossible |
+### Storage
+- Aurora PostgreSQL (documents database)
+- RDS PostgreSQL (Keycloak database)
+- S3 Bucket (encrypted, versioned)
 
----
+### Security
+- Secrets Manager (auto-generated passwords)
+- Security Groups (least privilege)
+- VPC Endpoints (private connectivity)
 
-## 🐛 Troubleshooting
+### Monitoring
+- CloudWatch Log Groups (7-day retention)
+- Container Insights enabled
 
-### Error: "CDK bootstrap required"
+## Estimated Cost
+
+~$270/month for production deployment:
+- ECS Fargate: ~$80/month
+- RDS Aurora + PostgreSQL: ~$130/month
+- VPC/NAT/ALB: ~$50/month
+- S3/Logs: ~$10/month
+
+## Troubleshooting
+
+### Bootstrap Issues
+
 ```bash
-cdk bootstrap aws://ACCOUNT-ID/us-east-1
+# Re-bootstrap with explicit account/region
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+cdk bootstrap aws://$ACCOUNT_ID/eu-west-3
 ```
 
-### Error: "Resource already exists"
-- CDK handles this automatically
-- Use `cdk import` if you need to import existing resources
+### Resource Conflicts
 
-### Error: "Insufficient permissions"
-- Ensure your Cloud Shell has necessary IAM permissions
-- Check CloudFormation events: `aws cloudformation describe-stack-events --stack-name ca-a2a-prod`
+If resources already exist:
 
-### Check deployment logs
 ```bash
-# CloudFormation events
-aws cloudformation describe-stack-events \
-  --stack-name ca-a2a-prod \
-  --max-items 20
+# Import existing VPC
+cdk deploy -c existing_vpc_id=vpc-xxx
 
-# CDK verbose output
-cdk deploy --verbose
+# Import existing cluster
+cdk deploy -c existing_cluster_name=ca-a2a-cluster
+
+# Skip conflicting resources
+cdk deploy -c skip_secrets=true -c skip_rds=true
 ```
 
----
+### View Stack Outputs
 
-## 📚 Next Steps
+```bash
+# After deployment
+cat outputs.json
 
-After infrastructure deployment:
-
-1. **Deploy Docker Images** to ECR
-2. **Create ECS Task Definitions**
-3. **Deploy ECS Services**
-4. **Configure Keycloak** via ALB endpoint
-5. **Test End-to-End** using verification scripts
-
----
-
-## 🔐 Security Features Implemented
-
-✅ All security features from `a2a_security_architecture.md`:
-
-- **Layer 1**: Network isolation (VPC, private subnets)
-- **Layer 2**: Security groups with least-privilege
-- **Layer 3**: Secrets Manager for credentials
-- **Layer 4**: Encryption at rest (RDS, S3)
-- **Layer 5**: Encryption in transit (TLS)
-- **Layer 6**: Egress hardening (security group rules)
-- **Layer 7**: CloudWatch logging
-- **Layer 8**: IAM roles with minimal permissions
-- **Layer 9**: Multi-AZ redundancy
-
----
-
-## 💡 Tips
-
-- Use `cdk watch` during development for auto-redeploy
-- Always run `cdk diff` before `cdk deploy` to preview changes
-- Tag your resources via CDK tags (already configured)
-- Use `cdk destroy` for clean removal (handles dependencies)
-
----
-
-**Deployment made easy with AWS CDK!** 🎉
-
+# Or from AWS
+aws cloudformation describe-stacks \
+    --stack-name ca-a2a-prod \
+    --query 'Stacks[0].Outputs' \
+    --output table
+```

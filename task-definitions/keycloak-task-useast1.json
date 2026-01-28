@@ -1,0 +1,48 @@
+{
+  "family": "ca-a2a-keycloak",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [{
+    "name": "keycloak",
+    "image": "555043101106.dkr.ecr.us-east-1.amazonaws.com/ca-a2a/keycloak:latest",
+    "essential": true,
+    "portMappings": [{"containerPort": 8080, "protocol": "tcp"}],
+    "environment": [
+      {"name": "KC_HOSTNAME_STRICT", "value": "false"},
+      {"name": "KC_HOSTNAME_STRICT_HTTPS", "value": "false"},
+      {"name": "KC_HTTP_ENABLED", "value": "true"},
+      {"name": "KC_HEALTH_ENABLED", "value": "true"},
+      {"name": "KC_METRICS_ENABLED", "value": "true"},
+      {"name": "KC_DB", "value": "postgres"},
+      {"name": "KC_DB_URL", "value": "jdbc:postgresql://ca-a2a-keycloak-db.crruu3dmzphw.us-east-1.rds.amazonaws.com:5432/keycloak"},
+      {"name": "KC_DB_USERNAME", "value": "postgres"},
+      {"name": "KC_PROXY", "value": "edge"},
+      {"name": "KEYCLOAK_ADMIN", "value": "admin"}
+    ],
+    "secrets": [
+      {"name": "KC_DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:555043101106:secret:DbPassword10268EB9-gfBQwBJ4ejPy-ER5Luh"},
+      {"name": "KEYCLOAK_ADMIN_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:555043101106:secret:KeycloakAdminPassword62607A-qbBSBcCDUJ4C-ervR63"}
+    ],
+    "command": ["start-dev"],
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8080/health/ready || exit 1"],
+      "interval": 30,
+      "timeout": 10,
+      "retries": 3,
+      "startPeriod": 120
+    },
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/ca-a2a-keycloak",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "keycloak"
+      }
+    }
+  }]
+}
+

@@ -1,0 +1,52 @@
+﻿{
+  "family": "ca-a2a-validator",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [{
+    "name": "validator",
+    "image": "555043101106.dkr.ecr.us-east-1.amazonaws.com/ca-a2a/validator:latest",
+    "essential": true,
+    "portMappings": [{"containerPort": 8003, "protocol": "tcp"}],
+    "environment": [
+      {"name": "HOST", "value": "0.0.0.0"},
+      {"name": "PORT", "value": "8003"},
+      {"name": "POSTGRES_HOST", "value": "ca-a2a-documents-db.cluster-crruu3dmzphw.us-east-1.rds.amazonaws.com"},
+      {"name": "POSTGRES_DB", "value": "documents_db"},
+      {"name": "POSTGRES_USER", "value": "postgres"},
+      {"name": "POSTGRES_PORT", "value": "5432"},
+      {"name": "S3_BUCKET_NAME", "value": "ca-a2a-prod-documentsbucket9ec9deb9-uopiyxhvtpk0"},
+      {"name": "AWS_REGION", "value": "us-east-1"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "true"},
+      {"name": "A2A_USE_KEYCLOAK", "value": "true"},
+      {"name": "KEYCLOAK_URL", "value": "http://keycloak.ca-a2a.local:8080"},
+      {"name": "A2A_ENABLE_RATE_LIMIT", "value": "true"},
+      {"name": "A2A_RATE_LIMIT_PER_MINUTE", "value": "300"},
+      {"name": "A2A_ENABLE_REPLAY_PROTECTION", "value": "true"},
+      {"name": "A2A_SECURITY_HEADERS", "value": "true"},
+      {"name": "A2A_RBAC_POLICY_JSON", "value": "{\"deny\":{\"anonymous\":[\"process_document\",\"process_batch\",\"admin_*\"]},\"allow\":{\"validator\":[\"validate_document\",\"health\",\"card\",\"skills\"],\"extractor\":[\"extract_document\",\"health\",\"card\",\"skills\"],\"anonymous\":[\"health\",\"card\"],\"orchestrator\":[\"*\"],\"archivist\":[\"archive_document\",\"search_documents\",\"health\",\"card\",\"skills\"],\"admin\":[\"*\"],\"user\":[\"process_document\",\"get_task_status\",\"health\"]}}"},
+      {"name": "A2A_API_KEYS_JSON", "value": "{\"demo-key-001\":\"admin\",\"test-key-001\":\"user\"}"}
+    ],
+    "secrets": [
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:555043101106:secret:DbPassword10268EB9-PPoTWCj0mqqC-3JuJbz"}
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/ca-a2a-validator",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "ecs"
+      }
+    },
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8003/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 60
+    }
+  }]
+}
