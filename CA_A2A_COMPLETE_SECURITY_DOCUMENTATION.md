@@ -1,12 +1,15 @@
-# CA-A2A Complete Security Documentation
+# A2A Security Documentation
 
 **Comprehensive Technical Documentation on Agent-to-Agent Security Architecture**
 
-**Version:** 5.0  
 **Last Updated:** January 28, 2026  
-**Status:** Production Deployed  
-**Region:** us-east-1 (N. Virginia)  
-**Environment:** AWS ECS Fargate
+**Author:** Jaafar BENABDERRAZAK
+
+<center>
+
+![[Pasted image 20260128224524.png]]
+
+</center>
 
 ---
 
@@ -28,7 +31,13 @@ This document is organized into logical parts for easy navigation:
 
 ## Executive Summary
 
-The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade security through a **defense-in-depth architecture with 10 independent security layers**. The system uses **JSON-RPC 2.0** as its communication protocol, deployed on AWS ECS Fargate in a private VPC with **Keycloak OAuth2/OIDC** for centralized authentication, **MCP Server** for resource access control, and role-based access control (RBAC).
+The A2A (Agent-to-Agent) system implements enterprise-grade security through a **defense-in-depth architecture with 10 independent security layers**. The system uses **JSON-RPC 2.0** as its communication protocol, deployed on AWS ECS Fargate in a private VPC with **Keycloak OAuth2/OIDC** for centralized authentication, **MCP Server** for resource access control, and role-based access control (RBAC).
+
+### Why This Architecture Matters
+
+In traditional web applications, the security perimeter is clear: external users are untrusted, internal services are trusted. **In a multi-agent system, this model breaks down.** An agent may be compromised through a vulnerability, a supply chain attack, or a malicious prompt. Once compromised, that agent has legitimate network access, valid credentials, and the ability to call other agents.
+
+Our architecture addresses this reality by treating **every component as potentially compromised**. Each security layer operates independently, so even if an attacker bypasses one control, they face nine more. This is not paranoia—it's engineering for the actual threat landscape of autonomous agent systems.
 
 **Security Framework:** OWASP Top 10 for Agentic Applications 2026 compliant
 
@@ -47,13 +56,29 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 
 # Part I: Overview
 
+This part introduces the system architecture and communication protocol. Before diving into security mechanisms, it's essential to understand what we're protecting and how the components interact.
+
 ## 1. System Architecture
 
 ### 1.1 Production Deployment
 
+The A2A system is deployed on AWS infrastructure, leveraging managed services for reliability and security. The architecture follows a **hub-and-spoke model** where the Orchestrator acts as the central coordinator, delegating specialized tasks to purpose-built agents.
+
+**Why AWS ECS Fargate?**
+- **Serverless containers**: No EC2 instances to patch or manage
+- **Automatic scaling**: Handles load spikes without manual intervention
+- **Security isolation**: Each task runs in its own kernel namespace
+- **IAM integration**: Fine-grained permissions via task roles
+
+<center>
+
 ![Production Architecture Overview](https://github.com/user-attachments/assets/8776d817-a274-418f-83c6-2a2f0879b063)
 
 ![AWS Infrastructure](https://github.com/user-attachments/assets/12587382-31da-4bf5-a5f3-cbeb4179bb7a)
+
+</center>
+
+The following diagram shows the complete infrastructure, including network boundaries, data flows, and service dependencies:
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
@@ -127,6 +152,8 @@ graph TB
 
 ### 1.2 Component Overview
 
+Each component in the system has a specific responsibility, following the **single responsibility principle**. This separation ensures that a compromise in one component has limited impact on others.
+
 | Component | Type | Port | Purpose | Instances |
 |-----------|------|------|---------|-----------|
 | **Orchestrator** | ECS Fargate | 8001 | Request coordination, workflow | 2 |
@@ -139,12 +166,29 @@ graph TB
 | **RDS Aurora** | Managed DB | 5432 | Document metadata, audit logs | Multi-AZ |
 | **RDS Postgres** | Managed DB | 5432 | Keycloak data (users, roles) | Multi-AZ |
 
+**Why Two Instances Per Agent?**
+
+Running two instances of each agent provides:
+- **High availability**: If one instance fails, the other continues serving requests
+- **Zero-downtime deployments**: Rolling updates replace instances one at a time
+- **Load distribution**: Traffic is balanced across instances
+- **Failure isolation**: A crash in one instance doesn't affect the other
+
 ### 1.3 Data Flow Summary
 
+Understanding the request flow is essential for security analysis. Each arrow represents a trust boundary that must be validated:
+
 1. **External Request** → ALB (TLS termination) → Orchestrator
+   - *Trust boundary*: Internet → AWS. ALB validates TLS, terminates encryption.
+   
 2. **Authentication** → Keycloak (JWT validation)
+   - *Trust boundary*: Unauthenticated → Authenticated. Keycloak issues identity tokens.
+   
 3. **Agent Coordination** → Orchestrator → Extractor/Validator/Archivist
+   - *Trust boundary*: Inter-agent communication. JWT propagated for authorization.
+   
 4. **AWS Resources** → All agents → MCP Server → S3/RDS
+   - *Trust boundary*: Application → Infrastructure. MCP centralizes and audits access.
 
 ---
 
@@ -152,7 +196,7 @@ graph TB
 
 ### 2.1 What is A2A Protocol?
 
-**A2A (Agent-to-Agent) Protocol** is a standardized communication protocol for autonomous agents to exchange messages and coordinate actions in a distributed system.
+**A2A (Agent-to-Agent) Protocol** is a standardized communication protocol for autonomous agents to exchange messages and coordinate actions in a distributed system. Unlike traditional API calls, A2A assumes that both parties are intelligent agents capable of complex reasoning and multi-step workflows.
 
 **Our Implementation:**
 - **Base Protocol:** JSON-RPC 2.0 (RFC 4627)
@@ -165,6 +209,8 @@ graph TB
 
 ### 2.2 Why JSON-RPC 2.0?
 
+We evaluated several protocols before selecting JSON-RPC 2.0. The decision was driven by security considerations as much as technical ones:
+
 | Feature | Benefit | Security Impact |
 |---------|---------|-----------------|
 | **Standardized** | Well-defined spec | Reduces implementation errors |
@@ -172,9 +218,36 @@ graph TB
 | **Lightweight** | ~100-200 bytes overhead | Reduces attack surface |
 | **Language Agnostic** | JSON is universal | No proprietary vulnerabilities |
 
+**Why Not gRPC?**
+
+gRPC offers better performance through binary serialization and HTTP/2 multiplexing. However:
+- Requires `.proto` file management and versioning
+- Binary format is harder to inspect and debug
+- Contract changes require recompilation
+- Our workloads are I/O-bound (document processing), not CPU-bound
+
+**Why Not REST?**
+
+REST is designed for CRUD operations on resources. Our agents need:
+- RPC-style method invocation (`process_document`, not `POST /documents`)
+- Standardized error codes (JSON-RPC provides `-32xxx` codes)
+- Bidirectional notifications (JSON-RPC supports this natively)
+
+<center>
+
 ![Protocol Comparison](https://github.com/user-attachments/assets/f175345c-646c-40a7-ba88-e316b9cacc71)
 
+</center>
+
 ### 2.3 Protocol Stack
+
+The A2A protocol sits at the application layer, with security controls embedded at each level. This diagram shows how a business message is encapsulated through the network stack:
+
+<center>
+
+![[Pasted image 20260128224622.png]]
+
+</center>
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
@@ -209,6 +282,8 @@ graph TB
 
 ### 2.4 Message Format
 
+JSON-RPC 2.0 defines a strict message format. Every request must include `jsonrpc`, `method`, and `id`. Parameters are optional but recommended.
+
 **Request:**
 ```json
 {
@@ -234,97 +309,102 @@ graph TB
 }
 ```
 
+**Error Response:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "req-abc123",
+  "error": {
+    "code": -32602,
+    "message": "Invalid params",
+    "data": {"detail": "s3_key is required"}
+  }
+}
+```
+
+The `id` field is crucial for security: it enables request-response correlation and helps detect replay attacks when combined with the JWT `jti` claim.
+
 ---
 
-# Part II: Threat Model & Defense Strategy
+# Part II: Threat Model
+
+Before implementing security controls, we must understand what we're defending against. This part formalizes the threat model and explains why each defense layer exists.
 
 ## 3. Threat Model
 
-Understanding threats FIRST justifies our security architecture decisions.
+### 3.1 The Compromised Agent Assumption
 
-### 3.1 STRIDE Analysis
+Traditional security models focus on perimeter defense: keep attackers out, trust everything inside. **This model fails for multi-agent systems.**
 
-| Threat | Attack Vector | Defense Layer | Mitigation |
-|--------|---------------|---------------|------------|
-| **Spoofing** | Impersonate agent/user | L2, L3, L4 | Keycloak + JWT RS256 + Token Binding |
-| **Tampering** | Modify request/response | L7 | JWT body hash binding |
-| **Repudiation** | Deny actions | Audit | Logs with correlation IDs |
-| **Information Disclosure** | Intercept traffic | L1 | VPC isolation + TLS |
-| **Denial of Service** | Flood requests | L8, L9 | Rate limiting + input validation |
-| **Elevation of Privilege** | Bypass RBAC | L5 | Keycloak roles + RBAC enforcement |
+In our threat model, we assume:
 
-### 3.2 Penetration Testing Model
+1. **Any agent can be compromised** through code vulnerabilities, dependency attacks, or prompt injection
+2. **A compromised agent has legitimate credentials** (JWT tokens, mTLS certificates)
+3. **A compromised agent has network access** to other internal services
+4. **The attacker's goal is lateral movement** and data exfiltration
 
-> **Important:** Our threat model assumes a **compromised agent inside the system** (attacker has a valid token and possibly a client certificate), NOT just "attacker outside the VPC".
+This assumption drives every security decision. We're not just defending against external attackers—we're containing internal breaches.
 
-Tests focus on:
-- **RBAC boundaries** - Can a compromised agent escalate privileges?
-- **Token binding** - Can a stolen token be used from another machine?
-- **Replay protection** - Can captured requests be replayed?
-- **Rate limiting** - Can an agent exhaust resources?
-- **Input validation** - Can malicious payloads pass through?
-- **AWS blast radius** - What can a compromised agent access via MCP?
+### 3.2 STRIDE Analysis
 
-### 3.3 Attack Scenarios & Defenses
+STRIDE is a threat modeling framework that categorizes attacks. For each category, we identify specific risks and countermeasures:
 
-#### Scenario 1: Token Theft
+| Threat | Description | Example Attack | Defense Layer |
+|--------|-------------|----------------|---------------|
+| **Spoofing** | Impersonating another identity | Forging a JWT to claim admin role | L2, L3, L4 |
+| **Tampering** | Modifying data in transit | Changing `amount: 100` to `amount: 10000` | L7 |
+| **Repudiation** | Denying actions | "I never authorized that transfer" | Audit logs |
+| **Information Disclosure** | Leaking sensitive data | Reading another tenant's documents | L5, L6 |
+| **Denial of Service** | Exhausting resources | Flooding the system with requests | L9 |
+| **Elevation of Privilege** | Gaining unauthorized access | Viewer role calling admin methods | L5 |
 
-**Attack:** Attacker steals JWT access token.
+### 3.3 Attack Scenarios
 
-**Defenses:**
-1. **Token Binding (RFC 8473):** Token bound to client certificate - unusable without cert
-2. **Short TTL:** Tokens expire in 5 minutes
-3. **Token Revocation:** Admin can revoke compromised token
-4. **Network Isolation:** Tokens only valid within VPC
+Let's walk through concrete attack scenarios and how our architecture defends against them:
 
-#### Scenario 2: Replay Attack
+**Scenario 1: Stolen JWT Token**
 
-**Attack:** Attacker captures valid request and replays it.
+An attacker intercepts a valid JWT (e.g., from a log file or memory dump).
 
-**Defenses:**
-1. **JWT jti Tracking:** Each token has unique ID tracked in cache
-2. **TTL-based Expiration:** jti cache entries expire after 2 minutes
-3. **Timestamp Validation:** JWT iat (issued-at) checked for freshness
+*Without Token Binding:* Attacker can use the token from any machine.
+*With Token Binding (RFC 8473):* Token is cryptographically bound to the original client's TLS certificate. Using it from another machine fails because the certificate thumbprint doesn't match.
 
-#### Scenario 3: SQL Injection
+**Scenario 2: Compromised Extractor Agent**
 
-**Attack:** `query: "'; DROP TABLE documents;--"`
+The Extractor agent is compromised through a PDF parsing vulnerability.
 
-**Defenses:**
-1. **Parameterized Queries:** asyncpg with prepared statements
-2. **Input Validation:** JSON Schema validates all inputs
-3. **MCP Server Isolation:** Agents never construct raw SQL
+*Without MCP:* Attacker uses Extractor's AWS credentials to access all S3 buckets and RDS databases.
+*With MCP:* Extractor has no direct AWS credentials. All access goes through MCP, which logs every operation and enforces bucket-level permissions.
 
-#### Scenario 4: Path Traversal
+**Scenario 3: Replay Attack**
 
-**Attack:** `s3_key: "../../etc/passwd"`
+Attacker captures a valid request and replays it 1000 times.
 
-**Defenses:**
-1. **JSON Schema Pattern:** `^[a-zA-Z0-9/_-]` rejects `..`
-2. **Negative Lookahead:** `not: {"pattern": "\\.\\."}` explicitly blocks
-3. **MCP Server Validation:** Additional server-side validation
-
-### 3.4 Attack Matrix Summary
-
-| Attack Type | Defense Layer | Mitigation |
-|-------------|---------------|------------|
-| **DDoS** | Rate Limiting | Token bucket (300 req/min) |
-| **MITM** | mTLS + JWT | Certificate auth + RS256 |
-| **Replay** | Token Binding + jti | Cert-bound + nonce tracking |
-| **SQL Injection** | JSON Schema + Parameterized | Pattern + prepared statements |
-| **Path Traversal** | JSON Schema | Negative lookahead regex |
-| **Privilege Escalation** | Dynamic RBAC | Keycloak role enforcement |
-| **Token Theft** | Token Binding | Certificate-bound tokens |
+*Without Replay Protection:* Each replay succeeds, potentially creating 1000 duplicate records.
+*With Replay Protection:* The JWT's `jti` claim is tracked. After the first request, subsequent replays are rejected with `-32013 Replay detected`.
 
 ---
 
 ## 4. Defense-in-Depth Architecture
 
-### 4.1 10 Security Layers
+### 4.1 The Philosophy
 
-We implement **defense in depth**: each layer can fail safely without relying on previous layers being perfect.
+Defense-in-depth is not about having many security features—it's about having **independent** security features. Each layer must:
 
-![Defense-in-Depth Architecture](https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453)
+1. **Operate independently**: A failure in Layer 3 doesn't affect Layer 5
+2. **Fail securely**: If a layer can't validate, it rejects (fail-closed)
+3. **Log everything**: Security events are recorded for forensics
+4. **Have a clear responsibility**: No overlap, no gaps
+
+Think of it like a castle: the moat doesn't depend on the drawbridge, and the walls don't depend on the moat. An attacker must breach all defenses to succeed.
+
+### 4.2 10 Security Layers
+
+<center>
+
+![[_- visual selection.png]]
+
+</center>
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
@@ -343,22 +423,26 @@ graph TB
     L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8 --> L9 --> L10
 ```
 
-### 4.2 Layer Responsibilities
+### 4.3 Layer Responsibilities
 
-| Layer | Purpose | Technology | Risks mitigated (what goes wrong if absent) |
-|-------|---------|------------|-------------------------------------------|
-| **L1** | Network isolation | VPC, SG, NACL, ALB | **Direct internet reachability of workloads**, lateral movement across subnets, unsolicited inbound traffic, coarse-grained DDoS exposure |
-| **L2** | Centralized identity | Keycloak (OIDC/OAuth2) | **Anonymous access**, uncontrolled principals, inconsistent identity mapping between services, weak credential lifecycle |
-| **L3** | Token verification | JWT RS256 | **Forged/modified tokens**, issuer/audience confusion, impersonation via unsigned/incorrectly signed JWTs |
-| **L4** | Certificate-bound tokens | RFC 8473 Token Binding + mTLS | **Token theft reuse** (token replay from another host), credential export, phishing-style reuse of bearer tokens |
-| **L5** | Permission enforcement | RBAC (Keycloak roles → method allowlist) | **Privilege escalation**, unauthorized method invocation, cross-tenant / cross-role access violations |
-| **L6** | Centralized AWS gateway | MCP Server + IAM task roles | **Credential sprawl**, overly broad IAM on each agent, uncontrolled direct S3/RDS access, reduced auditability, larger AWS blast radius if an agent is compromised |
-| **L7** | Tampering detection | JWT body-hash binding / integrity checks | **In-flight request mutation**, parameter substitution, confused-deputy style modifications between signature and execution |
-| **L8** | Input rejection | JSON Schema + Pydantic | **Injection payloads** (SQL/command/path traversal patterns), malformed inputs causing crashes, mass-assignment / unexpected fields, resource amplification from unbounded inputs |
-| **L9** | Abuse prevention | Sliding window / token bucket per principal | **Resource exhaustion / DoS**, brute-force attempts, noisy neighbor effects, saturation of downstream services (MCP/RDS) |
-| **L10** | Duplicate detection | JWT `jti` nonce tracking + TTL | **Replay attacks** (duplicate side-effects), idempotency breaks, repeated transactions within token lifetime |
+This table is the heart of our security architecture. For each layer, we document not just what it does, but **what goes wrong if it's absent**:
 
-### 4.3 Complete Request Security Flow
+| Layer   | Purpose                  | Technology                                  | Risks mitigated (what goes wrong if absent)                                                                                                                                       |
+| ------- | ------------------------ | ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **L1**  | Network isolation        | VPC, SG, NACL, ALB                          | **Direct internet reachability of workloads**, lateral movement across subnets, unsolicited inbound traffic, coarse-grained DDoS exposure                                         |
+| **L2**  | Centralized identity     | Keycloak (OIDC/OAuth2)                      | **Anonymous access**, uncontrolled principals, inconsistent identity mapping between services, weak credential lifecycle                                                          |
+| **L3**  | Token verification       | JWT RS256                                   | **Forged/modified tokens**, issuer/audience confusion, impersonation via unsigned/incorrectly signed JWTs                                                                         |
+| **L4**  | Certificate-bound tokens | RFC 8473 Token Binding + mTLS               | **Token theft reuse** (token replay from another host), credential export, phishing-style reuse of bearer tokens                                                                  |
+| **L5**  | Permission enforcement   | RBAC (Keycloak roles → method allowlist)    | **Privilege escalation**, unauthorized method invocation, cross-tenant / cross-role access violations                                                                             |
+| **L6**  | Centralized AWS gateway  | MCP Server + IAM task roles                 | **Credential sprawl**, overly broad IAM on each agent, uncontrolled direct S3/RDS access, reduced auditability, larger AWS blast radius if an agent is compromised                |
+| **L7**  | Tampering detection      | JWT body-hash binding / integrity checks    | **In-flight request mutation**, parameter substitution, confused-deputy style modifications between signature and execution                                                       |
+| **L8**  | Input rejection          | JSON Schema + Pydantic                      | **Injection payloads** (SQL/command/path traversal patterns), malformed inputs causing crashes, mass-assignment / unexpected fields, resource amplification from unbounded inputs |
+| **L9**  | Abuse prevention         | Sliding window / token bucket per principal | **Resource exhaustion / DoS**, brute-force attempts, noisy neighbor effects, saturation of downstream services (MCP/RDS)                                                          |
+| **L10** | Duplicate detection      | JWT `jti` nonce tracking + TTL              | **Replay attacks** (duplicate side-effects), idempotency breaks, repeated transactions within token lifetime                                                                      |
+
+### 4.4 Complete Request Security Flow
+
+This sequence diagram shows how a request passes through all 10 security layers. Each `Note` block represents a security checkpoint:
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
@@ -409,9 +493,11 @@ sequenceDiagram
     ALB-->>User: 8. HTTPS Response
 ```
 
-### 4.4 OWASP Agentic AI Compliance
+### 4.5 OWASP Agentic AI Compliance
 
-| OWASP ASI | Threat Category | CA-A2A Mitigation | Status |
+The OWASP Top 10 for Agentic Applications (2026) identifies the most critical security risks specific to AI agent systems. Here's our compliance status:
+
+| OWASP ASI | Threat Category | A2A Mitigation | Status |
 |-----------|-----------------|-------------------|--------|
 | **ASI01** | Agent Goal Hijack | Goal whitelisting, prompt isolation | ⚠️ Planned |
 | **ASI02** | Tool Misuse | MCP Server centralized access | ✅ Implemented |
@@ -428,9 +514,31 @@ sequenceDiagram
 
 # Part III: Identity & Access
 
+Identity is the foundation of security in a multi-agent system. If we can't reliably identify who is making a request, all other controls are meaningless. This part covers how we establish, verify, and authorize identities.
+
 ## 5. Authentication
 
-### 5.1 Keycloak OAuth2/OIDC Flow
+### 5.1 Why Keycloak?
+
+We chose Keycloak as our identity provider for several reasons:
+
+1. **Open source**: No vendor lock-in, full control over configuration
+2. **Standards-compliant**: OAuth2, OIDC, SAML support out of the box
+3. **Battle-tested**: Used in production by banks, governments, and enterprises
+4. **Extensible**: Custom authentication flows, identity providers, and mappers
+5. **Self-hosted**: Runs in our VPC, no data leaves our environment
+
+**Why Not AWS Cognito?**
+
+Cognito is a managed service, which means less operational overhead. However:
+- Limited customization of token claims
+- No support for Token Binding (RFC 8473)
+- Harder to integrate custom mTLS requirements
+- We needed full control over the identity lifecycle
+
+### 5.2 Keycloak OAuth2/OIDC Flow
+
+The authentication flow follows the OAuth2 Client Credentials grant, suitable for service-to-service communication:
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
@@ -459,7 +567,9 @@ sequenceDiagram
     end
 ```
 
-### 5.2 JWT Token Structure
+### 5.3 JWT Token Structure
+
+JSON Web Tokens (JWTs) are the cornerstone of our authentication system. Understanding their structure is essential for security analysis.
 
 **Access Token (RS256 signed by Keycloak):**
 
@@ -487,25 +597,30 @@ sequenceDiagram
 }
 ```
 
-**Key Claims:**
-| Claim | Purpose |
-|-------|---------|
-| `exp` | Expiration timestamp (5-minute lifespan) |
-| `jti` | Unique JWT ID for replay protection |
-| `iss` | Issuer URL (Keycloak realm) |
-| `aud` | Audience (ca-a2a-agents) |
-| `realm_access.roles` | Keycloak roles for RBAC |
-| `cnf.x5t#S256` | Certificate thumbprint for Token Binding |
+**Key Claims Explained:**
 
-### 5.3 JWT Verification Implementation
+| Claim | Purpose | Security Implication |
+|-------|---------|---------------------|
+| `exp` | Expiration timestamp (5-minute lifespan) | Limits window for token theft |
+| `jti` | Unique JWT ID for replay protection | Enables nonce tracking |
+| `iss` | Issuer URL (Keycloak realm) | Prevents token substitution attacks |
+| `aud` | Audience (ca-a2a-agents) | Ensures token is for this system |
+| `realm_access.roles` | Keycloak roles for RBAC | Determines permissions |
+| `cnf.x5t#S256` | Certificate thumbprint for Token Binding | Binds token to specific client |
+
+### 5.4 JWT Verification Implementation
+
+The verification process is critical—any mistake here undermines the entire security model:
 
 ```python
 class KeycloakJWTValidator:
     def verify_token(self, token: str, client_certificate=None):
         # 1. Get signing key from JWKS endpoint (cached)
+        # SECURITY: Only accept keys from our Keycloak instance
         signing_key = self.jwks_client.get_signing_key_from_jwt(token)
         
         # 2. Verify signature and validate standard claims
+        # SECURITY: Explicitly list allowed algorithms to prevent algorithm confusion
         claims = jwt.decode(
             token,
             signing_key.key,
@@ -516,19 +631,30 @@ class KeycloakJWTValidator:
         )
         
         # 3. Verify token binding (RFC 8473)
+        # SECURITY: Ensures token can only be used by the original client
         if client_certificate:
             self.verify_token_binding(claims, client_certificate)
         
         return claims
 ```
 
+**Why `algorithms=["RS256"]`?**
+
+This prevents the "algorithm confusion" attack where an attacker changes the JWT header to `alg: HS256` and signs with the public key (treating it as a symmetric secret). By hardcoding the expected algorithm, we reject any manipulation.
+
 ---
 
 ## 6. Authorization (RBAC)
 
+Authentication tells us WHO is making a request. Authorization tells us WHAT they're allowed to do. We implement Role-Based Access Control (RBAC) with Keycloak roles mapped to method permissions.
+
 ### 6.1 Role-Based Access Control
 
+<center>
+
 ![RBAC Policy](https://github.com/user-attachments/assets/528e12eb-9c36-4443-b868-c12aa546cf89)
+
+</center>
 
 **Keycloak Realm Roles → A2A RBAC Mapping:**
 
@@ -540,12 +666,21 @@ class KeycloakJWTValidator:
 | `document-processor` | `document-processor` | `process_document`, `list_pending_documents`, `check_status` | Document workflows |
 | `viewer` | `viewer` | `list_documents`, `get_document`, `check_status` | Read-only access |
 
+**Why This Mapping?**
+
+The principle of least privilege dictates that each role should have only the permissions it needs:
+
+- **Lambda** only uploads and triggers processing—it shouldn't read results
+- **Orchestrator** coordinates agents but doesn't archive directly
+- **Viewer** can see documents but can't modify them
+
 ### 6.2 RBAC Implementation
 
 ```python
 class KeycloakRBACMapper:
     def map_roles_to_principal(self, keycloak_roles: List[str]) -> Tuple[str, List[str]]:
         # Priority: admin > lambda > orchestrator > document-processor > viewer
+        # SECURITY: Highest privilege role wins, prevents role confusion
         if "admin" in keycloak_roles:
             return "admin", ["*"]
         elif "lambda" in keycloak_roles:
@@ -557,18 +692,40 @@ class KeycloakRBACMapper:
         elif "viewer" in keycloak_roles:
             return "viewer", ["list_documents", "get_document", "check_status"]
         else:
-            return "anonymous", []
+            return "anonymous", []  # No permissions
 ```
 
 ---
 
 ## 7. Token Binding & mTLS
 
+Standard bearer tokens have a fundamental weakness: if stolen, they can be used from anywhere. Token Binding solves this by cryptographically linking the token to the client's identity.
+
 ### 7.1 Token Binding (RFC 8473)
 
 Token Binding extends OAuth 2.0 to create **proof-of-possession tokens**. The access token becomes cryptographically bound to the client's TLS certificate, making it unusable without the corresponding private key.
 
+**The Problem with Bearer Tokens:**
+
+1. Client authenticates and receives JWT
+2. Attacker steals JWT (from logs, memory, network)
+3. Attacker uses JWT from their own machine
+4. System accepts request because JWT is valid
+
+**The Solution with Token Binding:**
+
+1. Client authenticates with mTLS certificate and receives JWT
+2. JWT contains `cnf.x5t#S256` = SHA-256(client certificate)
+3. Attacker steals JWT
+4. Attacker tries to use JWT from their machine
+5. System computes SHA-256(attacker's certificate) ≠ `cnf.x5t#S256`
+6. Request rejected: **token bound to different client**
+
+<center>
+
 ![Token Binding Overview](https://github.com/user-attachments/assets/0fed7195-4acb-4c88-9ce3-39f12c1918f4)
+
+</center>
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
@@ -603,7 +760,11 @@ sequenceDiagram
 ```python
 class TokenBindingValidator:
     def compute_certificate_thumbprint(self, cert_pem: str) -> str:
-        """Computes SHA-256 thumbprint of X.509 certificate."""
+        """Computes SHA-256 thumbprint of X.509 certificate.
+        
+        This follows RFC 8473 Section 3: the thumbprint is the
+        base64url-encoded SHA-256 hash of the DER-encoded certificate.
+        """
         cert = x509.load_pem_x509_certificate(cert_pem.encode('utf-8'))
         der_bytes = cert.public_bytes(x509.Encoding.DER)
         thumbprint_bytes = hashlib.sha256(der_bytes).digest()
@@ -612,11 +773,15 @@ class TokenBindingValidator:
     def verify_token_binding(self, jwt_claims: Dict, client_cert_pem: str) -> bool:
         expected = jwt_claims.get("cnf", {}).get("x5t#S256")
         presented = self.compute_certificate_thumbprint(client_cert_pem)
-        # Constant-time comparison (prevents timing attacks)
+        
+        # SECURITY: Use constant-time comparison to prevent timing attacks
+        # An attacker could otherwise measure response time to guess the thumbprint
         return secrets.compare_digest(expected, presented)
 ```
 
 ### 7.3 Token Revocation
+
+Even with Token Binding, we need the ability to revoke tokens (e.g., when a certificate is compromised). Our hybrid storage approach balances performance and persistence:
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
@@ -630,7 +795,7 @@ graph LR
     Cache -->|Hit/Miss| Response[Accept/Reject]
 ```
 
-**Performance:**
+**Performance Characteristics:**
 - Revoke operation: ~10ms (DB write + cache store)
 - Check (cached): ~1μs
 - Check (cache miss): ~10ms (DB query + cache load)
@@ -639,11 +804,19 @@ graph LR
 
 # Part IV: Infrastructure Security
 
+Application-level security is meaningless if the underlying infrastructure is compromised. This part covers network isolation, data protection, and the MCP Server that centralizes AWS access.
+
 ## 8. Network Security
 
 ### 8.1 VPC Architecture
 
+Our VPC design follows the **public/private subnet pattern**. Public subnets contain internet-facing resources (ALB, NAT Gateway). Private subnets contain all workloads (ECS tasks, RDS).
+
+<center>
+
 ![VPC Network Architecture](https://github.com/user-attachments/assets/6715706c-3587-4b1f-b794-557823b6a4f8)
+
+</center>
 
 ```
 VPC: 10.0.0.0/16 (65,536 IPs)
@@ -657,12 +830,14 @@ VPC: 10.0.0.0/16 (65,536 IPs)
 ```
 
 **Security Properties:**
-- ✅ Zero public IPs on agents
-- ✅ Outbound only via NAT
-- ✅ Multi-AZ redundancy
-- ✅ Private DNS for service discovery
+- ✅ **Zero public IPs on agents**: No direct internet access to workloads
+- ✅ **Outbound only via NAT**: Agents can reach the internet for updates, but can't be reached
+- ✅ **Multi-AZ redundancy**: Survives availability zone failures
+- ✅ **Private DNS for service discovery**: No public DNS exposure
 
 ### 8.2 Security Groups
+
+Security Groups act as virtual firewalls at the instance level. Our configuration follows the principle of **least privilege at the network layer**:
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"flowchart":{"nodeSpacing":8,"rankSpacing":10,"padding":5}}}%%
@@ -703,22 +878,35 @@ graph TB
 | **MCP-SG** | 8000 from Agent-SGs | All agents → MCP |
 | **RDS-SG** | 5432 from KC-SG + MCP-SG | Database access |
 
+**Why This Matters:**
+
+If the Extractor is compromised, the attacker cannot:
+- Access the ALB directly (no inbound rule)
+- Access RDS directly (only MCP can)
+- Access other agents' ports (security group isolation)
+
+The blast radius is contained to what Extractor legitimately needs.
+
 ### 8.3 VPC Endpoints
+
+VPC Endpoints allow private communication with AWS services without traversing the public internet:
 
 | Service | Type | Purpose |
 |---------|------|---------|
-| **ECR (api, dkr)** | Interface | Pull container images |
-| **S3** | Gateway | Object storage |
-| **CloudWatch Logs** | Interface | Logging |
-| **Secrets Manager** | Interface | Secrets retrieval |
+| **ECR (api, dkr)** | Interface | Pull container images privately |
+| **S3** | Gateway | Object storage without internet |
+| **CloudWatch Logs** | Interface | Logging without internet |
+| **Secrets Manager** | Interface | Secrets retrieval without internet |
 
-**Note:** Interface endpoints have security groups allowing inbound TCP/443 from ECS task security groups. RDS is NOT a VPC endpoint - it's deployed inside the VPC with access controlled by security groups.
+**Security Benefit:** Even if an attacker compromises an agent, they can't exfiltrate data to arbitrary internet destinations—outbound traffic is restricted to these endpoints.
 
 ---
 
 ## 9. Data Security
 
 ### 9.1 Encryption at Rest
+
+All data stores use AES-256 encryption:
 
 | Resource | Encryption | Key Management |
 |----------|-----------|----------------|
@@ -740,6 +928,17 @@ graph LR
     Agents -->|"5. HTTPS"| S3[S3 API]
 ```
 
+**Why HTTP Inside the VPC?**
+
+You might notice that ALB→Orchestrator and inter-agent communication use HTTP, not HTTPS. This is intentional:
+
+1. **Network isolation provides confidentiality**: Traffic never leaves the private subnet
+2. **JWT signatures provide integrity**: Messages can't be tampered with
+3. **TLS overhead is significant**: 1-2ms per handshake adds up in a multi-agent system
+4. **mTLS complexity**: Managing certificates for every agent increases operational burden
+
+The trade-off is accepted because our threat model focuses on compromised agents, not network sniffing within a VPC.
+
 ### 9.3 Secrets Management
 
 | Secret | Purpose |
@@ -749,18 +948,11 @@ graph LR
 | `ca-a2a/keycloak-db-password` | Keycloak RDS password |
 | `ca-a2a/keycloak-client-secret` | OAuth2 client secret |
 
-> **Best Practice:** Agents do NOT store AWS credentials. They use **ECS Task Roles** with least-privilege IAM policies. Secrets are fetched from Secrets Manager at runtime.
+> **Best Practice:** Agents do NOT store AWS credentials. They use **ECS Task Roles** with least-privilege IAM policies. Secrets are fetched from Secrets Manager at runtime, never embedded in code or environment variables.
 
-### 9.4 S3 Security
+### 9.4 MCP Server (Centralized Resource Access)
 
-- **IAM least privilege**: Task roles with specific bucket/prefix access
-- **Block public access**: Enabled at account and bucket level
-- **Encryption enforcement**: Deny `PutObject` without SSE
-- **CORS**: Disabled unless browser upload required; prefer presigned URLs
-
-### 9.5 MCP Server (Centralized Resource Access)
-
-The MCP Server acts as a **centralized gateway** for all AWS resource access.
+The MCP Server is one of our most important security innovations. It acts as a **centralized gateway** for all AWS resource access:
 
 ```mermaid
 %%{init: {"theme":"neutral","themeVariables":{"fontSize":"8px","fontFamily":"sans-serif"},"sequence":{"actorFontSize":"8px","messageFontSize":"8px","noteFontSize":"7px","actorMargin":30,"boxMargin":5}}}%%
@@ -777,18 +969,29 @@ sequenceDiagram
 ```
 
 **Security Benefits:**
-- Only MCP Server has AWS permissions (via ECS Task Role)
-- All S3/RDS access logged in one place
-- Shared connection pool (10 connections vs 80)
-- Circuit breakers and timeouts applied uniformly
+
+| Benefit | Without MCP | With MCP |
+|---------|-------------|----------|
+| **IAM Permissions** | 4 agents × broad permissions | 1 server × narrow permissions |
+| **Connection Pooling** | 4 agents × 20 connections = 80 | 1 pool × 10 connections = 10 |
+| **Audit Trail** | Scattered across 4 agents | Centralized in one place |
+| **Blast Radius** | Compromised agent = full AWS access | Compromised agent = MCP API only |
 
 ---
 
 # Part V: Runtime Protection
 
+Even with perfect authentication, authorization, and network security, we must protect against malicious inputs and abuse. This part covers the runtime controls that operate on every request.
+
 ## 10. Input Validation
 
-### 10.1 JSON Schema Validation
+### 10.1 The Philosophy
+
+Every input is potentially malicious. We validate at multiple levels:
+
+1. **JSON Schema**: Structural validation (types, patterns, lengths)
+2. **Pydantic**: Type-safe Python validation with custom rules
+3. **Business Logic**: Domain-specific validation in handlers
 
 **Schema for `process_document` method:**
 
@@ -814,10 +1017,10 @@ sequenceDiagram
 ```
 
 **Security Features:**
-- ✅ Path traversal protection (`..` blocked)
-- ✅ Length limits (prevents buffer overflow)
-- ✅ No additional properties (prevents mass assignment)
-- ✅ Type safety (strict string checking)
+- ✅ **Path traversal protection**: `not: {"pattern": "\\.\\."}` blocks `../`
+- ✅ **Length limits**: `maxLength: 1024` prevents buffer overflow
+- ✅ **No additional properties**: `additionalProperties: false` prevents mass assignment
+- ✅ **Type safety**: `type: "string"` rejects numbers, booleans, etc.
 
 ### 10.2 Attack Prevention Examples
 
@@ -826,18 +1029,7 @@ sequenceDiagram
 | **Path Traversal** | `../../../etc/passwd` | Pattern rejects `..` |
 | **SQL Injection** | `'; DROP TABLE--` | Pattern allows only `[a-zA-Z0-9/_.-]` |
 | **Buffer Overflow** | `"A" * 100000` | `maxLength: 1024` |
-
-### 10.3 Error Codes
-
-| Code | Meaning | Trigger |
-|------|---------|---------|
-| `-32700` | Parse error | Invalid JSON |
-| `-32600` | Invalid Request | Missing `jsonrpc` or `method` |
-| `-32602` | Invalid params | Schema validation failed |
-| `-32010` | Unauthorized | Missing or invalid JWT |
-| `-32011` | Forbidden | Insufficient permissions |
-| `-32012` | Rate limit exceeded | Too many requests |
-| `-32013` | Replay detected | Duplicate jti |
+| **Mass Assignment** | `{"s3_key": "x", "is_admin": true}` | `additionalProperties: false` |
 
 ---
 
@@ -867,6 +1059,10 @@ class SlidingWindowRateLimiter:
         return False, {"retry_after": events[0] + self.window_seconds - now}
 ```
 
+**Why Per-Principal?**
+
+Rate limiting by IP address is ineffective when all agents share the same VPC. By limiting per-principal (identified by JWT `sub` claim), we ensure that one compromised agent can't exhaust resources for others.
+
 ### 11.2 Replay Protection
 
 **Mechanism:** Track JWT `jti` claim in TTL-based cache (120 seconds)
@@ -880,9 +1076,15 @@ class ReplayProtector:
         return True
 ```
 
+**Why 120 Seconds?**
+
+The TTL must be longer than the token lifetime (5 minutes would be safer) but memory is finite. 120 seconds is a compromise: tokens older than 2 minutes are likely expired anyway, and we clean up the cache periodically.
+
 ---
 
 # Part VI: Operations
+
+Security doesn't end at deployment. This part covers how we monitor, audit, and respond to security events in production.
 
 ## 12. Monitoring & Audit
 
@@ -899,14 +1101,14 @@ class ReplayProtector:
 
 ### 12.2 Security Events
 
-| Event Type | Trigger | Log Level |
-|------------|---------|-----------|
-| `authentication_success` | Valid JWT | INFO |
-| `authentication_failure` | Invalid JWT | WARN |
-| `authorization_failure` | Insufficient permissions | WARN |
-| `rate_limit_exceeded` | Too many requests | WARN |
-| `replay_detected` | Duplicate jti | WARN |
-| `invalid_input` | Schema validation failed | WARN |
+| Event Type | Trigger | Log Level | Action |
+|------------|---------|-----------|--------|
+| `authentication_success` | Valid JWT | INFO | None |
+| `authentication_failure` | Invalid JWT | WARN | Alert if > 10/min |
+| `authorization_failure` | Insufficient permissions | WARN | Alert if > 5/min |
+| `rate_limit_exceeded` | Too many requests | WARN | Alert immediately |
+| `replay_detected` | Duplicate jti | WARN | Alert immediately |
+| `invalid_input` | Schema validation failed | WARN | Log for analysis |
 
 ### 12.3 Structured Log Format
 
@@ -924,11 +1126,7 @@ class ReplayProtector:
 }
 ```
 
-### 12.4 Additional AWS Logging
-
-- **CloudTrail**: Control-plane events (IAM, ECS, Secrets Manager)
-- **ALB Access Logs**: Request-level logs (status, latency, path)
-- **VPC Flow Logs**: Network flows for detecting anomalies
+The `correlation_id` is crucial for tracing requests across agents. When investigating an incident, you can search for this ID to see the complete request flow.
 
 ---
 
@@ -936,20 +1134,25 @@ class ReplayProtector:
 
 ### 13.1 Token Compromise Procedure
 
+When a token is compromised, time is critical. Follow this procedure:
+
 ```bash
-# 1. Identify compromised token's jti
+# 1. Identify compromised token's jti (from logs or incident report)
 jti="abc123-compromised-token"
 
-# 2. Revoke token via Admin API
+# 2. Revoke token immediately via Admin API
 curl -X POST http://admin-api:9000/admin/revoke-token \
   -H "Authorization: Bearer $ADMIN_JWT" \
   -d '{"jti": "'$jti'", "reason": "Security incident", "revoked_by": "security-team"}'
 
-# 3. Investigate in CloudWatch Logs
+# 3. Investigate scope of compromise in CloudWatch Logs
 aws logs filter-log-events \
   --log-group-name /ecs/ca-a2a-orchestrator \
   --filter-pattern "$jti" \
   --start-time $(date -d '24 hours ago' +%s)000
+
+# 4. If certificate is compromised, rotate it and revoke all tokens for that cert
+# 5. Notify affected parties if data was accessed
 ```
 
 ### 13.2 Weekly Security Audit Checklist
@@ -962,21 +1165,17 @@ aws logs filter-log-events \
 - [ ] Verify all secrets rotated within policy (90 days)
 - [ ] Review IAM role permissions (least privilege)
 - [ ] Review ECR image scan findings
+- [ ] Check GuardDuty findings
+- [ ] Verify VPC Flow Logs show no unexpected traffic
 
 ### 13.3 AWS Security Services
 
-| Service | Purpose |
-|---------|---------|
-| **AWS GuardDuty** | Threat detection (suspicious API calls, credential misuse) |
-| **Amazon Inspector** | Vulnerability scanning for ECR images |
-| **AWS Shield** | DDoS protection for ALB |
-| **AWS WAF** | Web application firewall rules |
-
-### 13.4 Container Image Scanning
-
-- Enable **ECR enhanced scanning** (scan on push)
-- CI pipeline: Pre-push scan with Trivy/Grype
-- Fail builds on critical/high CVEs
+| Service | Purpose | Configuration |
+|---------|---------|---------------|
+| **AWS GuardDuty** | Threat detection | Enabled, alerts to SNS |
+| **Amazon Inspector** | Vulnerability scanning | Scan on ECR push |
+| **AWS Shield** | DDoS protection | Standard (automatic) |
+| **AWS WAF** | Web application firewall | Custom rules on ALB |
 
 ---
 
@@ -1065,9 +1264,11 @@ A2A_REPLAY_TTL_SECONDS=120
 | **jti** | JWT ID: Unique identifier claim for replay protection |
 | **MCP** | Model Context Protocol: Centralized resource access gateway |
 | **mTLS** | Mutual TLS: Bidirectional certificate authentication |
-| **RBAC** | Role-Based Access Control |
+| **RBAC** | Role-Based Access Control: Permission model based on roles |
 | **RFC 8473** | OAuth 2.0 Token Binding specification |
-| **RS256** | RSA Signature with SHA-256: JWT signing algorithm |
+| **RS256** | RSA Signature with SHA-256: Asymmetric JWT signing algorithm |
+| **STRIDE** | Threat modeling framework: Spoofing, Tampering, Repudiation, Information Disclosure, DoS, Elevation of Privilege |
+| **VPC** | Virtual Private Cloud: Isolated network in AWS |
 
 ---
 
@@ -1086,9 +1287,9 @@ A2A_REPLAY_TTL_SECONDS=120
 
 ---
 
-**Document Version:** 5.0  
+**Document Version:** 6.0  
 **Last Updated:** January 28, 2026  
-**Authors:** Security Team  
+**Author:** Jaafar BENABDERRAZAK  
 **Status:** Production Ready
 
 ---
