@@ -5,8 +5,10 @@
 **Version:** 4.0  
 **Last Updated:** January 28, 2026  
 **Status:** Production Deployed  
-**Region:** eu-west-3 (Paris)  
+**Region:** us-east-1 (N. Virginia)  
 **Environment:** AWS ECS Fargate
+
+> **Note on diagrams:** Mermaid diagrams in this document are rendered with a **neutral theme** and **smaller fonts** to stay readable in GitHub/Obsidian. If you see truncation, zoom in your viewer or open the diagram in a wider pane.
 
 ---
 
@@ -63,12 +65,13 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 ![AWS Infrastructure](https://github.com/user-attachments/assets/12587382-31da-4bf5-a5f3-cbeb4179bb7a)
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":30,"rankSpacing":35}}}%%
 graph TB
     subgraph Internet[Internet]
         User[External User]
     end
     
-    subgraph AWS["AWS Cloud - eu-west-3"]
+    subgraph AWS["AWS Cloud - us-east-1"]
         subgraph VPC["VPC: 10.0.0.0/16"]
             subgraph Public["Public Subnets"]
                 ALB["Application Load Balancer<br/>HTTPS/HTTP"]
@@ -92,10 +95,12 @@ graph TB
         end
         
         subgraph Services["AWS Services"]
+            ACM[ACM Certificates<br/>TLS for ALB :443]
             SM[Secrets Manager]
             CW[CloudWatch Logs]
             S3[S3 Bucket]
             ECR[ECR Repositories]
+            LBD[Lambda Functions<br/>Init Schema / Triggers]
         end
     end
     
@@ -119,6 +124,10 @@ graph TB
     
     MCP --> |"asyncpg<br/>Connection Pool"| RDS
     MCP -.->|aioboto3| S3
+
+    ACM -.->|cert attached| ALB
+    S3 -.->|event notifications (optional)| LBD
+    LBD -.->|invoke (optional)| Orch
     
     Private -.->|VPC Endpoints| SM
     Private -.->|VPC Endpoints| CW
@@ -142,6 +151,7 @@ graph TB
 ### 1.3 Protocol Stack Architecture
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":25,"rankSpacing":30}}}%%
 graph TB
     subgraph "Application Layer (L7)"
         A2A[A2A Protocol<br/>JSON-RPC 2.0]
@@ -170,11 +180,7 @@ graph TB
     HTTP --> TCP
     TCP --> IP
     
-    style A2A fill:#90EE90
-    style Security fill:#FF6B6B
-    style HTTP fill:#87CEEB
-    style TCP fill:#FFD700
-    style IP fill:#DDA0DD
+    %% Styling intentionally removed for readability (no color blocks).
 ```
 
 ---
@@ -192,6 +198,8 @@ graph TB
 - **Authentication:** Keycloak OAuth2/OIDC (RS256) + mTLS
 - **Token Binding:** RFC 8473 (Certificate-bound tokens)
 - **Security:** Multi-layer defense-in-depth architecture
+
+**Quick intuition (why this matters):** A2A is “RPC between agents”, but the **security model** must assume an attacker may compromise an agent and attempt lateral movement. That’s why this doc treats the **agent identity**, **token/cert binding**, **RBAC**, and **centralized AWS access** as first-class layers.
 
 ### 2.2 Why JSON-RPC 2.0?
 
@@ -216,6 +224,8 @@ graph TB
 | GraphQL | Flexible queries | Overkill for RPC | Too complex |
 
 ### 2.3 Protocol Encapsulation
+
+This section shows how a single business action (e.g., `extract_document`) is carried across layers (A2A → security headers → HTTP → TCP/IP). The goal is to make it explicit **where we validate**, **where we authenticate**, and **where we enforce policy**, so reviewers can reason about the full request path.
 
 ![Protocol Encapsulation](https://github.com/user-attachments/assets/0399c2d4-7c73-4365-8d3c-47d75ebe13e3)
 
@@ -245,11 +255,14 @@ graph TB
 
 ### 3.1 Defense-in-Depth Architecture
 
+We implement **defense in depth**: each layer can fail safely without relying on the previous one being perfect. Practically, that means: even if a token is stolen, **token binding + RBAC + replay protection** can still stop abuse; even if an agent is compromised, **MCP + IAM boundaries** limit AWS blast radius.
+
 ![Defense-in-Depth Architecture](https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453)
 
 ![Security Layers Overview](https://github.com/user-attachments/assets/066e2291-6967-413f-b039-6f24b7be8921)
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":25,"rankSpacing":30}}}%%
 graph TB
     L1["Layer 1: Network Isolation<br/>VPC, Security Groups, NACLs"]
     L2["Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC"]
@@ -264,16 +277,7 @@ graph TB
     
     L1 --> L2 --> L3 --> L4 --> L5 --> L6 --> L7 --> L8 --> L9 --> L10
     
-    style L1 fill:#ff6b6b
-    style L2 fill:#ffd93d
-    style L3 fill:#6bcf7f
-    style L4 fill:#FFB6C1
-    style L5 fill:#4d96ff
-    style L6 fill:#ffd700
-    style L7 fill:#a66cff
-    style L8 fill:#ff9a76
-    style L9 fill:#62cdff
-    style L10 fill:#f4b860
+    %% Styling intentionally removed for readability (no color blocks).
 ```
 
 ### 3.2 Layer Responsibilities
@@ -298,6 +302,7 @@ graph TB
 ![Complete Request Security Flow](https://github.com/user-attachments/assets/928e0379-e52e-453b-ac0c-182beb7dd97d)
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"}}}%%
 sequenceDiagram
     participant User as User/Client
     participant ALB as ALB
@@ -310,56 +315,36 @@ sequenceDiagram
 
     User->>ALB: 1. HTTPS Request + JWT
     
-    rect rgb(255, 107, 107)
-    Note over ALB: L1: Network Isolation<br/>[OK] VPC Security Groups<br/>[OK] TLS Termination
-    end
+    Note over ALB: L1: Network Isolation — VPC SGs/NACLs, TLS termination at ALB (ACM-managed cert)
     
     ALB->>Orch: 2. Forward to Orchestrator
     
-    rect rgb(255, 217, 61)
-    Note over Orch: L2: Identity Check<br/>[OK] JWT Present in Header
-    end
+    Note over Orch: L2: Identity & Access — token present, principal resolved (Keycloak / API key)
     
     Orch->>KC: 3. Fetch JWKS Public Keys
     KC-->>Orch: Public Keys (cached 1h)
     
-    rect rgb(107, 207, 127)
-    Note over Orch: L3: Authentication<br/>[OK] Verify JWT RS256 Signature<br/>[OK] Check Expiration (exp)<br/>[OK] Validate Issuer/Audience
-    end
+    Note over Orch: L3: Authentication — verify JWT RS256, exp/iss/aud
     
-    rect rgb(255, 182, 193)
-    Note over Orch: L4: Token Binding (RFC 8473)<br/>[OK] Verify cnf.x5t#S256<br/>[OK] Match client certificate
-    end
+    Note over Orch: L4: Token Binding (RFC 8473) — verify cnf.x5t#S256 matches presented cert
     
-    rect rgb(77, 150, 255)
-    Note over Orch: L5: Authorization<br/>[OK] Extract Keycloak Roles<br/>[OK] Map to RBAC Principal<br/>[OK] Check Method Permission
-    end
+    Note over Orch: L5: Authorization — map roles → principal, enforce RBAC per method
     
     Orch->>MCP: 4. Call MCP Server API
     
-    rect rgb(255, 215, 0)
-    Note over MCP: L6: Resource Access Control<br/>[OK] Centralized Gateway<br/>[OK] Connection Pool
-    end
+    Note over MCP: L6: Resource Access Control — centralized gateway, pooled DB connections, audited AWS access
     
     MCP->>RDS: 5. Query Database
     RDS-->>MCP: Query Results
     MCP-->>Orch: 6. Return Results
     
-    rect rgb(166, 108, 255)
-    Note over Orch: L7: Message Integrity<br/>[OK] Verify JWT Body Hash
-    end
+    Note over Orch: L7: Message Integrity — verify JWT body-hash binding
     
-    rect rgb(255, 154, 118)
-    Note over Orch: L8: Input Validation<br/>[OK] JSON Schema Check<br/>[OK] Pydantic Type Safety
-    end
+    Note over Orch: L8: Input Validation — JSON schema + type validation
     
-    rect rgb(98, 205, 255)
-    Note over Orch: L9: Rate Limiting<br/>[OK] 300 req/min per Principal
-    end
+    Note over Orch: L9: Rate Limiting — sliding window per principal
     
-    rect rgb(244, 184, 96)
-    Note over Orch: L10: Replay Protection<br/>[OK] Check JWT jti in Cache
-    end
+    Note over Orch: L10: Replay Protection — track jti/nonces with TTL
     
     Orch-->>ALB: 7. JSON-RPC Response
     ALB-->>User: 8. HTTPS Response
@@ -717,12 +702,12 @@ sequenceDiagram
 
 | Benefit | Description | 
 |---------|-------------|
-| **Reduced Attack Surface** | Only MCP Server has AWS credentials, not all 4 agents |
+| **Reduced Attack Surface** | Only MCP Server has AWS permissions (via **ECS Task Role**), not all 4 agents |
 | **Centralized Audit** | All S3/RDS access logged in one place | 
 | **Connection Pooling** | Shared PostgreSQL connection pool (max 10 connections) | 
 | **Consistent Security** | Retry logic, circuit breakers, timeouts applied uniformly | 
 | **Easier IAM Management** | Update permissions in single task role | 
-| **Credential Isolation** | Agents never see DB passwords or AWS keys |
+| **Credential Isolation** | Agents do **not** store AWS credentials; secrets are fetched from Secrets Manager and AWS access is via IAM roles |
 
 ### 6.3 Available Operations
 
@@ -1018,6 +1003,11 @@ graph TB
 | **com.amazonaws.eu-west-3.logs** | Interface | CloudWatch Logs |
 | **com.amazonaws.eu-west-3.secretsmanager** | Interface | Secrets Manager |
 
+**Important implementation details (security groups):**
+- **Interface endpoints (ECR, CloudWatch Logs, Secrets Manager)** have an **endpoint security group** that allows **inbound TCP/443** from the **ECS task security groups** (agents + MCP). This ensures ECS can reach the AWS APIs privately while preventing other sources.
+- **S3 gateway endpoint** is attached to **route tables** (no endpoint SG). Combine with **bucket policy** to require access via the gateway endpoint when appropriate.
+- **RDS does not use a “VPC endpoint”**: it is already deployed **inside the VPC**. Access is controlled by the **RDS security group** allowing inbound **5432 only from** the **MCP-SG** (and Keycloak-SG for the Keycloak DB).
+
 ---
 
 ## 9. Data Security
@@ -1070,6 +1060,21 @@ def get_secret(secret_name: str) -> str:
     response = client.get_secret_value(SecretId=secret_name)
     return response['SecretString']
 ```
+
+### 9.4 S3 Security Hardening (IAM / Encryption / CORS)
+
+**S3 security controls applied (recommended baseline):**
+- **IAM least privilege**: ECS tasks use **task roles** with access only to required buckets/prefixes (read-only vs write-only split where possible).
+- **Bucket policy**:
+  - **Block public access** enabled (account + bucket).
+  - Deny `s3:GetObject` unless the request comes from expected principals and/or expected network paths (e.g., via S3 gateway endpoint).
+- **Encryption**:
+  - **SSE-S3** baseline; use **SSE-KMS** if you need customer-managed keys + audit of decrypt via KMS.
+  - Enforce encryption with bucket policy (deny `PutObject` without SSE).
+- **CORS**:
+  - Only enable if a browser-based upload/download is required.
+  - Restrict `AllowedOrigins`, `AllowedMethods`, and `AllowedHeaders` to the minimum set.
+  - Prefer presigned URLs instead of broad CORS.
 
 ---
 
@@ -1325,6 +1330,19 @@ aws logs filter-log-events \
   | jq '.events[].message | fromjson | .principal' | sort | uniq -c
 ```
 
+### 12.4 CloudTrail, ALB Access Logs, and VPC Flow Logs
+
+- **CloudTrail**: records control-plane events (IAM, ECS task changes, Secrets Manager access, ECR actions). Use it to investigate “who changed what/when”.
+- **ALB access logs** (recommended): request-level logs for ingress traffic (status codes, latencies, paths, user agents).
+- **VPC Flow Logs** (recommended): network flows at VPC/subnet/ENI level, useful for detecting unexpected egress/lateral movement.
+
+### 12.5 MCP Access Logs & Latency Metrics
+
+Because MCP centralizes AWS access, it’s the best place to measure and audit:
+- **Tool calls**: `s3_get_object`, `s3_put_object`, `postgres_query`, `postgres_execute` (method, principal, latency, success/failure).
+- **Latency metrics**: `p50/p95/p99` per tool, plus error rates.
+- **Correlation IDs** propagated end-to-end (ALB → Orchestrator → MCP) for traceability.
+
 ---
 
 ## 13. Threat Model & Defenses
@@ -1341,6 +1359,8 @@ aws logs filter-log-events \
 | **Elevation of Privilege** | Bypass RBAC | L5 | Keycloak roles + RBAC enforcement |
 
 ### 13.2 Attack Scenarios & Defenses
+
+**Penetration testing model used here (important):** the primary assumption is not “attacker outside the VPC”, but **a compromised agent inside the system** (e.g., attacker has a valid token and possibly a client certificate). Tests therefore focus on **RBAC boundaries**, **token binding**, **replay protection**, **rate limiting**, **input validation**, and **AWS blast-radius reduction via MCP + IAM**.
 
 #### Scenario 1: Token Theft
 
@@ -1535,6 +1555,18 @@ aws logs filter-log-events \
 - [ ] Verify all secrets rotated within policy (90 days)
 - [ ] Review IAM role permissions (least privilege)
 - [ ] Check security group rules for unnecessary access
+
+### 15.4 Managed Security Services (recommended)
+
+- **AWS GuardDuty**: threat detection (suspicious API calls, credential misuse, anomalous network behavior).
+- **Amazon Inspector**: vulnerability scanning for **ECR images** and runtime findings (where applicable).
+- **AWS Shield (Standard)**: DDoS protection baseline for ALB (automatic). Consider **AWS WAF** rules in front of ALB for additional L7 protections.
+
+### 15.5 Container Image Scanning (Docker / ECR)
+
+**Goal:** detect CVEs before deployment.
+- Enable **ECR enhanced scanning** / **Inspector** for repositories (scan on push).
+- For CI pipelines, add a pre-push scan step (example tools: Trivy/Grype) and fail builds on critical/high CVEs.
 
 ### 15.3 Security Audit Script
 
