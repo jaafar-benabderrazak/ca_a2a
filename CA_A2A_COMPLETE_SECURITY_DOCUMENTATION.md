@@ -60,11 +60,12 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 
 ### 1.1 Production Deployment
 
-![Production Architecture Overview](doc_images/a2a_protocol_security_technical.png)
+![Production Architecture Overview](https://github.com/user-attachments/assets/8776d817-a274-418f-83c6-2a2f0879b063)
 
-![AWS Infrastructure](doc_images/a2a_protocol_security_technical.png)
+![AWS Infrastructure](https://github.com/user-attachments/assets/12587382-31da-4bf5-a5f3-cbeb4179bb7a)
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":30,"rankSpacing":35}}}%%
 graph TB
     subgraph Internet[Internet]
         User[External User]
@@ -121,12 +122,12 @@ graph TB
     Val -->|HTTP API| MCP
     Arch -->|HTTP API| MCP
     
-    MCP -->|asyncpg connection pool| RDS
+    MCP --> |"asyncpg<br/>Connection Pool"| RDS
     MCP -.->|aioboto3| S3
 
     ACM -.->|cert attached| ALB
-    S3 -.->|event notifications| LBD
-    LBD -.->|invoke| Orch
+    S3 -.->|"event notifications"| LBD
+    LBD -.->|"invoke"| Orch
     
     Private -.->|VPC Endpoints| SM
     Private -.->|VPC Endpoints| CW
@@ -150,6 +151,7 @@ graph TB
 ### 1.3 Protocol Stack Architecture
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":25,"rankSpacing":30}}}%%
 graph TB
     subgraph "Application Layer (L7)"
         A2A[A2A Protocol<br/>JSON-RPC 2.0]
@@ -212,7 +214,7 @@ graph TB
 
 **Comparison with Alternatives:**
 
-![Protocol Comparison](doc_images/protocol_comparison.png)
+![Protocol Comparison](https://github.com/user-attachments/assets/f175345c-646c-40a7-ba88-e316b9cacc71)
 
 | Protocol | Pros | Cons | Our Choice |
 |----------|------|------|------------|
@@ -225,7 +227,7 @@ graph TB
 
 This section shows how a single business action (e.g., `extract_document`) is carried across layers (A2A → security headers → HTTP → TCP/IP). The goal is to make it explicit **where we validate**, **where we authenticate**, and **where we enforce policy**, so reviewers can reason about the full request path.
 
-![Protocol Encapsulation](doc_images/end_to_end_request_timeline.png)
+![Protocol Encapsulation](https://github.com/user-attachments/assets/0399c2d4-7c73-4365-8d3c-47d75ebe13e3)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -255,11 +257,12 @@ This section shows how a single business action (e.g., `extract_document`) is ca
 
 We implement **defense in depth**: each layer can fail safely without relying on the previous one being perfect. Practically, that means: even if a token is stolen, **token binding + RBAC + replay protection** can still stop abuse; even if an agent is compromised, **MCP + IAM boundaries** limit AWS blast radius.
 
-![Defense-in-Depth Architecture](doc_images/security_gates_overview.png)
+![Defense-in-Depth Architecture](https://github.com/user-attachments/assets/673e6017-03f2-46d4-9d14-218f7baf2453)
 
-![Security Layers Overview](doc_images/security_gates_overview.png)
+![Security Layers Overview](https://github.com/user-attachments/assets/066e2291-6967-413f-b039-6f24b7be8921)
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":25,"rankSpacing":30}}}%%
 graph TB
     L1["Layer 1: Network Isolation<br/>VPC, Security Groups, NACLs"]
     L2["Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC"]
@@ -292,13 +295,14 @@ graph TB
 | **L9: Rate Limit** | Abuse prevention | Sliding window | Resource exhaustion, DoS |
 | **L10: Replay** | Duplicate request detection | JWT jti + TTL cache | Replay attacks |
 
-![Security Layer Details](doc_images/end_to_end_request_timeline.png)
+![Security Layer Details](https://github.com/user-attachments/assets/e1fe5aee-1ffa-45f9-947a-c34074c031bb)
 
 ### 3.3 Complete Request Security Flow
 
-![Complete Request Security Flow](doc_images/end_to_end_request_timeline.png)
+![Complete Request Security Flow](https://github.com/user-attachments/assets/928e0379-e52e-453b-ac0c-182beb7dd97d)
 
 ```mermaid
+%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"}}}%%
 sequenceDiagram
     participant User as User/Client
     participant ALB as ALB
@@ -448,9 +452,9 @@ sequenceDiagram
 
 ### 4.3 Role-Based Access Control (RBAC)
 
-![RBAC Policy](doc_images/rbac_policy_example.png)
+![RBAC Policy](https://github.com/user-attachments/assets/528e12eb-9c36-4443-b868-c12aa546cf89)
 
-![Authorization Decision Flow](doc_images/authorization_decision_flow.png)
+![Authorization Decision Flow](https://github.com/user-attachments/assets/c45e0abb-0783-47c8-bdf1-22dd3ae0744c)
 
 **Keycloak Realm Roles -> A2A RBAC Mapping:**
 
@@ -541,9 +545,9 @@ class KeycloakJWTValidator:
 
 ### 5.1 Overview
 
-![Token Binding Overview](doc_images/hmac_signature_flow.png)
+![Token Binding Overview](https://github.com/user-attachments/assets/0fed7195-4acb-4c88-9ce3-39f12c1918f4)
 
-![Token Binding Architecture](doc_images/hmac_signature_flow.png)
+![Token Binding Architecture](https://github.com/user-attachments/assets/e0468375-2814-4d61-8627-2aa406b8694f)
 
 Token Binding extends OAuth 2.0 to create **proof-of-possession tokens**. The access token becomes cryptographically bound to the client's TLS certificate, making it unusable without the corresponding private key.
 
@@ -830,7 +834,7 @@ await asyncpg.create_pool(
 
 ### 7.3 JSON Schema Validation
 
-![Schema Validation Flow](doc_images/schema_validation_example.png)
+![Schema Validation Flow](https://github.com/user-attachments/assets/0c5aeac2-7910-40d1-ba04-947c467db381)
 
 **Schema for `process_document` method:**
 
@@ -869,7 +873,7 @@ await asyncpg.create_pool(
 
 ### 7.4 Attack Prevention Examples
 
-![Attack Prevention Examples](doc_images/attack_prevention_examples.png)
+![Attack Prevention Examples](https://github.com/user-attachments/assets/838d21d1-741f-42bd-860d-4318dd03e609)
 
 **Path Traversal:**
 ```python
@@ -924,7 +928,7 @@ class ProcessDocumentRequest(BaseModel):
 
 ### 8.1 VPC Architecture
 
-![VPC Network Architecture](doc_images/a2a_protocol_security_technical.png)
+![VPC Network Architecture](https://github.com/user-attachments/assets/6715706c-3587-4b1f-b794-557823b6a4f8)
 
 ```
 VPC: 10.0.0.0/16 (65,536 IPs)
@@ -945,7 +949,7 @@ VPC: 10.0.0.0/16 (65,536 IPs)
 
 ### 8.2 Security Groups
 
-![Security Groups Diagram](doc_images/a2a_protocol_security_technical.png)
+![Security Groups Diagram](https://github.com/user-attachments/assets/e938c312-f7e9-425e-82c2-ec488610f548)
 
 ```mermaid
 graph TB
@@ -1078,7 +1082,7 @@ def get_secret(secret_name: str) -> str:
 
 ### 10.1 Rate Limiting
 
-![Token Bucket Rate Limiting](doc_images/token_bucket_rate_limiting.png)
+![Token Bucket Rate Limiting](https://github.com/user-attachments/assets/a03e0ba2-4543-414f-9fac-0217a2ec01d3)
 
 **Algorithm:** Sliding Window per Principal
 
@@ -1153,7 +1157,7 @@ class ReplayProtector:
 
 ### 11.1 Storage Architecture (Hybrid)
 
-![Token Lifecycle](doc_images/replay_attack_scenario.png)
+![Token Lifecycle](https://github.com/user-attachments/assets/7f44f9ef-2203-4569-b353-ef9128c26b2a)
 
 ```mermaid
 graph LR
@@ -1265,7 +1269,7 @@ class TokenRevocationList:
 
 ### 12.1 CloudWatch Logs
 
-![CloudWatch Monitoring Dashboard](doc_images/a2a_protocol_security_technical.png)
+![CloudWatch Monitoring Dashboard](https://github.com/user-attachments/assets/68ddc83a-e0cc-43a9-821f-9c379b28f348)
 
 **Log Groups:**
 
@@ -1379,7 +1383,7 @@ Because MCP centralizes AWS access, it’s the best place to measure and audit:
 
 #### Scenario 3: Path Traversal
 
-![Path Traversal Defense](doc_images/attack_prevention_examples.png)
+![Path Traversal Defense](https://github.com/user-attachments/assets/64f9fb54-6927-465c-a9c8-4014dd3d82c9)
 
 **Attack:** `s3_key: "../../etc/passwd"`
 
@@ -1598,9 +1602,9 @@ echo "=== End of Report ==="
 
 ## 16. Implementation Reference
 
-![Base Agent HTTP Handler](doc_images/base_agent_http_handler.png)
+![Base Agent HTTP Handler](https://github.com/user-attachments/assets/f4445bc9-9590-47ef-b2bc-f129e789af1b)
 
-![End-to-End Request Timeline](doc_images/end_to_end_request_timeline.png)
+![End-to-End Request Timeline](https://github.com/user-attachments/assets/199bb585-39e0-4c2e-ab1f-8434976afeb4)
 
 ### 16.1 Key Files
 
