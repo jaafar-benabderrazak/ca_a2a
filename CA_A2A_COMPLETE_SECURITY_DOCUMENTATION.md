@@ -65,7 +65,6 @@ The CA-A2A (Crédit Agricole Agent-to-Agent) system implements enterprise-grade 
 ![AWS Infrastructure](doc_images/a2a_protocol_security_technical.png)
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":30,"rankSpacing":35}}}%%
 graph TB
     subgraph Internet[Internet]
         User[External User]
@@ -151,7 +150,6 @@ graph TB
 ### 1.3 Protocol Stack Architecture
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":25,"rankSpacing":30}}}%%
 graph TB
     subgraph "Application Layer (L7)"
         A2A[A2A Protocol<br/>JSON-RPC 2.0]
@@ -262,7 +260,6 @@ We implement **defense in depth**: each layer can fail safely without relying on
 ![Security Layers Overview](doc_images/security_gates_overview.png)
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"},"flowchart":{"nodeSpacing":25,"rankSpacing":30}}}%%
 graph TB
     L1["Layer 1: Network Isolation<br/>VPC, Security Groups, NACLs"]
     L2["Layer 2: Identity & Access<br/>Keycloak OAuth2/OIDC"]
@@ -302,7 +299,6 @@ graph TB
 ![Complete Request Security Flow](doc_images/end_to_end_request_timeline.png)
 
 ```mermaid
-%%{init: {"theme":"base","themeVariables":{"fontSize":"12px"}}}%%
 sequenceDiagram
     participant User as User/Client
     participant ALB as ALB
