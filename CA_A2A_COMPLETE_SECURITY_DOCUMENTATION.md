@@ -49,7 +49,7 @@ Our architecture addresses this reality by treating **every component as potenti
 | **Authorization** | RBAC with Keycloak roles, fine-grained method permissions |
 | **Network** | Private VPC, Security Groups, VPC Endpoints, no public IPs |
 | **Data** | Encryption at rest (AES-256), TLS 1.2+ in transit, Secrets Manager |
-| **Runtime** | Rate limiting (300 req/min), replay protection, JSON Schema validation |
+| **Runtime** | Rate limiting (300 req/min), replay protection, JSON Schema validation, timing attack prevention |
 | **Audit** | CloudWatch Logs, CloudTrail, structured security events |
 
 ---
@@ -505,7 +505,7 @@ The OWASP Top 10 for Agentic Applications (2026) identifies the most critical se
 | **ASI04** | Supply Chain | Dependabot, SBOM, image scanning | ✅ Implemented |
 | **ASI05** | Code Execution | Input validation, JSON Schema | ✅ Partial |
 | **ASI06** | Context Poisoning | Context sanitization | ⚠️ Planned |
-| **ASI07** | Insecure Comms | JSON-RPC 2.0, JWT, mTLS | ✅ Implemented |
+| **ASI07** | Insecure Comms | JSON-RPC 2.0, JWT, mTLS, Constant-Time Comparison | ✅ Implemented |
 | **ASI08** | Cascading Failures | Circuit breaker, timeouts | ✅ Partial |
 | **ASI09** | Trust Exploitation | HITL for critical actions | ⚠️ Planned |
 | **ASI10** | Rogue Agents | Agent registry, monitoring | ⚠️ Planned |
@@ -779,7 +779,75 @@ class TokenBindingValidator:
         return secrets.compare_digest(expected, presented)
 ```
 
-### 7.3 Token Revocation
+### 7.3 Constant-Time Comparison (Timing Attack Prevention)
+
+In the code above, we use `secrets.compare_digest()` instead of a simple `==` comparison. This is critical for security.
+
+**What is a Timing Attack?**
+
+A timing attack is a side-channel attack where an attacker measures the time it takes to perform an operation to infer secret information. When comparing strings character-by-character, a naive implementation returns `False` as soon as it finds a mismatch:
+
+```python
+# VULNERABLE: Returns early on first mismatch
+def naive_compare(a: str, b: str) -> bool:
+    if len(a) != len(b):
+        return False
+    for i in range(len(a)):
+        if a[i] != b[i]:
+            return False  # Returns immediately!
+    return True
+```
+
+**The Attack:**
+
+1. Attacker sends a guess: `"AAAAAAAAAAAAAAAA"`
+2. System compares with actual thumbprint: `"x9Kj2mP8qR4tY6uI"`
+3. Comparison fails at position 0 → Response in ~0.1ms
+
+4. Attacker sends: `"xAAAAAAAAAAAAAAA"` (correct first char)
+5. Comparison fails at position 1 → Response in ~0.2ms (slightly longer!)
+
+6. Attacker notices the timing difference and knows first char is `x`
+7. Repeat for each character position
+
+After ~16 × 256 = 4,096 attempts, attacker can recover the entire thumbprint.
+
+**The Defense: Constant-Time Comparison**
+
+```python
+import secrets
+
+# SECURE: Always takes the same time regardless of where mismatch occurs
+def secure_compare(a: str, b: str) -> bool:
+    return secrets.compare_digest(a, b)
+```
+
+`secrets.compare_digest()` is designed to:
+- Always compare ALL characters, even after finding a mismatch
+- Take the same amount of time regardless of input values
+- Prevent length-based timing leaks
+
+**Where We Use Constant-Time Comparison:**
+
+| Location | Comparison | Why Critical |
+|----------|------------|--------------|
+| Token Binding | Certificate thumbprint vs JWT `cnf` claim | Prevents thumbprint guessing |
+| API Key validation | Presented key vs stored key | Prevents API key enumeration |
+| JWT `jti` replay check | Nonce vs seen nonces | Prevents nonce prediction |
+| HMAC verification | Computed MAC vs received MAC | Prevents MAC forgery |
+
+**Implementation Note:**
+
+In Python, always use `secrets.compare_digest()` or `hmac.compare_digest()` for security-sensitive comparisons. Never use `==` for:
+- Passwords or password hashes
+- API keys or tokens
+- Cryptographic signatures
+- Session identifiers
+- Any secret value
+
+---
+
+### 7.4 Token Revocation
 
 Even with Token Binding, we need the ability to revoke tokens (e.g., when a certificate is compromised). Our hybrid storage approach balances performance and persistence:
 
