@@ -345,18 +345,18 @@ graph TB
 
 ### 4.2 Layer Responsibilities
 
-| Layer | Purpose | Technology | Threat Mitigated |
-|-------|---------|------------|------------------|
-| **L1** | Network isolation | VPC, SG, NACL | Network attacks, DDoS |
-| **L2** | Centralized identity | Keycloak | Unauthorized access |
-| **L3** | Token verification | JWT RS256 | Impersonation, forged tokens |
-| **L4** | Certificate-bound tokens | RFC 8473 | Token theft, token export |
-| **L5** | Permission enforcement | RBAC | Privilege escalation |
-| **L6** | Centralized AWS gateway | MCP Server | Credential sprawl |
-| **L7** | Tampering detection | JWT body hash | MITM, message tampering |
-| **L8** | Input rejection | JSON Schema | Injection attacks |
-| **L9** | Abuse prevention | Sliding window | Resource exhaustion |
-| **L10** | Duplicate detection | JWT jti + TTL | Replay attacks |
+| Layer | Purpose | Technology | Risks mitigated (what goes wrong if absent) |
+|-------|---------|------------|-------------------------------------------|
+| **L1** | Network isolation | VPC, SG, NACL, ALB | **Direct internet reachability of workloads**, lateral movement across subnets, unsolicited inbound traffic, coarse-grained DDoS exposure |
+| **L2** | Centralized identity | Keycloak (OIDC/OAuth2) | **Anonymous access**, uncontrolled principals, inconsistent identity mapping between services, weak credential lifecycle |
+| **L3** | Token verification | JWT RS256 | **Forged/modified tokens**, issuer/audience confusion, impersonation via unsigned/incorrectly signed JWTs |
+| **L4** | Certificate-bound tokens | RFC 8473 Token Binding + mTLS | **Token theft reuse** (token replay from another host), credential export, phishing-style reuse of bearer tokens |
+| **L5** | Permission enforcement | RBAC (Keycloak roles → method allowlist) | **Privilege escalation**, unauthorized method invocation, cross-tenant / cross-role access violations |
+| **L6** | Centralized AWS gateway | MCP Server + IAM task roles | **Credential sprawl**, overly broad IAM on each agent, uncontrolled direct S3/RDS access, reduced auditability, larger AWS blast radius if an agent is compromised |
+| **L7** | Tampering detection | JWT body-hash binding / integrity checks | **In-flight request mutation**, parameter substitution, confused-deputy style modifications between signature and execution |
+| **L8** | Input rejection | JSON Schema + Pydantic | **Injection payloads** (SQL/command/path traversal patterns), malformed inputs causing crashes, mass-assignment / unexpected fields, resource amplification from unbounded inputs |
+| **L9** | Abuse prevention | Sliding window / token bucket per principal | **Resource exhaustion / DoS**, brute-force attempts, noisy neighbor effects, saturation of downstream services (MCP/RDS) |
+| **L10** | Duplicate detection | JWT `jti` nonce tracking + TTL | **Replay attacks** (duplicate side-effects), idempotency breaks, repeated transactions within token lifetime |
 
 ### 4.3 Complete Request Security Flow
 

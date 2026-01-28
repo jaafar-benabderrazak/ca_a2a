@@ -1,21 +1,278 @@
 # Notes de Discours Oral - Présentation Architecture Sécurité CA-A2A
 
-**Version :** 5.1  
-**Basé sur :** PRESENTATION_ARCHITECTURE_SECURITE.md  
-**Usage :** Notes complémentaires en langage naturel pour le présentateur
+**Version :** 6.0  
+**Basé sur :** `CA_A2A_COMPLETE_SECURITY_DOCUMENTATION.md` (v5.0) + `PRESENTATION_ARCHITECTURE_SECURITE.md`  
+**Usage :** Script oral technique (format 2h) + notes complémentaires pour le présentateur
 
 ---
 
-## 📌 Instructions d'Utilisation
+## Instructions d'utilisation
 
-Ce document contient des **notes de discours oral** détaillées pour accompagner chaque slide de la présentation `PRESENTATION_ARCHITECTURE_SECURITE.md`. 
+Ce fichier contient deux parties :
 
-**Format :**
-- 💬 **DISCOURS ORAL** : Ce que vous dites mot à mot
-- 🔧 **REMARQUES TECHNIQUES** : Détails techniques supplémentaires si questions
-- 💡 **CONSEILS** : Astuces pour la présentation
+- **Partie A — Discours 2h (recommandée)** : un script oral **section par section** basé sur `CA_A2A_COMPLETE_SECURITY_DOCUMENTATION.md` (v5.0). C’est la trame “exhaustive” pour une présentation de 2 heures (avec timings, transitions, messages clés et questions attendues).
+- **Partie B — Notes slide-by-slide (legacy)** : notes historiques qui suivent l’ordre des slides de `PRESENTATION_ARCHITECTURE_SECURITE.md`.
 
-**Structure :** Suit exactement l'ordre des slides (1-34)
+---
+
+## Partie A — Discours oral (2h) : présentation section par section
+
+### Objectif (à dire au début)
+
+« L’objectif de cette présentation est double : d’abord expliquer **le besoin** (quel est le modèle de menace réaliste pour un système multi-agents), puis démontrer **l’intérêt** de l’architecture retenue (défense en profondeur, blast-radius réduit, observabilité, opérations). À la fin, vous devez être capables de répondre à trois questions : *qu’est-ce qu’on protège*, *contre qui*, et *comment on prouve que ça marche en production*. »
+
+### Agenda et timing (2h)
+
+- **00:00–00:10 (10 min)** — Ouverture + contexte + objectifs + “ce qui est en jeu”
+- **00:10–00:30 (20 min)** — **Partie I : Overview** (Sections 1–2)
+- **00:30–00:55 (25 min)** — **Partie II : Threat Model & Strategy** (Sections 3–4)
+- **00:55–01:30 (35 min)** — **Partie III : Identity & Access** (Sections 5–7)
+- **01:30–01:45 (15 min)** — **Partie IV : Infrastructure Security** (Sections 8–9)
+- **01:45–01:55 (10 min)** — **Partie V : Runtime Protection** (Sections 10–11)
+- **01:55–02:00 (5 min)** — **Conclusion** + messages clés + ouverture Q/R
+
+> **Questions / échanges (10–15 min)** : en pratique, on garde 10–15 minutes de Q/R en compressant certains deep-dives (Token Binding, détails AWS) selon l’audience.
+
+> Recommandation pratique : garder **10–15 minutes** de questions en fin de session. Si besoin, compresser les deep-dives (Token Binding / MCP) et conserver la trame.
+
+---
+
+### Section par section : script oral
+
+#### Ouverture (00:00–00:10)
+
+**Message clé :** on protège un système multi-agents où le risque principal est **la compromission d’un agent** et la propagation latérale, pas seulement “un attaquant externe sur Internet”.
+
+**Script :**
+« Bonjour à tous. Aujourd’hui je vous présente le document “CA-A2A Complete Security Documentation”. Ce document n’est pas un papier théorique : il décrit une architecture déployée sur AWS, avec une approche de sécurité *défense en profondeur* adaptée aux systèmes multi-agents.
+
+Le point central : dans un système d’agents, la question n’est pas seulement “comment empêcher quelqu’un d’entrer”, c’est “que se passe-t-il si un agent est compromis”. Parce qu’un agent compromis a déjà un pied dedans : réseau, service discovery, parfois des tokens, parfois un certificat. Donc notre objectif n’est pas le *zéro risque*, mais la réduction du blast-radius, la limitation des privilèges, et la capacité d’observer et de réagir rapidement. »
+
+**Transition :**
+« On commence par comprendre le système (architecture + protocole), puis on formalise les menaces, et enfin on démontre les mécanismes de contrôle et d’exploitation (auth, RBAC, token binding, MCP, rate limit, observabilité). »
+
+---
+
+#### 1. System Architecture (00:10–00:22)
+
+**Besoin :** comprendre le chemin d’une requête de bout en bout ; identifier les frontières de confiance.
+
+**Script :**
+« Section 1 : l’architecture. On a un ALB comme unique point d’entrée public. Tout le reste vit dans des subnets privés. Pourquoi ce choix ? Parce que la surface d’attaque se réduit drastiquement : pas d’exposition directe des agents sur Internet, donc pas de scan massif, pas de brute-force direct, pas d’exploitation opportuniste sur ports ouverts.
+
+Ensuite, on a plusieurs services ECS : un orchestrateur, des agents spécialisés (extractor/validator/archivist), un Keycloak pour l’identité, et un MCP Server. MCP est un choix structurant : il centralise l’accès aux ressources AWS (S3/RDS). Cela permet d’éviter la dispersion des permissions IAM sur chaque agent, et surtout d’améliorer l’auditabilité. »
+
+**Points à marteler :**
+- ALB seul composant public ; workloads privés
+- séparation des rôles (agents spécialisés)
+- MCP = réduction blast radius + audit central
+- Keycloak = identité unique (source de vérité)
+
+**Questions attendues :**
+- “Pourquoi HTTP interne après terminaison TLS ?”
+- “Pourquoi pas mTLS partout ?”
+- “Pourquoi MCP plutôt que SDK AWS dans chaque agent ?”
+
+---
+
+#### 2. A2A Protocol Overview (00:22–00:30)
+
+**Besoin :** standardiser l’échange inter-agent et réduire les ambiguïtés.
+
+**Script :**
+« Section 2 : le protocole A2A. On part d’un standard simple, JSON-RPC 2.0. Pourquoi ? Parce que la sécurité souffre quand le protocole est ambigu : des champs non définis, des erreurs non standardisées, des comportements divergents. JSON-RPC impose une structure de requête/réponse, des codes d’erreur, et une mécanique claire d’identifiants de requête.
+
+On encapsule ensuite ce protocole dans une pile de sécurité : authentification, autorisation, validation, traçabilité. L’intérêt ici, c’est que la sécurité n’est pas “à côté” du protocole : elle fait partie de l’enveloppe d’exécution. »
+
+**Questions attendues :**
+- “Pourquoi pas gRPC ?” (complexité/contrats)
+- “Pourquoi JSON-RPC plutôt que REST ?” (RPC vs CRUD, traçabilité, standard erreurs)
+
+---
+
+#### 3. Threat Model (00:30–00:45)
+
+**Besoin :** aligner tout le monde sur l’adversaire réaliste et les impacts business.
+
+**Script :**
+« Section 3 : modèle de menace. Ici on fait un choix : le risque principal est un **agent compromis**. Ça change tout. Un agent compromis n’a pas besoin de traverser le VPC. Il a déjà un accès réseau interne, peut parler à d’autres services, et tente de se faire passer pour un principal plus privilégié.
+
+On utilise STRIDE pour structurer : spoofing, tampering, repudiation, information disclosure, DoS, élévation de privilèges. L’intérêt du STRIDE, c’est de transformer “on veut être sécurisé” en catégories de risques, puis en contrôles mesurables. »
+
+**Exemples concrets à verbaliser :**
+- Spoofing : un JWT forgé / mauvais issuer
+- Tampering : modification des paramètres entre signature et exécution
+- DoS : saturation RDS via trop de requêtes
+- EoP : appeler une méthode admin depuis un rôle “viewer”
+
+---
+
+#### 4. Defense-in-Depth Architecture (00:45–00:55)
+
+**Besoin :** rendre le système résilient même si un contrôle échoue.
+
+**Script :**
+« Section 4 : défense en profondeur. On a 10 couches. L’idée n’est pas de dire “on a 10 protections donc c’est sûr”. L’idée est : *si une barrière tombe, les autres continuent*.
+
+Je veux insister sur un outil simple : le tableau “Layer Responsibilities”. Pour chaque couche, on explicite le risque si la couche n’existe pas. C’est un excellent exercice d’architecture : si on n’arrive pas à formuler le risque, la couche n’est peut-être pas utile, ou elle est redondante. »
+
+**Transition :**
+« Maintenant qu’on a le cadre (menaces + couches), on entre dans le cœur : l’identité et l’accès, parce que dans un système multi-agents, l’identité est le périmètre de sécurité. »
+
+---
+
+#### 5. Authentication (00:55–01:10)
+
+**Besoin :** prouver l’identité, avec des tokens robustes et vérifiables.
+
+**Script :**
+« Section 5 : authentification. On s’appuie sur Keycloak, standard OIDC/OAuth2. Pourquoi un IdP central ? Parce qu’on veut un point de vérité sur les rôles, la rotation, la révocation, et la politique de tokens. C’est aussi un énorme gain d’opérations : un incident d’identité se gère au même endroit.
+
+Ensuite on insiste sur RS256 : clé privée côté Keycloak, clé publique consommée par les services via JWKS. Résultat : un service n’a jamais la clé privée. On peut faire tourner les clés, les cacher, les auditer. »
+
+**Points à souligner :**
+- validation issuer/audience/exp/iat/jti
+- cache JWKS pour performance
+- gestion du skew temporel
+
+**Ce que vous devez faire passer (besoin → intérêt) :**
+« Le besoin, c’est de résoudre trois problèmes : 1) identifier un principal de manière unique, 2) rendre la falsification coûteuse, 3) rendre la vérification *déterministe* dans chaque agent. L’intérêt de Keycloak + RS256, c’est qu’on industrialise l’identité, on sépare émission et vérification, et on a une base solide pour la gouvernance des rôles. »
+
+**Exemple concret à raconter :**
+« Sans contrôle strict `iss`/`aud`, on peut accepter un token émis pour une autre audience. C’est une classe d’erreur très fréquente. Ici, le service vérifie explicitement l’issuer et l’audience, pas juste la signature. »
+
+**Deep-dive optionnel (si audience technique / +5 min) :**
+- Politique de cache JWKS (TTL) et rotation de clés
+- Validation de `exp` et tolérance au décalage horaire (skew) : arbitrage sécurité vs UX
+- Politique de durée de vie : tokens courts pour réduire l’exploitation d’un vol
+
+---
+
+#### 6. Authorization (RBAC) (01:10–01:22)
+
+**Besoin :** limiter les actions autorisées même avec un token valide.
+
+**Script :**
+« Section 6 : l’autorisation. Dans les systèmes distribués, l’erreur classique est de croire que “authentifié = autorisé”. Ici, non. Un token valide ne donne pas tous les droits.
+
+On mappe les rôles Keycloak vers des “principals” applicatifs et surtout vers une allowlist de méthodes. C’est important : l’unité de contrôle, c’est la méthode JSON-RPC. Donc l’autorisation est alignée sur l’API réelle. »
+
+**Exemple oral :**
+« Un rôle viewer peut appeler list_documents, mais pas process_document. Même s’il a un token RS256 valide. »
+
+**Besoin / intérêt (à expliciter) :**
+« Le besoin côté sécurité, c’est de casser la chaîne “un token volé = accès total”. Le bénéfice du RBAC ici, c’est qu’on limite l’impact : même si un agent est compromis, il ne peut pas appeler des méthodes hors de son rôle. On passe d’un modèle “périmètre” à un modèle “capabilités”. »
+
+**Point d’architecture à marteler :**
+« RBAC est évalué **au plus près de l’exécution** : chaque agent applique la même logique de contrôle, sinon on crée un “weak link”. »
+
+**Deep-dive optionnel (+5 min) :**
+- Principes : deny-by-default, allowlist vs blocklist
+- Gestion des erreurs : différence entre 401 (pas authentifié) et 403 (pas autorisé)
+- Gouvernance : comment on change une policy sans redéployer (Keycloak) vs config statique
+
+---
+
+#### 7. Token Binding & mTLS (01:22–01:30)
+
+**Besoin :** réduire l’impact d’un vol de token.
+
+**Script :**
+« Section 7 : token binding et mTLS. Le problème des tokens bearer : si je vole le token, je peux l’utiliser. Token binding inverse la logique : le token n’a de valeur que s’il est présenté avec le bon certificat, donc avec la bonne clé privée. Cela protège contre la réutilisation d’un token volé depuis une autre machine.
+
+Le bénéfice est clair : la compromission d’un token devient beaucoup moins exploitable. La contrainte est aussi claire : gestion de certificats, provisioning, rotation. »
+
+**Ce qu’il faut faire comprendre :**
+« On ne cherche pas à empêcher le vol d’un token à 100%. On cherche à rendre le token volé *non réutilisable* hors du contexte cryptographique. C’est une réduction de risque très concrète. »
+
+**Exemple concret :**
+« Sans token binding, un token intercepté dans un log, un proxy ou un poste compromis peut être rejoué depuis n’importe où. Avec token binding, l’attaquant doit aussi posséder la clé privée du certificat, ce qui est un saut de difficulté majeur. »
+
+**Deep-dive optionnel (+5–10 min) :**
+- Différence mTLS (auth transport) vs JWT (auth applicatif) vs token binding (preuve de possession)
+- Rotation des certificats : impact sur opérations, révocation, distribution
+
+---
+
+#### 8. Network Security (01:30–01:37)
+
+**Script :**
+« Section 8 : réseau. VPC privé, security groups, segmentation. L’objectif n’est pas “sécuriser par le réseau”, c’est réduire la surface : seuls les flux nécessaires existent, et chaque port est autorisé de façon minimale. »
+
+**Besoin / intérêt :**
+« Le besoin principal : empêcher l’exposition accidentelle, et limiter la propagation latérale. Le bénéfice : si un service est compromis, il ne peut pas “scanner tout le VPC” librement ; il est limité par les SG à ce qu’il doit réellement appeler. »
+
+**Point important à rappeler (aligné doc) :**
+« RDS n’est pas un “VPC endpoint” : c’est un service dans le VPC. Le contrôle principal est le security group RDS (5432 uniquement depuis MCP / Keycloak DB selon le cas). »
+
+---
+
+#### 9. Data Security (01:37–01:45)
+
+**Script :**
+« Section 9 : données. On parle chiffrement au repos (RDS/S3/Secrets/Logs), chiffrement en transit, secrets management. Point crucial : on ne stocke pas des credentials AWS dans les agents. On utilise des rôles IAM (ECS task roles). C’est un pivot de sécurité : pas de secret statique à exfiltrer. »
+
+**À rendre très clair :**
+« Le risque typique dans les systèmes cloud : des clés AWS statiques dans des variables d’environnement, des fichiers, ou des images Docker. Ici on l’évite : l’accès AWS passe par IAM roles attachés aux tasks ECS. Donc même en cas de compromission d’un conteneur, l’attaquant n’obtient pas une clé réutilisable hors AWS. »
+
+**S3 (à expliciter) :**
+« Sur S3, on raisonne sur trois axes : IAM (qui peut lire/écrire), chiffrement (SSE-S3 ou SSE-KMS), et surface web (CORS si nécessaire). La posture par défaut : pas de CORS sauf besoin explicite, et policies restrictives sur prefixes. »
+
+---
+
+#### 10. Input Validation (01:45–01:50)
+
+**Script :**
+« Section 10 : validation. Dans les systèmes d’agents, l’entrée est un vecteur majeur : payloads inattendus, injections, dépassements de taille, champs additionnels. JSON Schema + Pydantic permettent de refuser tôt, de façon déterministe, et de journaliser proprement. »
+
+**Angle “besoin business” :**
+« Validation = réduction du risque sécurité + réduction du risque d’incident. Une payload non validée, c’est souvent une exception, donc du downtime. La validation sert autant la disponibilité que la sécurité. »
+
+**Deep-dive optionnel (+5 min) :**
+- Patterns bloqués (path traversal, caractères non attendus, tailles)
+- AdditionalProperties=false : protection mass-assignment / champs cachés
+
+---
+
+#### 11. Rate Limiting & Replay Protection (01:50–01:55)
+
+**Script :**
+« Section 11 : protections runtime. Rate limiting pour éviter l’épuisement des ressources, replay protection via `jti` pour éviter les doubles exécutions. Ce sont des contrôles simples mais critiques : ils protègent la disponibilité et la cohérence. »
+
+**Points à marteler :**
+« Rate limit : on protège la plateforme et ses dépendances (MCP/RDS). Replay : on protège contre les doubles effets de bord. Dans un pipeline documentaire, un replay peut doubler une écriture, une archive, ou déclencher des traitements multiples. »
+
+---
+
+#### 12. Monitoring & Audit (01:55–02:00)
+
+**Script :**
+« Section 12 : monitoring et audit. On veut être capable de prouver “qui a fait quoi”, et de détecter des patterns anormaux : échecs d’auth, pics de 429, tentatives de rejouer des requêtes, latence MCP, etc. CloudWatch pour les logs applicatifs, CloudTrail pour les événements de contrôle, et idéalement ALB logs et VPC flow logs. »
+
+**Besoin / intérêt :**
+« Sans observabilité, on n’a pas de sécurité opérationnelle. La sécurité n’est pas seulement “prévenir”, c’est aussi “détecter” et “répondre”. Les logs structurés + correlation IDs rendent possible l’investigation sans folklore. »
+
+---
+
+#### 13. Security Operations (02:00–02:05)
+
+**Script :**
+« Section 13 : opérations sécurité. Incident response : révocation de token, investigation, audit hebdomadaire. Et services managés : GuardDuty, Inspector, Shield/WAF. Ici on sort de la théorie : on explique comment l’équipe opère la sécurité dans le temps. »
+
+**Deep-dive optionnel (+5 min) :**
+- Playbook incident : “token compromis” (révocation + recherche logs + blocage)
+- Inspector : scanning images ECR et actions correctives (patch/rebuild)
+- GuardDuty : types d’alertes et workflow d’escalade
+
+---
+
+### Conclusion (à dire en fin)
+
+« Si je résume : on assume qu’un agent peut être compromis. La défense en profondeur réduit le blast-radius. L’identité est centralisée. L’accès aux ressources AWS est gouverné via MCP et IAM roles. Et surtout : on peut observer, auditer, et réagir. La sécurité n’est pas un état, c’est un processus opérationnel. »
+
+---
+
+## Partie B — Notes slide-by-slide (legacy)
 
 ---
 
