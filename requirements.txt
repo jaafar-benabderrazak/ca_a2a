@@ -7,6 +7,7 @@ asyncpg>=0.30.0
 
 # AWS S3
 aioboto3>=13.0.0
+boto3>=1.34.0  # For SQS polling (synchronous client)
 
 # Document processing (PDF)
 PyPDF2>=3.0.1

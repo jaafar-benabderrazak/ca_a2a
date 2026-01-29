@@ -1,11 +1,14 @@
 """
 Orchestrator Agent
 Coordinates the document processing pipeline between agents
+Includes automatic SQS polling for event-driven processing
 """
 import asyncio
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 import uuid
+import json
+import os
 
 from base_agent import BaseAgent
 from a2a_protocol import A2AMessage, ErrorCodes
@@ -14,6 +17,14 @@ from config import AGENTS_CONFIG
 from agent_card import AgentSkill, AgentRegistry, ResourceRequirements, AgentDependencies
 import aiohttp
 from upload_handler import UploadHandler
+
+# AWS SDK for SQS polling
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+    SQS_AVAILABLE = True
+except ImportError:
+    SQS_AVAILABLE = False
 
 
 class OrchestratorAgent(BaseAgent):
@@ -40,6 +51,17 @@ class OrchestratorAgent(BaseAgent):
         
         # Agent registry for discovery
         self.agent_registry = AgentRegistry()
+        
+        # SQS polling configuration
+        self.sqs_client = None
+        self.sqs_queue_url = None
+        self.sqs_polling_task = None
+        self.sqs_enabled = os.getenv('SQS_ENABLED', 'true').lower() == 'true'
+        self.sqs_queue_name = os.getenv('SQS_QUEUE_NAME', 'ca-a2a-document-processing')
+        self.sqs_region = os.getenv('AWS_REGION', 'eu-west-3')
+        self.sqs_poll_interval = int(os.getenv('SQS_POLL_INTERVAL', '10'))  # seconds
+        self.sqs_max_messages = int(os.getenv('SQS_MAX_MESSAGES', '10'))
+        self.sqs_wait_time = int(os.getenv('SQS_WAIT_TIME', '20'))  # long polling
         
         # Add upload endpoint
         self.app.router.add_post('/upload', self.handle_upload_endpoint)
@@ -209,7 +231,7 @@ class OrchestratorAgent(BaseAgent):
         ]
     
     async def initialize(self):
-        """Initialize MCP context"""
+        """Initialize MCP context and SQS polling"""
         self.mcp = get_mcp_context()
         await self.mcp.__aenter__()
         
@@ -230,6 +252,14 @@ class OrchestratorAgent(BaseAgent):
         self.upload_handler = UploadHandler(self.mcp, max_file_size=100 * 1024 * 1024)
         self.logger.info("Upload handler initialized")
         
+        # Initialize SQS client and start polling
+        if self.sqs_enabled and SQS_AVAILABLE:
+            await self._initialize_sqs()
+        elif self.sqs_enabled and not SQS_AVAILABLE:
+            self.logger.warning("SQS polling enabled but boto3 not available - install with: pip install boto3")
+        else:
+            self.logger.info("SQS polling disabled via SQS_ENABLED environment variable")
+        
         # Discover all agents
         await self._discover_agents()
         
@@ -237,9 +267,198 @@ class OrchestratorAgent(BaseAgent):
     
     async def cleanup(self):
         """Cleanup resources"""
+        # Stop SQS polling
+        if self.sqs_polling_task:
+            self.sqs_polling_task.cancel()
+            try:
+                await self.sqs_polling_task
+            except asyncio.CancelledError:
+                self.logger.info("SQS polling task cancelled")
+        
         if self.mcp:
             await self.mcp.__aexit__(None, None, None)
         self.logger.info("Orchestrator cleanup completed")
+    
+    async def _initialize_sqs(self):
+        """Initialize SQS client and start polling"""
+        try:
+            self.logger.info(f"Initializing SQS client for queue: {self.sqs_queue_name}")
+            
+            # Create SQS client
+            self.sqs_client = boto3.client('sqs', region_name=self.sqs_region)
+            
+            # Get queue URL
+            try:
+                response = self.sqs_client.get_queue_url(QueueName=self.sqs_queue_name)
+                self.sqs_queue_url = response['QueueUrl']
+                self.logger.info(f"✓ SQS queue found: {self.sqs_queue_url}")
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'AWS.SimpleQueueService.NonExistentQueue':
+                    self.logger.error(f"✗ SQS queue '{self.sqs_queue_name}' does not exist!")
+                    self.logger.info("Create it with: aws sqs create-queue --queue-name ca-a2a-document-processing --region eu-west-3")
+                    return
+                raise
+            
+            # Start polling task
+            self.sqs_polling_task = asyncio.create_task(self._sqs_polling_loop())
+            self.logger.info(f"✓ SQS polling started (interval: {self.sqs_poll_interval}s, max messages: {self.sqs_max_messages})")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to initialize SQS: {e}")
+            self.sqs_client = None
+            self.sqs_queue_url = None
+    
+    async def _sqs_polling_loop(self):
+        """Main SQS polling loop - runs continuously"""
+        self.logger.info("SQS polling loop started")
+        consecutive_errors = 0
+        max_consecutive_errors = 5
+        
+        while True:
+            try:
+                # Poll for messages
+                await self._poll_sqs_messages()
+                consecutive_errors = 0  # Reset error counter on success
+                
+                # Wait before next poll
+                await asyncio.sleep(self.sqs_poll_interval)
+                
+            except asyncio.CancelledError:
+                self.logger.info("SQS polling loop cancelled")
+                break
+            except Exception as e:
+                consecutive_errors += 1
+                self.logger.error(f"Error in SQS polling loop: {e} (consecutive errors: {consecutive_errors})")
+                
+                if consecutive_errors >= max_consecutive_errors:
+                    self.logger.critical(f"Too many consecutive errors ({consecutive_errors}), stopping SQS polling")
+                    break
+                
+                # Exponential backoff on errors
+                backoff = min(60, 2 ** consecutive_errors)
+                self.logger.warning(f"Backing off for {backoff} seconds before retry")
+                await asyncio.sleep(backoff)
+    
+    async def _poll_sqs_messages(self):
+        """Poll SQS for messages and process them"""
+        if not self.sqs_client or not self.sqs_queue_url:
+            return
+        
+        try:
+            # Receive messages (long polling)
+            response = self.sqs_client.receive_message(
+                QueueUrl=self.sqs_queue_url,
+                MaxNumberOfMessages=self.sqs_max_messages,
+                WaitTimeSeconds=self.sqs_wait_time,
+                AttributeNames=['All'],
+                MessageAttributeNames=['All']
+            )
+            
+            messages = response.get('Messages', [])
+            
+            if messages:
+                self.logger.info(f"Received {len(messages)} message(s) from SQS")
+                
+                for message in messages:
+                    await self._process_sqs_message(message)
+            
+        except ClientError as e:
+            self.logger.error(f"SQS receive_message error: {e}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Error polling SQS: {e}")
+            raise
+    
+    async def _process_sqs_message(self, message: Dict[str, Any]):
+        """Process a single SQS message"""
+        message_id = message.get('MessageId', 'unknown')
+        receipt_handle = message.get('ReceiptHandle')
+        
+        try:
+            self.logger.info(f"Processing SQS message: {message_id}")
+            
+            # Parse message body (S3 event notification format)
+            body = json.loads(message['Body'])
+            
+            # Handle S3 event notification
+            if 'Records' in body:
+                for record in body['Records']:
+                    if record.get('eventSource') == 'aws:s3':
+                        await self._handle_s3_event(record, message_id)
+            else:
+                self.logger.warning(f"Unknown message format: {message_id}")
+            
+            # Delete message from queue after successful processing
+            self.sqs_client.delete_message(
+                QueueUrl=self.sqs_queue_url,
+                ReceiptHandle=receipt_handle
+            )
+            self.logger.info(f"✓ Message {message_id} processed and deleted from queue")
+            
+        except json.JSONDecodeError as e:
+            self.logger.error(f"Failed to parse SQS message {message_id}: {e}")
+            # Delete malformed messages
+            self.sqs_client.delete_message(
+                QueueUrl=self.sqs_queue_url,
+                ReceiptHandle=receipt_handle
+            )
+        except Exception as e:
+            self.logger.error(f"Error processing SQS message {message_id}: {e}")
+            # Don't delete message on error - it will be retried
+            raise
+    
+    async def _handle_s3_event(self, record: Dict[str, Any], message_id: str):
+        """Handle S3 event notification"""
+        try:
+            event_name = record.get('eventName', '')
+            s3_info = record.get('s3', {})
+            bucket = s3_info.get('bucket', {}).get('name', '')
+            s3_key = s3_info.get('object', {}).get('key', '')
+            
+            self.logger.info(f"S3 event: {event_name}, bucket: {bucket}, key: {s3_key}")
+            
+            # Only process ObjectCreated events in uploads folder
+            if event_name.startswith('ObjectCreated:') and 'uploads/' in s3_key:
+                # Skip folders
+                if s3_key.endswith('/'):
+                    self.logger.debug(f"Skipping folder: {s3_key}")
+                    return
+                
+                # Determine document type from file extension
+                file_ext = s3_key.split('.')[-1].lower()
+                document_type = self._get_document_type(file_ext)
+                
+                self.logger.info(f"🚀 Auto-processing document from S3 event: {s3_key} (type: {document_type})")
+                
+                # Start document processing
+                result = await self.handle_process_document({
+                    's3_key': s3_key,
+                    'priority': 'normal',
+                    'source': 'sqs_s3_event',
+                    'message_id': message_id
+                })
+                
+                self.logger.info(f"✓ Processing initiated: task_id={result['task_id']}, s3_key={s3_key}")
+            else:
+                self.logger.debug(f"Ignoring S3 event: {event_name} for {s3_key}")
+                
+        except Exception as e:
+            self.logger.error(f"Error handling S3 event: {e}")
+            raise
+    
+    def _get_document_type(self, file_extension: str) -> str:
+        """Map file extension to document type"""
+        ext_map = {
+            'pdf': 'invoice',
+            'csv': 'invoice',
+            'txt': 'invoice',
+            'jpg': 'receipt',
+            'jpeg': 'receipt',
+            'png': 'receipt',
+            'json': 'structured_data',
+            'xml': 'structured_data'
+        }
+        return ext_map.get(file_extension, 'unknown')
     
     async def handle_process_document(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -683,7 +902,13 @@ class OrchestratorAgent(BaseAgent):
             'failed_tasks': len([t for t in self.processing_tasks.values() if t['status'] == 'failed']),
             'total_tasks': len(self.processing_tasks),
             'discovered_agents': len(self.agent_registry.get_all_agents()),
-            'agent_registry_summary': self.agent_registry.get_summary()
+            'agent_registry_summary': self.agent_registry.get_summary(),
+            'sqs_polling': {
+                'enabled': self.sqs_enabled,
+                'available': SQS_AVAILABLE,
+                'queue_url': self.sqs_queue_url,
+                'polling_active': self.sqs_polling_task is not None and not self.sqs_polling_task.done() if self.sqs_polling_task else False
+            }
         })
         return status
 
