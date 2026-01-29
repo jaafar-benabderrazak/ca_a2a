@@ -1,0 +1,33 @@
+# Core dependencies
+aiohttp>=3.10.0
+python-json-logger>=2.0.7
+
+# Database (async PostgreSQL)
+asyncpg>=0.30.0
+
+# AWS S3
+aioboto3>=13.0.0
+
+# Document processing (PDF)
+PyPDF2>=3.0.1
+pdfplumber>=0.11.0
+pandas>=2.0.0
+
+# Validation
+pydantic>=2.5.0
+jsonschema>=4.20.0  # Keep for backward compatibility with Agent Cards
+
+# Security
+PyJWT[crypto]>=2.10.1  # JWT token generation and verification (with crypto support for Keycloak JWKS)
+cryptography>=43.0.0  # Required by PyJWT for secure algorithms
+PyYAML>=6.0.2
+pyOpenSSL>=24.0.0  # For mTLS certificate handling
+python-jose>=3.3.0  # Alternative JWT library with better JWKS support (used by keycloak_auth.py)
+requests>=2.31.0  # For Keycloak HTTP API calls
+
+# Environment
+python-dotenv>=1.0.0
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.0

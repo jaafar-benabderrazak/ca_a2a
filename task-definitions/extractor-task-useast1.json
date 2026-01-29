@@ -1,0 +1,45 @@
+{
+  "family": "ca-a2a-extractor",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [{
+    "name": "extractor",
+    "image": "555043101106.dkr.ecr.us-east-1.amazonaws.com/ca-a2a/extractor:latest",
+    "essential": true,
+    "portMappings": [{"containerPort": 8002, "protocol": "tcp"}],
+    "environment": [
+      {"name": "EXTRACTOR_HOST", "value": "0.0.0.0"},
+      {"name": "EXTRACTOR_PORT", "value": "8002"},
+      {"name": "POSTGRES_HOST", "value": "ca-a2a-documents-db.cluster-crruu3dmzphw.us-east-1.rds.amazonaws.com"},
+      {"name": "POSTGRES_DB", "value": "documents_db"},
+      {"name": "POSTGRES_USER", "value": "postgres"},
+      {"name": "POSTGRES_PORT", "value": "5432"},
+      {"name": "S3_BUCKET_NAME", "value": "ca-a2a-prod-documentsbucket9ec9deb9-x4jmajbr3m5w"},
+      {"name": "AWS_REGION", "value": "us-east-1"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "false"}
+    ],
+    "secrets": [
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:555043101106:secret:DbPassword10268EB9-gfBQwBJ4ejPy-ER5Luh"}
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/ca-a2a-extractor",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "ecs"
+      }
+    },
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8002/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 60
+    }
+  }]
+}
+

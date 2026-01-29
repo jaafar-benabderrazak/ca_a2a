@@ -4,8 +4,8 @@
 
 $ErrorActionPreference = "Stop"
 
-# Configuration
-$region = "eu-west-3"
+# Configuration - can override via environment variables
+$region = if ($env:AWS_REGION) { $env:AWS_REGION } else { "us-east-1" }
 $projectName = "ca-a2a"
 $environment = "Production"
 $owner = "j.benabderrazak@reply.com"
@@ -197,7 +197,7 @@ try {
 
 # 7. Create ECR Repositories
 Write-Host "[7/10] Creating ECR Repositories..." -ForegroundColor Green
-$agents = @("orchestrator", "extractor", "classifier", "qa-agent")
+$agents = @("orchestrator", "extractor", "validator", "archivist", "keycloak", "mcp-server")
 
 foreach ($agent in $agents) {
     $repoName = "$projectName-$agent"
@@ -295,8 +295,34 @@ try {
         --role-name $executionRoleName `
         --policy-arn arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
     
+    # Add Secrets Manager permissions for retrieving secrets in ECS tasks
+    $secretsPolicy = @"
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:GetSecretValue",
+        "kms:Decrypt"
+      ],
+      "Resource": [
+        "arn:aws:secretsmanager:$region`:$accountId`:secret:*"
+      ]
+    }
+  ]
+}
+"@
+    $secretsPolicy | Out-File -FilePath "secrets-policy-temp.json" -Encoding utf8
+    
+    aws iam put-role-policy `
+        --role-name $executionRoleName `
+        --policy-name SecretsManagerAccessPolicy `
+        --policy-document file://secrets-policy-temp.json
+    
     Remove-Item "trust-policy-temp.json" -ErrorAction SilentlyContinue
-    Write-Host "  IAM execution role created" -ForegroundColor Green
+    Remove-Item "secrets-policy-temp.json" -ErrorAction SilentlyContinue
+    Write-Host "  IAM execution role created with Secrets Manager permissions" -ForegroundColor Green
 }
 
 # ECS Task Role (for S3 access)

@@ -1,0 +1,51 @@
+{
+  "family": "ca-a2a-archivist",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+  "containerDefinitions": [{
+    "name": "archivist",
+    "image": "555043101106.dkr.ecr.us-east-1.amazonaws.com/ca-a2a/archivist:latest",
+    "essential": true,
+    "portMappings": [{"containerPort": 8004, "protocol": "tcp"}],
+    "environment": [
+      {"name": "ARCHIVIST_HOST", "value": "0.0.0.0"},
+      {"name": "ARCHIVIST_PORT", "value": "8004"},
+      {"name": "POSTGRES_HOST", "value": "ca-a2a-documents-db.cluster-crruu3dmzphw.us-east-1.rds.amazonaws.com"},
+      {"name": "POSTGRES_DB", "value": "documents_db"},
+      {"name": "POSTGRES_USER", "value": "postgres"},
+      {"name": "POSTGRES_PORT", "value": "5432"},
+      {"name": "S3_BUCKET_NAME", "value": "ca-a2a-prod-documentsbucket9ec9deb9-uopiyxhvtpk0"},
+      {"name": "AWS_REGION", "value": "us-east-1"},
+      {"name": "A2A_REQUIRE_AUTH", "value": "true"},
+      {"name": "A2A_RATE_LIMIT_ENABLED", "value": "true"},
+      {"name": "A2A_RATE_LIMIT_MAX", "value": "100"},
+      {"name": "A2A_RATE_LIMIT_WINDOW", "value": "60"},
+      {"name": "A2A_REPLAY_PROTECTION", "value": "true"},
+      {"name": "A2A_SCHEMA_VALIDATION", "value": "true"},
+      {"name": "A2A_AUDIT_LOGGING", "value": "true"}
+    ],
+    "secrets": [
+      {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:555043101106:secret:DbPassword10268EB9-PPoTWCj0mqqC-3JuJbz"}
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "/ecs/ca-a2a-archivist",
+        "awslogs-region": "us-east-1",
+        "awslogs-stream-prefix": "ecs"
+      }
+    },
+    "healthCheck": {
+      "command": ["CMD-SHELL", "curl -f http://localhost:8004/health || exit 1"],
+      "interval": 30,
+      "timeout": 5,
+      "retries": 3,
+      "startPeriod": 60
+    }
+  }]
+}
+

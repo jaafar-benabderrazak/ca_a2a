@@ -1,0 +1,18 @@
+{
+  "ca-a2a-prod": {
+    "TaskRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-role",
+    "TaskExecutionRoleArn": "arn:aws:iam::555043101106:role/ca-a2a-ecs-task-execution-role",
+    "EcrRepoPrefix": "555043101106.dkr.ecr.us-east-1.amazonaws.com/ca-a2a",
+    "AlbArn": "arn:aws:elasticloadbalancing:us-east-1:555043101106:loadbalancer/app/ca-a2a-alb/b8850f22644b255c",
+    "EcsClusterName": "ca-a2a-cluster",
+    "DbPasswordSecretArn": "arn:aws:secretsmanager:us-east-1:555043101106:secret:DbPassword10268EB9-PPoTWCj0mqqC-3JuJbz",
+    "KeycloakDbEndpoint": "ca-a2a-keycloak-db.crruu3dmzphw.us-east-1.rds.amazonaws.com",
+    "EcsServicesSecurityGroupId": "sg-0b5abac328631d4f8",
+    "AlbDnsName": "ca-a2a-alb-51413545.us-east-1.elb.amazonaws.com",
+    "VpcId": "vpc-0785992ea934823b2",
+    "DocumentsBucketName": "ca-a2a-prod-documentsbucket9ec9deb9-uopiyxhvtpk0",
+    "AuroraClusterEndpoint": "ca-a2a-documents-db.cluster-crruu3dmzphw.us-east-1.rds.amazonaws.com",
+    "KeycloakAdminPasswordSecretArn": "arn:aws:secretsmanager:us-east-1:555043101106:secret:KeycloakAdminPassword62607A-eQxX1qV7JRSb-i8jWqO",
+    "EcsClusterArn": "arn:aws:ecs:us-east-1:555043101106:cluster/ca-a2a-cluster"
+  }
+}
