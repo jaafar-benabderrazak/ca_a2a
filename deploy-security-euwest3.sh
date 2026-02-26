@@ -1,16 +1,17 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════════════════
 # CA-A2A Security Deployment — eu-west-3
-# Registers security-hardened task definitions and updates running ECS services.
-# No Docker build — uses existing images in ECR.
+#
+# Patches RUNNING task definitions with security env vars and restarts services.
+# No local JSON files needed — reads current task defs from AWS, adds security
+# env vars, re-registers, and forces new deployment.
 #
 # Usage:
 #   ./deploy-security-euwest3.sh
 #   ./deploy-security-euwest3.sh --dry-run
 #   ./deploy-security-euwest3.sh --wait
+#   ./deploy-security-euwest3.sh --region eu-west-3
 # ══════════════════════════════════════════════════════════════════════════════
-
-set -eo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -19,10 +20,11 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 BOLD='\033[1m'
 
-REGION="eu-west-3"
+REGION="${AWS_REGION:-eu-west-3}"
 CLUSTER="ca-a2a-cluster"
 DRY_RUN=false
 WAIT_STABLE=false
+ERRORS=0
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -44,176 +46,253 @@ if $DRY_RUN; then
     echo ""
 fi
 
-TASK_DEF_DIR="task-definitions"
+# Security env vars to inject into every service
+SECURITY_ENVS='[
+  {"name":"A2A_REQUIRE_AUTH","value":"true"},
+  {"name":"A2A_USE_KEYCLOAK","value":"false"},
+  {"name":"A2A_ENABLE_RATE_LIMIT","value":"true"},
+  {"name":"A2A_RATE_LIMIT_PER_MINUTE","value":"300"},
+  {"name":"A2A_ENABLE_REPLAY_PROTECTION","value":"true"},
+  {"name":"A2A_REPLAY_TTL_SECONDS","value":"120"},
+  {"name":"A2A_ENABLE_SCHEMA_VALIDATION","value":"true"},
+  {"name":"A2A_AUDIT_LOGGING","value":"true"},
+  {"name":"A2A_SECURITY_HEADERS","value":"true"},
+  {"name":"A2A_RBAC_POLICY_JSON","value":"{\"deny\":{\"anonymous\":[\"process_document\",\"process_batch\",\"admin_*\"]},\"allow\":{\"validator\":[\"validate_document\",\"health\",\"card\",\"skills\"],\"extractor\":[\"extract_document\",\"health\",\"card\",\"skills\"],\"anonymous\":[\"health\",\"card\"],\"orchestrator\":[\"*\"],\"archivist\":[\"archive_document\",\"search_documents\",\"health\",\"card\",\"skills\"],\"admin\":[\"*\"],\"user\":[\"process_document\",\"get_task_status\",\"health\"]}}"},
+  {"name":"A2A_API_KEYS_JSON","value":"{\"demo-key-001\":\"admin\",\"test-key-001\":\"user\"}"}
+]'
+
 SERVICES=("orchestrator" "extractor" "validator" "archivist")
-TASK_DEF_FILES=(
-    "orchestrator-task-euwest3-security.json"
-    "extractor-task-euwest3-security.json"
-    "validator-task-euwest3-security.json"
-    "archivist-task-euwest3-security.json"
-)
 
-# ─── Validate files exist ────────────────────────────────────────────────────
+# ─── Step 1: Verify cluster ──────────────────────────────────────────────────
 
-echo -e "${CYAN}1. Validating task definition files${NC}"
-for file in "${TASK_DEF_FILES[@]}"; do
-    if [ ! -f "${TASK_DEF_DIR}/${file}" ]; then
-        echo -e "  ${RED}✗${NC} Missing: ${TASK_DEF_DIR}/${file}"
-        exit 1
-    fi
-    echo -e "  ${GREEN}✓${NC} ${file}"
-done
-echo ""
-
-# ─── Verify cluster exists ───────────────────────────────────────────────────
-
-echo -e "${CYAN}2. Verifying ECS cluster${NC}"
+echo -e "${CYAN}1. Verifying ECS cluster${NC}"
 CLUSTER_STATUS=$(aws ecs describe-clusters --clusters "$CLUSTER" --region "$REGION" \
     --query 'clusters[0].status' --output text 2>/dev/null || echo "NOT_FOUND")
 
 if [ "$CLUSTER_STATUS" != "ACTIVE" ]; then
-    echo -e "  ${RED}✗${NC} Cluster '${CLUSTER}' not found or not active (status: ${CLUSTER_STATUS})"
+    echo -e "  ${RED}FAIL${NC} Cluster '${CLUSTER}' not active (status: ${CLUSTER_STATUS})"
     exit 1
 fi
-echo -e "  ${GREEN}✓${NC} Cluster: ${CLUSTER} (ACTIVE)"
+echo -e "  ${GREEN}OK${NC} Cluster: ${CLUSTER} (ACTIVE)"
 echo ""
 
-# ─── Show security config diff ───────────────────────────────────────────────
+# ─── Step 2: Show current vs target config ───────────────────────────────────
 
-echo -e "${CYAN}3. Security configuration to apply${NC}"
-for i in "${!SERVICES[@]}"; do
-    service="${SERVICES[$i]}"
-    file="${TASK_DEF_FILES[$i]}"
-
-    # Extract current auth setting from running task def
+echo -e "${CYAN}2. Current security configuration${NC}"
+for service in "${SERVICES[@]}"; do
     CURRENT_AUTH=$(aws ecs describe-task-definition \
         --task-definition "ca-a2a-${service}" --region "$REGION" \
-        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_REQUIRE_AUTH'].value" \
-        --output text 2>/dev/null || echo "not set")
+        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_REQUIRE_AUTH'].value | [0]" \
+        --output text 2>/dev/null || echo "?")
+    [ "$CURRENT_AUTH" = "None" ] && CURRENT_AUTH="not set"
     [ -z "$CURRENT_AUTH" ] && CURRENT_AUTH="not set"
 
-    # Extract new auth setting from file
-    NEW_AUTH=$(python3 -c "import json; d=json.load(open('${TASK_DEF_DIR}/${file}')); print([e['value'] for e in d['containerDefinitions'][0]['environment'] if e['name']=='A2A_REQUIRE_AUTH'][0])" 2>/dev/null || echo "?")
-
-    if [ "$CURRENT_AUTH" == "$NEW_AUTH" ]; then
-        echo -e "  ${service}: A2A_REQUIRE_AUTH ${CURRENT_AUTH} → ${NEW_AUTH} (no change)"
+    if [ "$CURRENT_AUTH" = "true" ]; then
+        echo -e "  ${service}: A2A_REQUIRE_AUTH = ${GREEN}${CURRENT_AUTH}${NC} (already enabled)"
     else
-        echo -e "  ${service}: A2A_REQUIRE_AUTH ${RED}${CURRENT_AUTH}${NC} → ${GREEN}${NEW_AUTH}${NC}"
+        echo -e "  ${service}: A2A_REQUIRE_AUTH = ${RED}${CURRENT_AUTH}${NC} → will set to ${GREEN}true${NC}"
     fi
 done
 echo ""
 
 if $DRY_RUN; then
-    echo -e "${YELLOW}DRY RUN complete. Use without --dry-run to apply.${NC}"
+    echo -e "${YELLOW}DRY RUN complete. Remove --dry-run to apply.${NC}"
     exit 0
 fi
 
-# ─── Register task definitions ────────────────────────────────────────────────
+# ─── Step 3: Patch and register task definitions ─────────────────────────────
 
-echo -e "${CYAN}4. Registering security-hardened task definitions${NC}"
-for i in "${!SERVICES[@]}"; do
-    service="${SERVICES[$i]}"
-    file="${TASK_DEF_FILES[$i]}"
+echo -e "${CYAN}3. Patching and registering task definitions${NC}"
 
-    RESULT=$(aws ecs register-task-definition \
-        --cli-input-json "file://${TASK_DEF_DIR}/${file}" \
+for service in "${SERVICES[@]}"; do
+    FAMILY="ca-a2a-${service}"
+
+    echo -e "  ${service}: fetching current task definition..."
+
+    # Get the current task definition JSON (full container definitions)
+    CURRENT_TASKDEF=$(aws ecs describe-task-definition \
+        --task-definition "$FAMILY" --region "$REGION" \
+        --query 'taskDefinition' --output json 2>&1)
+
+    if [ $? -ne 0 ]; then
+        echo -e "  ${RED}FAIL${NC} ${service}: could not fetch task definition"
+        echo -e "       ${CURRENT_TASKDEF}"
+        ((ERRORS++))
+        continue
+    fi
+
+    # Use Python to merge security env vars into the task definition
+    PATCHED_TASKDEF=$(python3 -c "
+import json, sys
+
+taskdef = json.loads('''${CURRENT_TASKDEF}''')
+security_envs = json.loads('''${SECURITY_ENVS}''')
+
+# Extract fields needed for register-task-definition
+container_defs = taskdef['containerDefinitions']
+
+# For each container, merge security env vars
+for container in container_defs:
+    existing = container.get('environment', [])
+    existing_names = {e['name'] for e in existing}
+
+    # Add or update security env vars
+    for sec_env in security_envs:
+        if sec_env['name'] in existing_names:
+            # Update existing
+            for e in existing:
+                if e['name'] == sec_env['name']:
+                    e['value'] = sec_env['value']
+        else:
+            existing.append(sec_env)
+
+    container['environment'] = existing
+
+# Build the register-task-definition input
+# Only include fields that register-task-definition accepts
+reg_input = {
+    'family': taskdef['family'],
+    'networkMode': taskdef.get('networkMode', 'awsvpc'),
+    'requiresCompatibilities': taskdef.get('requiresCompatibilities', ['FARGATE']),
+    'cpu': taskdef.get('cpu', '512'),
+    'memory': taskdef.get('memory', '1024'),
+    'containerDefinitions': container_defs,
+}
+
+# Include optional fields if present
+if 'executionRoleArn' in taskdef:
+    reg_input['executionRoleArn'] = taskdef['executionRoleArn']
+if 'taskRoleArn' in taskdef:
+    reg_input['taskRoleArn'] = taskdef['taskRoleArn']
+
+print(json.dumps(reg_input))
+" 2>&1)
+
+    if [ $? -ne 0 ]; then
+        echo -e "  ${RED}FAIL${NC} ${service}: could not patch task definition"
+        echo -e "       ${PATCHED_TASKDEF}"
+        ((ERRORS++))
+        continue
+    fi
+
+    # Write to temp file and register
+    TMPFILE="/tmp/ca-a2a-${service}-security.json"
+    echo "$PATCHED_TASKDEF" > "$TMPFILE"
+
+    echo -e "  ${service}: registering patched task definition..."
+    REG_RESULT=$(aws ecs register-task-definition \
+        --cli-input-json "file://${TMPFILE}" \
         --region "$REGION" \
         --query 'taskDefinition.taskDefinitionArn' \
         --output text 2>&1)
 
-    if [ $? -eq 0 ]; then
-        echo -e "  ${GREEN}✓${NC} ${service}: registered (${RESULT})"
-    else
-        echo -e "  ${RED}✗${NC} ${service}: registration failed — ${RESULT}"
-        exit 1
+    if [ $? -ne 0 ]; then
+        echo -e "  ${RED}FAIL${NC} ${service}: registration failed"
+        echo -e "       ${REG_RESULT}"
+        ((ERRORS++))
+        continue
     fi
+
+    echo -e "  ${GREEN}OK${NC} ${service}: registered ${REG_RESULT}"
+
+    # Clean up
+    rm -f "$TMPFILE"
 done
 echo ""
 
-# ─── Update ECS services ────────────────────────────────────────────────────
+if [ $ERRORS -gt 0 ]; then
+    echo -e "${RED}${ERRORS} service(s) failed registration. Fix errors above before continuing.${NC}"
+    exit 1
+fi
 
-echo -e "${CYAN}5. Updating ECS services (force new deployment)${NC}"
+# ─── Step 4: Update ECS services ────────────────────────────────────────────
+
+echo -e "${CYAN}4. Updating ECS services (force new deployment)${NC}"
 for service in "${SERVICES[@]}"; do
-    aws ecs update-service \
+    UPDATE_RESULT=$(aws ecs update-service \
         --cluster "$CLUSTER" \
         --service "$service" \
         --task-definition "ca-a2a-${service}" \
         --force-new-deployment \
-        --region "$REGION" > /dev/null 2>&1
+        --region "$REGION" \
+        --query 'service.deployments[0].status' \
+        --output text 2>&1)
 
     if [ $? -eq 0 ]; then
-        echo -e "  ${GREEN}✓${NC} ${service}: deployment triggered"
+        echo -e "  ${GREEN}OK${NC} ${service}: deployment triggered (${UPDATE_RESULT})"
     else
-        echo -e "  ${RED}✗${NC} ${service}: update failed"
+        echo -e "  ${RED}FAIL${NC} ${service}: ${UPDATE_RESULT}"
+        ((ERRORS++))
     fi
 done
 echo ""
 
-# ─── Wait for stability (optional) ──────────────────────────────────────────
+# ─── Step 5: Verify registration ────────────────────────────────────────────
+
+echo -e "${CYAN}5. Verifying registered task definitions${NC}"
+ALL_OK=true
+for service in "${SERVICES[@]}"; do
+    AUTH=$(aws ecs describe-task-definition \
+        --task-definition "ca-a2a-${service}" --region "$REGION" \
+        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_REQUIRE_AUTH'].value | [0]" \
+        --output text 2>/dev/null)
+
+    RATE=$(aws ecs describe-task-definition \
+        --task-definition "ca-a2a-${service}" --region "$REGION" \
+        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_ENABLE_RATE_LIMIT'].value | [0]" \
+        --output text 2>/dev/null)
+
+    HEADERS=$(aws ecs describe-task-definition \
+        --task-definition "ca-a2a-${service}" --region "$REGION" \
+        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_SECURITY_HEADERS'].value | [0]" \
+        --output text 2>/dev/null)
+
+    if [ "$AUTH" = "true" ] && [ "$RATE" = "true" ] && [ "$HEADERS" = "true" ]; then
+        echo -e "  ${GREEN}OK${NC} ${service}: auth=${AUTH} rate_limit=${RATE} headers=${HEADERS}"
+    else
+        echo -e "  ${RED}FAIL${NC} ${service}: auth=${AUTH:-?} rate_limit=${RATE:-?} headers=${HEADERS:-?}"
+        ALL_OK=false
+    fi
+done
+echo ""
+
+# ─── Step 6: Wait for stability (optional) ──────────────────────────────────
 
 if $WAIT_STABLE; then
     echo -e "${CYAN}6. Waiting for services to stabilize (up to 10 min)...${NC}"
     for service in "${SERVICES[@]}"; do
-        echo -e "  Waiting for ${service}..."
+        echo -ne "  ${service}: waiting..."
         aws ecs wait services-stable \
             --cluster "$CLUSTER" \
             --services "$service" \
             --region "$REGION" 2>/dev/null
 
         if [ $? -eq 0 ]; then
-            echo -e "  ${GREEN}✓${NC} ${service}: stable"
+            echo -e "\r  ${GREEN}OK${NC} ${service}: stable                "
         else
-            echo -e "  ${YELLOW}⚠${NC} ${service}: did not stabilize within timeout"
+            echo -e "\r  ${YELLOW}WARN${NC} ${service}: timeout waiting for stability"
         fi
     done
     echo ""
+else
+    echo -e "${YELLOW}Tip: Services need ~2 min to roll over. Use --wait to block until stable.${NC}"
+    echo ""
 fi
 
-# ─── Verify deployment ──────────────────────────────────────────────────────
+# ─── Summary ────────────────────────────────────────────────────────────────
 
-echo -e "${CYAN}6. Verifying deployment${NC}"
-for service in "${SERVICES[@]}"; do
-    STATUS=$(aws ecs describe-services --cluster "$CLUSTER" --services "$service" --region "$REGION" \
-        --query 'services[0].{Running:runningCount,Desired:desiredCount,Pending:pendingCount}' \
-        --output text 2>/dev/null)
+if $ALL_OK && [ $ERRORS -eq 0 ]; then
+    echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════════════════════"
+    echo -e "  Security deployment complete."
+    echo -e "══════════════════════════════════════════════════════════════════════${NC}"
+else
+    echo -e "${BOLD}${RED}══════════════════════════════════════════════════════════════════════"
+    echo -e "  Deployment had errors — check output above."
+    echo -e "══════════════════════════════════════════════════════════════════════${NC}"
+fi
 
-    echo -e "  ${service}: ${STATUS}"
-done
-echo ""
-
-# ─── Verify security env vars on new task def ───────────────────────────────
-
-echo -e "${CYAN}7. Verifying security configuration in registered task definitions${NC}"
-for service in "${SERVICES[@]}"; do
-    AUTH=$(aws ecs describe-task-definition \
-        --task-definition "ca-a2a-${service}" --region "$REGION" \
-        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_REQUIRE_AUTH'].value" \
-        --output text 2>/dev/null)
-
-    RATE=$(aws ecs describe-task-definition \
-        --task-definition "ca-a2a-${service}" --region "$REGION" \
-        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_ENABLE_RATE_LIMIT'].value" \
-        --output text 2>/dev/null)
-
-    HEADERS=$(aws ecs describe-task-definition \
-        --task-definition "ca-a2a-${service}" --region "$REGION" \
-        --query "taskDefinition.containerDefinitions[0].environment[?name=='A2A_SECURITY_HEADERS'].value" \
-        --output text 2>/dev/null)
-
-    if [ "$AUTH" == "true" ] && [ "$RATE" == "true" ] && [ "$HEADERS" == "true" ]; then
-        echo -e "  ${GREEN}✓${NC} ${service}: auth=${AUTH} rate_limit=${RATE} headers=${HEADERS}"
-    else
-        echo -e "  ${RED}✗${NC} ${service}: auth=${AUTH:-?} rate_limit=${RATE:-?} headers=${HEADERS:-?}"
-    fi
-done
-
-echo ""
-echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════════════════════${NC}"
-echo -e "${BOLD}${GREEN}  Security deployment complete.${NC}"
-echo -e "${BOLD}${GREEN}══════════════════════════════════════════════════════════════════════${NC}"
 echo ""
 echo "Next steps:"
-echo "  1. Wait ~2 min for new tasks to replace old ones"
-echo "  2. Run attack tests: ./run_all_attacks_cloudshell.sh --region ${REGION}"
-echo "  3. Monitor logs: aws logs tail /ecs/ca-a2a-orchestrator --since 5m --region ${REGION}"
+echo "  1. Wait ~2 min for rolling deployment to complete"
+echo "  2. Run: ./run_all_attacks_cloudshell.sh --region ${REGION}"
 echo ""
