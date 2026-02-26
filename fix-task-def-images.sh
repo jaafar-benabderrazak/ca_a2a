@@ -1,7 +1,8 @@
 #!/bin/bash
 # ══════════════════════════════════════════════════════════════════════════════
-# Fix ECS Task Definition Image URIs
-# Updates image references to match the current AWS account's ECR registry
+# Fix ECS Task Definitions
+# 1. Updates image URIs to match current AWS account's ECR registry
+# 2. Removes 'command' overrides so Dockerfile CMD is used (no S3 code download)
 # ══════════════════════════════════════════════════════════════════════════════
 
 RED='\033[0;31m'
@@ -71,22 +72,31 @@ print(td['containerDefinitions'][0]['image'])
 
     CORRECT_IMAGE="${ECR_REGISTRY}/${PROJECT}/${SERVICE}:latest"
 
-    echo -e "  Current: ${CURRENT_IMAGE}"
-    echo -e "  Target:  ${CORRECT_IMAGE}"
+    # Check current image and command
+    CURRENT_CMD=$(echo "$TASKDEF_JSON" | python3 -c "
+import sys, json
+td = json.load(sys.stdin)
+cmd = td['containerDefinitions'][0].get('command')
+print(json.dumps(cmd) if cmd else 'None')
+" 2>/dev/null)
 
-    if [ "$CURRENT_IMAGE" = "$CORRECT_IMAGE" ]; then
-        echo -e "  ${GREEN}Already correct${NC}"
-        continue
-    fi
+    echo -e "  Image:   ${CURRENT_IMAGE}"
+    echo -e "  Command: ${CURRENT_CMD}"
+    echo -e "  Target:  ${CORRECT_IMAGE} (no command override)"
 
-    # Build new task definition with updated image, stripping ECS-added fields
+    # Build new task definition: fix image, remove command/entryPoint, strip ECS metadata
     echo "$TASKDEF_JSON" | python3 -c "
 import sys, json
 
 td = json.load(sys.stdin)
 
-# Update image
+# Fix image URI to current account
 td['containerDefinitions'][0]['image'] = '${CORRECT_IMAGE}'
+
+# Remove command override — let Dockerfile CMD run the baked-in code
+# (command overrides download stale code from S3, defeating image rebuild)
+td['containerDefinitions'][0].pop('command', None)
+td['containerDefinitions'][0].pop('entryPoint', None)
 
 # Remove fields that cannot be included in register-task-definition
 for key in ['taskDefinitionArn', 'revision', 'status', 'requiresAttributes',
@@ -153,18 +163,25 @@ done
 
 # Verify
 echo ""
-echo -e "${CYAN}▸${NC} Verifying images..."
+echo -e "${CYAN}▸${NC} Verifying task definitions..."
 for SERVICE in $SERVICES; do
     FAMILY="${PROJECT}-${SERVICE}"
-    IMG=$(aws ecs describe-task-definition \
+    VERIFY=$(aws ecs describe-task-definition \
         --task-definition "$FAMILY" \
         --region "$REGION" \
-        --query 'taskDefinition.containerDefinitions[0].image' \
-        --output text 2>/dev/null)
+        --query 'taskDefinition.containerDefinitions[0].{Image:image,Command:command}' \
+        --output json 2>/dev/null)
+    IMG=$(echo "$VERIFY" | python3 -c "import sys,json; print(json.load(sys.stdin)['Image'])" 2>/dev/null)
+    CMD=$(echo "$VERIFY" | python3 -c "import sys,json; print(json.load(sys.stdin)['Command'])" 2>/dev/null)
     if echo "$IMG" | grep -q "$ACCOUNT_ID"; then
-        echo -e "  ${GREEN}✓${NC} ${SERVICE}: ${IMG}"
+        echo -e "  ${GREEN}✓${NC} ${SERVICE}: image=${IMG}"
     else
-        echo -e "  ${RED}✗${NC} ${SERVICE}: ${IMG}"
+        echo -e "  ${RED}✗${NC} ${SERVICE}: image=${IMG}"
+    fi
+    if [ "$CMD" = "None" ]; then
+        echo -e "    ${GREEN}✓${NC} command: using Dockerfile CMD"
+    else
+        echo -e "    ${RED}✗${NC} command: ${CMD} (should be None)"
     fi
 done
 
