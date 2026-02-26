@@ -159,16 +159,8 @@ else
     echo -e "  ${YELLOW}⚠${NC} /health returned HTTP ${HEALTH_STATUS} — tests may fail"
 fi
 
-# ─── Step 4: Patch hardcoded ALB in 20-scenario file ─────────────────────────
-# test_security_comprehensive_20_scenarios.py has a hardcoded ALB_DNS.
-# Temporarily patch it to use the discovered ALB.
+# ALB_DNS is already exported — test_security_comprehensive_20_scenarios.py reads it via os.getenv
 SCENARIO_20_FILE="test_security_comprehensive_20_scenarios.py"
-
-if [ -f "$SCENARIO_20_FILE" ]; then
-    ORIGINAL_ALB=$(grep -oP 'ALB_DNS = "[^"]+"' "$SCENARIO_20_FILE" | head -1)
-    sed -i "s|ALB_DNS = \"[^\"]*\"|ALB_DNS = \"${ALB_DNS}\"|" "$SCENARIO_20_FILE"
-    echo -e "  ${GREEN}✓${NC} Patched ${SCENARIO_20_FILE} with discovered ALB"
-fi
 
 
 # ═════════════════════════════════════════════════════════════════════════════
@@ -185,9 +177,10 @@ if should_run 1 && [ "$SKIP_INFRA" = false ]; then
     SECRET_COUNT=$(aws secretsmanager list-secrets \
         --region ${REGION} \
         --query "length(SecretList[?contains(Name, 'ca-a2a')])" \
-        --output text 2>/dev/null || echo "0")
+        --output text 2>/dev/null | tr -d '[:space:]' || echo "0")
+    SECRET_COUNT=${SECRET_COUNT:-0}
 
-    if [ "$SECRET_COUNT" -gt 0 ]; then
+    if [ "$SECRET_COUNT" -gt 0 ] 2>/dev/null; then
         p_pass "Secrets Manager: ${SECRET_COUNT} secrets configured"
         ((P1_PASSED++))
     else
@@ -348,7 +341,7 @@ if should_run 2; then
         echo -e "  ${RED}✗${NC} File not found: ${SCENARIO_20_FILE}"
         P2_EXIT=1
     else
-        PYTEST_ARGS="-v --tb=short -x"
+        PYTEST_ARGS="-v --tb=short"
 
         if [ "$HTML_REPORT" = true ]; then
             P2_REPORT="report_20scenarios_$(date +%Y%m%d_%H%M%S).html"
@@ -641,16 +634,6 @@ if should_run 4; then
     P4_TOTAL=$((P4_PASSED + P4_FAILED + P4_WARNINGS))
     echo -e "  Phase 4 Result: ${GREEN}${P4_PASSED} passed${NC}, ${RED}${P4_FAILED} failed${NC}, ${YELLOW}${P4_WARNINGS} warnings${NC} (${P4_TOTAL} checks)"
 
-fi
-
-
-# ═════════════════════════════════════════════════════════════════════════════
-# RESTORE patched file
-# ═════════════════════════════════════════════════════════════════════════════
-
-if [ -n "$ORIGINAL_ALB" ] && [ -f "$SCENARIO_20_FILE" ]; then
-    # Restore the original hardcoded ALB (keep git clean)
-    sed -i "s|ALB_DNS = \"[^\"]*\"|${ORIGINAL_ALB}|" "$SCENARIO_20_FILE"
 fi
 
 

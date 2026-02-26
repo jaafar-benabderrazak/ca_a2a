@@ -158,7 +158,7 @@ class TestScenario01_JWTTokenTheft:
         })
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -196,7 +196,7 @@ class TestScenario01_JWTTokenTheft:
         }
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
@@ -218,7 +218,7 @@ class TestScenario01_JWTTokenTheft:
         }
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
@@ -266,7 +266,7 @@ class TestScenario02_ReplayAttack:
         
         # First request
         response1 = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -275,7 +275,7 @@ class TestScenario02_ReplayAttack:
         # Replay the exact same request
         time.sleep(1)
         response2 = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -303,7 +303,7 @@ class TestScenario02_ReplayAttack:
         }
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -345,7 +345,7 @@ class TestScenario03_PrivilegeEscalation:
         }
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
@@ -372,7 +372,7 @@ class TestScenario03_PrivilegeEscalation:
         })
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -408,7 +408,7 @@ class TestScenario04_ResourceExhaustion:
             headers["X-Correlation-ID"] = generate_correlation_id()
             
             response = attacker_client.post(
-                f"{orchestrator_url}/jsonrpc",
+                f"{orchestrator_url}/message",
                 json=create_jsonrpc_request("process_document", {}),
                 headers=headers,
                 timeout=2
@@ -445,7 +445,7 @@ class TestScenario04_ResourceExhaustion:
         
         try:
             response = attacker_client.post(
-                f"{orchestrator_url}/jsonrpc",
+                f"{orchestrator_url}/message",
                 json=payload,
                 headers=headers,
                 timeout=5
@@ -495,7 +495,7 @@ class TestScenario05_SQLInjection:
         })
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -576,7 +576,7 @@ class TestScenario07_JWTAlgorithmConfusion:
         }
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
@@ -606,7 +606,7 @@ class TestScenario07_JWTAlgorithmConfusion:
         }
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
@@ -649,7 +649,7 @@ class TestScenario08_PathTraversal:
         })
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -687,7 +687,7 @@ class TestScenario09_XSSInjection:
         })
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )
@@ -727,7 +727,7 @@ class TestScenario10_CommandInjection:
         })
         
         response = attacker_client.post(
-            f"{orchestrator_url}/jsonrpc",
+            f"{orchestrator_url}/message",
             json=payload,
             headers=headers
         )

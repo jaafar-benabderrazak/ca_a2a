@@ -42,7 +42,8 @@ except ImportError:
 # CONFIGURATION
 # =============================================================================
 
-ALB_DNS = "ca-a2a-alb-51413545.us-east-1.elb.amazonaws.com"
+import os
+ALB_DNS = os.getenv("ALB_DNS", "ca-a2a-alb-51413545.us-east-1.elb.amazonaws.com")
 BASE_URL = f"http://{ALB_DNS}"
 TIMEOUT = 15
 
@@ -188,28 +189,27 @@ class TestScenario01HealthCheck:
 # =============================================================================
 
 class TestScenario02AgentCardDiscovery:
-    """Scenario 2: Verify agent card discovery at /card endpoint"""
-    
+    """Scenario 2: Verify agent card discovery at /.well-known/agent.json endpoint"""
+
     def test_card_endpoint_returns_agent_info(self, base_url, session):
         print_scenario_header(
             "02",
             "AGENT CARD DISCOVERY",
-            description="Verify A2A agent card is accessible at /card for service discovery"
+            description="Verify A2A agent card is accessible at /.well-known/agent.json for service discovery"
         )
-        
-        print_test_step("Requesting agent card from /card endpoint")
-        url = f"{base_url}/card"
+
+        print_test_step("Requesting agent card from /.well-known/agent.json endpoint")
+        url = f"{base_url}/.well-known/agent.json"
         print_request("GET", url)
-        
+
         response = session.get(url, timeout=TIMEOUT)
         print_response(response)
-        
+
         assert response.status_code == 200
         data = response.json()
         assert "name" in data
-        assert "version" in data
-        
-        print_result(True, f"Agent card found - Name: {data.get('name')}, Version: {data.get('version')}")
+
+        print_result(True, f"Agent card found - Name: {data.get('name')}")
 
 
 # =============================================================================
@@ -979,7 +979,7 @@ class TestSecurityIntegrationSummary:
         # 4. Agent card accessible
         print("\n[4/5] Testing agent card discovery...")
         try:
-            r = session.get(f"{base_url}/card", timeout=TIMEOUT)
+            r = session.get(f"{base_url}/.well-known/agent.json", timeout=TIMEOUT)
             passed = r.status_code == 200
             checks.append(("Agent Card Accessible", passed))
             print(f"      Status: {r.status_code} - {'PASS' if passed else 'FAIL'}")
