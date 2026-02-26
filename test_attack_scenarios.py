@@ -85,6 +85,35 @@ def service_health_checker():
     return ServiceHealthChecker()
 
 
+@pytest.fixture(scope="session")
+def auth_enforcement_active(test_config):
+    """
+    Probe whether the deployed container actually enforces authentication.
+    If /message returns 200 with no auth header, the container code predates
+    the security features (stale ECR image). This lets individual tests emit
+    precise diagnostic messages instead of cryptic '200 != 401' failures.
+    """
+    try:
+        probe = requests.post(
+            f"{test_config.orchestrator_url}/message",
+            json={"jsonrpc": "2.0", "method": "health", "params": {}, "id": "probe"},
+            headers={"Accept": "application/json"},
+            timeout=10,
+            verify=False
+        )
+        if probe.status_code == 200:
+            # Auth not enforced — container code is stale
+            logger.warning(
+                "AUTH PROBE: /message returned 200 with no credentials. "
+                "Deployed container does NOT enforce auth. "
+                "Rebuild ECR images with: ./rebuild-ecr-images.sh --region eu-west-3"
+            )
+            return False
+        return True  # Got 401/403 → auth is active
+    except Exception:
+        return True  # Can't determine; let tests run normally
+
+
 @pytest.fixture(scope="session", autouse=True)
 def check_services_before_tests(service_health_checker, test_config):
     """Check service health before running tests"""
@@ -172,13 +201,13 @@ class TestScenario01_JWTTokenTheft:
         else:
             logger.info("✅ Token rejected - Security control active")
     
-    def test_expired_token_rejection(self, orchestrator_url, attacker_client):
+    def test_expired_token_rejection(self, orchestrator_url, attacker_client, auth_enforcement_active):
         """
         Attack: Attacker tries to use an expired JWT token
         Expected: System rejects with 401 Unauthorized
         """
         logger.info("[SCENARIO 1.2] Testing expired token rejection")
-        
+
         # Create an expired token (expired 1 hour ago)
         expired_payload = {
             "sub": "attacker@evil.com",
@@ -186,23 +215,29 @@ class TestScenario01_JWTTokenTheft:
             "iat": int((datetime.now() - timedelta(hours=2)).timestamp()),
             "roles": ["admin"]
         }
-        
+
         # Note: This won't have valid signature, but tests expiration check
         expired_token = jwt.encode(expired_payload, "fake-secret", algorithm="HS256")
-        
+
         headers = {
             "Authorization": f"Bearer {expired_token}",
             "X-Correlation-ID": generate_correlation_id()
         }
-        
+
         response = attacker_client.post(
             f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
-        
-        assert response.status_code == 401, "Expired token should be rejected"
-        logger.info("✅ Expired token correctly rejected")
+
+        if not auth_enforcement_active and response.status_code == 200:
+            pytest.fail(
+                f"STALE ECR IMAGE: Got {response.status_code} instead of 401. "
+                "Container code does not enforce auth. "
+                "Fix: ./rebuild-ecr-images.sh --region eu-west-3"
+            )
+        assert response.status_code == 401, f"Expired token should be rejected (got {response.status_code})"
+        logger.info("Expired token correctly rejected")
     
     def test_token_without_revocation_check(self, orchestrator_url, valid_jwt_token, attacker_client):
         """
@@ -320,13 +355,13 @@ class TestScenario02_ReplayAttack:
 class TestScenario03_PrivilegeEscalation:
     """Test privilege escalation attempts"""
     
-    def test_role_manipulation_in_jwt(self, orchestrator_url, attacker_client):
+    def test_role_manipulation_in_jwt(self, orchestrator_url, attacker_client, auth_enforcement_active):
         """
         Attack: Craft a JWT with elevated roles
         Expected: Signature validation fails, request rejected
         """
         logger.info("[SCENARIO 3.1] Testing JWT role manipulation")
-        
+
         # Create a malicious JWT with admin role
         malicious_payload = {
             "sub": "attacker@evil.com",
@@ -335,23 +370,29 @@ class TestScenario03_PrivilegeEscalation:
             "roles": ["admin", "superuser"],  # Unauthorized roles
             "preferred_username": "admin"
         }
-        
+
         # Try with wrong signature
         fake_token = jwt.encode(malicious_payload, "wrong-secret", algorithm="HS256")
-        
+
         headers = {
             "Authorization": f"Bearer {fake_token}",
             "X-Correlation-ID": generate_correlation_id()
         }
-        
+
         response = attacker_client.post(
             f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
-        
-        assert response.status_code == 401, "Invalid signature should be rejected"
-        logger.info("✅ JWT signature validation working")
+
+        if not auth_enforcement_active and response.status_code == 200:
+            pytest.fail(
+                f"STALE ECR IMAGE: Got {response.status_code} instead of 401. "
+                "Container code does not validate JWT signatures. "
+                "Fix: ./rebuild-ecr-images.sh --region eu-west-3"
+            )
+        assert response.status_code == 401, f"Invalid signature should be rejected (got {response.status_code})"
+        logger.info("JWT signature validation working")
     
     def test_unauthorized_method_access(self, orchestrator_url, valid_jwt_token, attacker_client):
         """
@@ -545,74 +586,86 @@ class TestScenario06_MITM:
 class TestScenario07_JWTAlgorithmConfusion:
     """Test JWT algorithm confusion attacks"""
     
-    def test_none_algorithm_bypass(self, orchestrator_url, attacker_client):
+    def test_none_algorithm_bypass(self, orchestrator_url, attacker_client, auth_enforcement_active):
         """
         Attack: Create JWT with 'none' algorithm to bypass signature verification
         Expected: System rejects tokens with 'none' algorithm
         """
         logger.info("[SCENARIO 7.1] Testing 'none' algorithm rejection")
-        
+
         # Create JWT with 'none' algorithm
         malicious_payload = {
             "sub": "attacker@evil.com",
             "exp": int((datetime.now() + timedelta(hours=1)).timestamp()),
             "roles": ["admin"]
         }
-        
+
         # Manually create JWT with 'none' algorithm
         header = base64.urlsafe_b64encode(
             json.dumps({"alg": "none", "typ": "JWT"}).encode()
         ).decode().rstrip("=")
-        
+
         payload_b64 = base64.urlsafe_b64encode(
             json.dumps(malicious_payload).encode()
         ).decode().rstrip("=")
-        
+
         malicious_token = f"{header}.{payload_b64}."  # No signature
-        
+
         headers = {
             "Authorization": f"Bearer {malicious_token}",
             "X-Correlation-ID": generate_correlation_id()
         }
-        
+
         response = attacker_client.post(
             f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
-        
-        assert response.status_code == 401, "'none' algorithm should be rejected"
-        logger.info("✅ 'none' algorithm correctly rejected")
+
+        if not auth_enforcement_active and response.status_code == 200:
+            pytest.fail(
+                f"STALE ECR IMAGE: Got {response.status_code} instead of 401. "
+                "Container code does not reject 'none' algorithm JWTs. "
+                "Fix: ./rebuild-ecr-images.sh --region eu-west-3"
+            )
+        assert response.status_code == 401, f"'none' algorithm should be rejected (got {response.status_code})"
+        logger.info("'none' algorithm correctly rejected")
     
-    def test_algorithm_switch_hs256_to_rs256(self, orchestrator_url, attacker_client):
+    def test_algorithm_switch_hs256_to_rs256(self, orchestrator_url, attacker_client, auth_enforcement_active):
         """
         Attack: Switch algorithm from RS256 to HS256 using public key as secret
         Expected: System enforces expected algorithm
         """
         logger.info("[SCENARIO 7.2] Testing algorithm confusion attack")
-        
+
         malicious_payload = {
             "sub": "attacker@evil.com",
             "exp": int((datetime.now() + timedelta(hours=1)).timestamp()),
             "roles": ["admin"]
         }
-        
+
         # Try to sign with HS256 using public key as secret
         fake_token = jwt.encode(malicious_payload, "PUBLIC_KEY_AS_SECRET", algorithm="HS256")
-        
+
         headers = {
             "Authorization": f"Bearer {fake_token}",
             "X-Correlation-ID": generate_correlation_id()
         }
-        
+
         response = attacker_client.post(
             f"{orchestrator_url}/message",
             json=create_jsonrpc_request("process_document", {}),
             headers=headers
         )
-        
-        assert response.status_code == 401, "Algorithm confusion should be prevented"
-        logger.info("✅ Algorithm confusion attack blocked")
+
+        if not auth_enforcement_active and response.status_code == 200:
+            pytest.fail(
+                f"STALE ECR IMAGE: Got {response.status_code} instead of 401. "
+                "Container code does not enforce algorithm restrictions. "
+                "Fix: ./rebuild-ecr-images.sh --region eu-west-3"
+            )
+        assert response.status_code == 401, f"Algorithm confusion should be prevented (got {response.status_code})"
+        logger.info("Algorithm confusion attack blocked")
 
 
 # ============================================================================

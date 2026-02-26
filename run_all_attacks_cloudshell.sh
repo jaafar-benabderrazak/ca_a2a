@@ -440,6 +440,21 @@ if should_run 4; then
 
     banner "PHASE 4: Live Curl-Based Validation"
 
+    # ── Stale image detection ─────────────────────────────────────────────
+    PROBE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+        -X POST -H "Content-Type: application/json" \
+        -d '{"jsonrpc":"2.0","method":"health","params":{},"id":"probe-1"}' \
+        "${BASE_URL}/message" 2>/dev/null || echo "000")
+    SKILLS_STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+        "${BASE_URL}/skills" 2>/dev/null || echo "000")
+
+    if [[ "$PROBE_STATUS" == "200" && "$SKILLS_STATUS" == "404" ]]; then
+        echo -e "\n  ${RED}${BOLD}STALE ECR IMAGE DETECTED${NC}"
+        echo -e "  ${RED}/message accepts unauthenticated requests (HTTP 200) and /skills returns 404.${NC}"
+        echo -e "  ${RED}The deployed containers predate the security features in the current code.${NC}"
+        echo -e "  ${RED}Fix: rebuild and push Docker images with: ./rebuild-ecr-images.sh --region ${REGION}${NC}\n"
+    fi
+
     # ── 4.1 Endpoints ────────────────────────────────────────────────────────
     section "4.1 Endpoint Accessibility"
 
