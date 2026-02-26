@@ -161,7 +161,12 @@ for SERVICE in $SERVICES; do
         "environment": [
             {"name": "AWS_REGION", "value": "${REGION}"},
             {"name": "SERVICE_NAME", "value": "${SERVICE}"},
-            {"name": "A2A_REQUIRE_AUTH", "value": "false"}
+            {"name": "A2A_REQUIRE_AUTH", "value": "true"},
+            {"name": "A2A_ENABLE_RATE_LIMIT", "value": "true"},
+            {"name": "A2A_RATE_LIMIT_PER_MINUTE", "value": "300"},
+            {"name": "A2A_ENABLE_REPLAY_PROTECTION", "value": "true"},
+            {"name": "A2A_SECURITY_HEADERS", "value": "true"},
+            {"name": "A2A_API_KEYS_JSON", "value": "{\"demo-key-001\":\"admin\",\"test-key-001\":\"user\"}"}
         ],
         "logConfiguration": {
             "logDriver": "awslogs",

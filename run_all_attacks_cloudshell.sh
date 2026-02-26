@@ -174,9 +174,10 @@ if should_run 1 && [ "$SKIP_INFRA" = false ]; then
     # ── 1.1 Secrets Manager ──────────────────────────────────────────────────
     section "1.1 Secrets Manager"
 
+    # Search for secrets matching ca-a2a prefix OR CDK-generated names (DbPassword, Keycloak)
     SECRET_COUNT=$(aws secretsmanager list-secrets \
         --region ${REGION} --no-paginate \
-        --query "length(SecretList[?contains(Name, 'ca-a2a')])" \
+        --query "length(SecretList[?contains(Name, 'ca-a2a') || contains(Name, 'DbPassword') || contains(Name, 'Keycloak')])" \
         --output text 2>/dev/null | head -1 || echo "0")
     SECRET_COUNT=${SECRET_COUNT:-0}
     SECRET_COUNT=$(echo "$SECRET_COUNT" | tr -dc '0-9')
@@ -185,6 +186,13 @@ if should_run 1 && [ "$SKIP_INFRA" = false ]; then
     if [ "$SECRET_COUNT" -gt 0 ] 2>/dev/null; then
         p_pass "Secrets Manager: ${SECRET_COUNT} secrets configured"
         ((P1_PASSED++))
+
+        # List secret names for visibility
+        aws secretsmanager list-secrets --region ${REGION} --no-paginate \
+            --query "SecretList[?contains(Name, 'ca-a2a') || contains(Name, 'DbPassword') || contains(Name, 'Keycloak')].Name" \
+            --output text 2>/dev/null | tr '\t' '\n' | while read -r name; do
+            p_info "  Secret: $name"
+        done
     else
         p_fail "Secrets Manager: No secrets configured"
         ((P1_FAILED++))
