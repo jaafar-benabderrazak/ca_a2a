@@ -109,37 +109,41 @@ for service in "${SERVICES[@]}"; do
 
     echo -e "  ${service}: fetching current task definition..."
 
-    # Get the current task definition JSON (full container definitions)
-    CURRENT_TASKDEF=$(aws ecs describe-task-definition \
+    # Write current task def and security envs to temp files (avoids quoting hell)
+    TASKDEF_FILE="/tmp/ca-a2a-${service}-current.json"
+    SECENV_FILE="/tmp/ca-a2a-security-envs.json"
+    TMPFILE="/tmp/ca-a2a-${service}-patched.json"
+
+    aws ecs describe-task-definition \
         --task-definition "$FAMILY" --region "$REGION" \
-        --query 'taskDefinition' --output json 2>&1)
+        --query 'taskDefinition' --output json > "$TASKDEF_FILE" 2>&1
 
     if [ $? -ne 0 ]; then
         echo -e "  ${RED}FAIL${NC} ${service}: could not fetch task definition"
-        echo -e "       ${CURRENT_TASKDEF}"
+        cat "$TASKDEF_FILE" | head -3
         ((ERRORS++))
         continue
     fi
 
-    # Use Python to merge security env vars into the task definition
-    PATCHED_TASKDEF=$(python3 -c "
+    echo "$SECURITY_ENVS" > "$SECENV_FILE"
+
+    # Use Python to merge security env vars — reads from files, no string embedding
+    python3 -c "
 import json, sys
 
-taskdef = json.loads('''${CURRENT_TASKDEF}''')
-security_envs = json.loads('''${SECURITY_ENVS}''')
+with open('${TASKDEF_FILE}') as f:
+    taskdef = json.load(f)
+with open('${SECENV_FILE}') as f:
+    security_envs = json.load(f)
 
-# Extract fields needed for register-task-definition
 container_defs = taskdef['containerDefinitions']
 
-# For each container, merge security env vars
 for container in container_defs:
     existing = container.get('environment', [])
     existing_names = {e['name'] for e in existing}
 
-    # Add or update security env vars
     for sec_env in security_envs:
         if sec_env['name'] in existing_names:
-            # Update existing
             for e in existing:
                 if e['name'] == sec_env['name']:
                     e['value'] = sec_env['value']
@@ -148,8 +152,6 @@ for container in container_defs:
 
     container['environment'] = existing
 
-# Build the register-task-definition input
-# Only include fields that register-task-definition accepts
 reg_input = {
     'family': taskdef['family'],
     'networkMode': taskdef.get('networkMode', 'awsvpc'),
@@ -159,25 +161,20 @@ reg_input = {
     'containerDefinitions': container_defs,
 }
 
-# Include optional fields if present
 if 'executionRoleArn' in taskdef:
     reg_input['executionRoleArn'] = taskdef['executionRoleArn']
 if 'taskRoleArn' in taskdef:
     reg_input['taskRoleArn'] = taskdef['taskRoleArn']
 
-print(json.dumps(reg_input))
-" 2>&1)
+with open('${TMPFILE}', 'w') as f:
+    json.dump(reg_input, f)
+" 2>&1
 
     if [ $? -ne 0 ]; then
         echo -e "  ${RED}FAIL${NC} ${service}: could not patch task definition"
-        echo -e "       ${PATCHED_TASKDEF}"
         ((ERRORS++))
         continue
     fi
-
-    # Write to temp file and register
-    TMPFILE="/tmp/ca-a2a-${service}-security.json"
-    echo "$PATCHED_TASKDEF" > "$TMPFILE"
 
     echo -e "  ${service}: registering patched task definition..."
     REG_RESULT=$(aws ecs register-task-definition \
@@ -195,8 +192,8 @@ print(json.dumps(reg_input))
 
     echo -e "  ${GREEN}OK${NC} ${service}: registered ${REG_RESULT}"
 
-    # Clean up
-    rm -f "$TMPFILE"
+    # Clean up temp files
+    rm -f "$TASKDEF_FILE" "$SECENV_FILE" "$TMPFILE"
 done
 echo ""
 
