@@ -175,9 +175,11 @@ if should_run 1 && [ "$SKIP_INFRA" = false ]; then
     section "1.1 Secrets Manager"
 
     SECRET_COUNT=$(aws secretsmanager list-secrets \
-        --region ${REGION} \
+        --region ${REGION} --no-paginate \
         --query "length(SecretList[?contains(Name, 'ca-a2a')])" \
-        --output text 2>/dev/null | tr -d '[:space:]' || echo "0")
+        --output text 2>/dev/null | head -1 || echo "0")
+    SECRET_COUNT=${SECRET_COUNT:-0}
+    SECRET_COUNT=$(echo "$SECRET_COUNT" | tr -dc '0-9')
     SECRET_COUNT=${SECRET_COUNT:-0}
 
     if [ "$SECRET_COUNT" -gt 0 ] 2>/dev/null; then
