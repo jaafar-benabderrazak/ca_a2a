@@ -3,6 +3,7 @@
 # Fix ECS Task Definitions
 # 1. Updates image URIs to match current AWS account's ECR registry
 # 2. Removes 'command' overrides so Dockerfile CMD is used (no S3 code download)
+# 3. Injects infrastructure env vars (POSTGRES_HOST, S3_BUCKET_NAME, agent URLs)
 # ══════════════════════════════════════════════════════════════════════════════
 
 RED='\033[0;31m'
@@ -32,7 +33,35 @@ fi
 
 ECR_REGISTRY="${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com"
 
-echo -e "${BOLD}${CYAN}Fix Task Definition Image URIs${NC}"
+# ── Discover infrastructure ────────────────────────────────────────────
+echo -e "${CYAN}▸${NC} Discovering infrastructure..."
+
+# RDS endpoint
+RDS_ENDPOINT=$(aws rds describe-db-instances --region "$REGION" \
+    --query 'DBInstances[?DBInstanceIdentifier==`ca-a2a-db`].Endpoint.Address' \
+    --output text 2>/dev/null)
+RDS_DBNAME=$(aws rds describe-db-instances --region "$REGION" \
+    --query 'DBInstances[?DBInstanceIdentifier==`ca-a2a-db`].DBName' \
+    --output text 2>/dev/null)
+if [ -z "$RDS_ENDPOINT" ] || [ "$RDS_ENDPOINT" = "None" ]; then
+    echo -e "  ${RED}Cannot find RDS instance ca-a2a-db${NC}"
+    exit 1
+fi
+
+# S3 bucket
+S3_BUCKET=$(aws s3api list-buckets --query 'Buckets[?contains(Name,`ca-a2a`)].Name | [0]' --output text 2>/dev/null)
+
+# DB password secret ARN
+DB_SECRET_ARN=$(aws secretsmanager list-secrets --region "$REGION" \
+    --query 'SecretList[?Name==`ca-a2a/db-password`].ARN | [0]' \
+    --output text 2>/dev/null)
+
+echo -e "  RDS:      ${RDS_ENDPOINT} (db: ${RDS_DBNAME})"
+echo -e "  S3:       ${S3_BUCKET}"
+echo -e "  DB Secret: ${DB_SECRET_ARN}"
+
+echo -e ""
+echo -e "${BOLD}${CYAN}Fix Task Definitions${NC}"
 echo "  Account:  ${ACCOUNT_ID}"
 echo "  Registry: ${ECR_REGISTRY}"
 echo "  Region:   ${REGION}"
@@ -84,19 +113,55 @@ print(json.dumps(cmd) if cmd else 'None')
     echo -e "  Command: ${CURRENT_CMD}"
     echo -e "  Target:  ${CORRECT_IMAGE} (no command override)"
 
-    # Build new task definition: fix image, remove command/entryPoint, strip ECS metadata
+    # Build new task definition: fix image, remove command, inject infra env vars
     echo "$TASKDEF_JSON" | python3 -c "
 import sys, json
 
 td = json.load(sys.stdin)
+cd = td['containerDefinitions'][0]
 
 # Fix image URI to current account
-td['containerDefinitions'][0]['image'] = '${CORRECT_IMAGE}'
+cd['image'] = '${CORRECT_IMAGE}'
 
 # Remove command override — let Dockerfile CMD run the baked-in code
-# (command overrides download stale code from S3, defeating image rebuild)
-td['containerDefinitions'][0].pop('command', None)
-td['containerDefinitions'][0].pop('entryPoint', None)
+cd.pop('command', None)
+cd.pop('entryPoint', None)
+
+# Build env var dict from existing values
+env_map = {e['name']: e['value'] for e in cd.get('environment', [])}
+
+# Inject infrastructure env vars (config.py reads these via os.getenv)
+infra_vars = {
+    'POSTGRES_HOST': '${RDS_ENDPOINT}',
+    'POSTGRES_PORT': '5432',
+    'POSTGRES_DB': '${RDS_DBNAME}',
+    'POSTGRES_USER': 'postgres',
+    'S3_BUCKET_NAME': '${S3_BUCKET}',
+    'AWS_REGION': '${REGION}',
+    'AWS_DEFAULT_REGION': '${REGION}',
+    # Each agent binds on 0.0.0.0, not localhost
+    'ORCHESTRATOR_HOST': '0.0.0.0',
+    'EXTRACTOR_HOST': '0.0.0.0',
+    'VALIDATOR_HOST': '0.0.0.0',
+    'ARCHIVIST_HOST': '0.0.0.0',
+}
+
+# Merge: infra vars fill in missing values, don't overwrite existing
+for k, v in infra_vars.items():
+    if k not in env_map:
+        env_map[k] = v
+
+cd['environment'] = [{'name': k, 'value': v} for k, v in sorted(env_map.items())]
+
+# Add DB password from Secrets Manager (if not already set)
+secrets = cd.get('secrets', [])
+secret_names = {s['name'] for s in secrets}
+if 'POSTGRES_PASSWORD' not in secret_names and '${DB_SECRET_ARN}' != 'None':
+    secrets.append({
+        'name': 'POSTGRES_PASSWORD',
+        'valueFrom': '${DB_SECRET_ARN}'
+    })
+    cd['secrets'] = secrets
 
 # Remove fields that cannot be included in register-task-definition
 for key in ['taskDefinitionArn', 'revision', 'status', 'requiresAttributes',
